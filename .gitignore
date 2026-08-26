@@ -47,3 +47,4 @@ db/pglite/
 
 # local artifacts
 *.tgz
+!.env.example

@@ -1,88 +1,57 @@
-# FitFlow - Sales Onboarding Dashboard
+# FitFlow — Growth Intelligence for The Fit Physician
 
-A professional, production-quality sales pipeline management dashboard built with Next.js, TypeScript, and modern design principles.
+A **read-only** growth dashboard over GoHighLevel (+ Meta Ads, Google Ads and
+Stripe in later phases). It observes the funnel, computes CAC/funnel economics,
+and will send scheduled email reports. It never writes to GoHighLevel.
 
-## 🎯 Overview
+The standing contract is [`CLAUDE.md`](./CLAUDE.md); the plan is
+[`docs/FitFlow-v2-Master-Plan.pdf`](./docs/FitFlow-v2-Master-Plan.pdf).
 
-FitFlow simplifies the sales onboarding process by providing a streamlined interface for tracking leads through your application pipeline. Built with an Apple-inspired glass morphism aesthetic and packed with powerful analytics, FitFlow reduces GoHighLevel interaction while maintaining complete attribution tracking and compliance audit trails.
-
-**Status**: MVP Complete (8/19/2026)
-**Next Phase**: GoHighLevel API Integration
-
-## ✨ Key Features
-
-- **Action Queue Dashboard** - Real-time lead management with instant filtering by stage
-- **8-Stage Pipeline** - Applied → Consult Booked → Enrolled tracking
-- **Comprehensive Audit Log** - Immutable event trail for compliance
-- **Weekly Reports** - Analytics with bar, line, and pie charts
-- **Timezone Settings** - 14 timezones with real-time preview
-- **Glass Morphism UI** - Apple-inspired design with smooth animations
-- **Error Handling** - Error boundaries with user-friendly recovery
-- **CSV Export** - Download reports for team sharing
-
-## 🚀 Quick Start
+## Quick start (local, no keys needed)
 
 ```bash
-# Install dependencies
 npm install
-
-# Set up database
-npm run db:migrate
-npm run db:seed
-
-# Start development server
-npm run dev
+npm run db:migrate   # embedded PGlite Postgres in ./db/pglite (no DATABASE_URL needed)
+npm run db:seed      # sample data, every row origin='demo'
+npm run dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
+With a Supabase project, set `DATABASE_URL` (see `.env.example`) and the same
+commands run against Postgres.
 
-## 📋 Available Routes
+## Connecting GoHighLevel (read-only)
 
-- `/dashboard` - Main action queue and lead management
-- `/reports` - Analytics and weekly reporting
-- `/audit-log` - Compliance audit trail
-- `/settings` - Timezone and app configuration
+1. In GHL: Settings → Private Integrations → create a token with only the
+   read scopes listed on the Setup page.
+2. Open **/setup**, paste the token + Location ID, **Save & verify**.
+3. **Run backfill** (from June 16, 2026) — every imported row is flagged
+   `backfilled=true`.
+4. Confirm any **unmapped stages** in the stage-role table.
+5. **Remove sample data** once real rows are present.
 
-## 🛠️ Tech Stack
+The hourly delta sync runs from Vercel cron (`vercel.json` → `/api/cron/sync-ghl`,
+protected by `CRON_SECRET`). CLI equivalents: `npm run sync:now`, `npm run backfill`.
 
-- **Framework**: Next.js 14 with App Router
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS 4
-- **Animations**: Framer Motion
-- **Charts**: Recharts
-- **Database**: SQLite with Drizzle ORM
-- **UI Components**: Custom glass morphism components
+## Scripts
 
-## 📊 Sample Data
+| Command | What it does |
+| --- | --- |
+| `npm run check` | typecheck + tests + read-only proof + production build |
+| `npm run test` | Vitest (role mapper, transition diffing, read-only guard, full mocked sync on PGlite) |
+| `npm run verify:readonly` | grep-based proof that no code path can send a non-GET to GHL |
+| `npm run db:generate` | regenerate a Drizzle migration after editing `db/schema.ts` |
 
-The database comes with **23 realistic leads** across all pipeline stages:
-- Applied (2)
-- Consult Booked (3)
-- Consult No Show (8)
-- Pre-Roadmap Booked (2)
-- Roadmap No Show (3)
-- Roadmap Completed: Objection (2)
-- Enrolled (2)
-- Previous Leads (1)
+## Stack
 
-**Estimated Pipeline Value**: $59,700
+Next.js 16 · TypeScript · Tailwind 4 · Drizzle ORM · Postgres (Supabase / PGlite) ·
+Zod at every API boundary · Vitest · Vercel crons.
 
-## 📚 Documentation
+## Layout
 
-- **[DEMO_SCRIPT.md](./DEMO_SCRIPT.md)** - 15-20 minute demo walkthrough
-- **[GHL_RESEARCH_AND_STRUCTURE.md](./GHL_RESEARCH_AND_STRUCTURE.md)** - GoHighLevel integration details
-
-## 🔮 Phase 2 Roadmap
-
-- GoHighLevel API integration
-- Bidirectional lead sync
-- Multi-user support with roles
-- Mobile app
-- Advanced filtering and search
-- Custom pipeline configuration
-
----
-
-**Last Updated**: August 19, 2026  
-**Version**: 0.1.0  
-**Status**: Production-Ready MVP
+- `db/schema.ts` — pipelines, stages (semantic_role), contacts, appointments,
+  stage_transitions, stage_snapshots, ad_spend, payments, email_digests,
+  ai_reports, sync_runs, sync_incidents, settings.
+- `lib/ghl/` — `client.ts` (read-only), `schemas.ts` (Zod), `roles.ts`
+  (stage → role mapper), `transitions.ts` (pure diffing), `ingest.ts` (sync).
+  `sync.ts` + `mapping.ts` are the dormant v1 write-back engine.
+- `app/api/` — routes; `app/setup` — credentials, sync, stage roles, health.

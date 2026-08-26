@@ -31,6 +31,9 @@ large changes. This file is the standing contract.
    `noshow` one word; `cancelled` double-L; contact-PUT `tags` REPLACES the whole set
    (use the dedicated tag endpoints — moot now that we're read-only, but don't regress);
    rate limit 100 req/10s — bulk-fetch opportunities, dedupe contact fetches.
+   `GET /opportunities/search` documents its filters in snake_case
+   (`location_id`, `pipeline_id`) unlike every other endpoint — the client sends
+   those; confirm against the first real response (runtime evidence wins).
 
 ## Architecture (target)
 
@@ -73,6 +76,22 @@ B. Jake's core: date/comparison engine, tested metrics engine, Command Center + 
 C. Money rails: Meta spend sync, Stripe + payment matching, Ads + Revenue tabs.
 D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + remap
    suggester, Google Ads OAuth (CSV fallback until granted), Reports archive.
+
+## Phase A status (done 2026-08-26)
+
+- Postgres via Drizzle: `DATABASE_URL` → Supabase (postgres-js); unset → embedded
+  PGlite in `db/pglite/` (gitignored). `npm run db:migrate`, `npm run db:seed`.
+- Read-only GHL: `lib/ghl/client.ts#ghlRequest` throws on any non-GET while
+  `ENABLE_WRITEBACK` (literal `false` in `lib/ghl/config.ts`) is off.
+  `npm run verify:readonly` proves it by grep; `tests/readonly.test.ts` by test.
+- Sync: `lib/ghl/ingest.ts#runGhlSync({mode:'delta'|'backfill'})`; hourly cron
+  in `vercel.json` → `/api/cron/sync-ghl` (needs `CRON_SECRET`). Backfill from
+  `settings.backfill_from` (2026-06-16) via Setup or `npm run backfill`.
+- Stage roles: `lib/ghl/roles.ts` suggests; ≥0.8 confidence auto-applies,
+  otherwise `unmapped` + `sync_incidents` row; humans override in /setup
+  (`role_source='manual'`, never overwritten by sync).
+- `/today` + `lib/ghl/{sync,mapping}.ts` are dormant (unlinked, gated).
+- `npm run check` = typecheck + vitest + verify:readonly + build.
 
 ## Working agreements
 
