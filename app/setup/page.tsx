@@ -1,23 +1,21 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import {
   KeyRound,
   CheckCircle2,
   XCircle,
-  Download,
   Trash2,
-  CalendarDays,
   GitBranch,
-  ArrowRight,
   RefreshCw,
   FlaskConical,
   Database,
   Eye,
   EyeOff,
-  Radio,
-  ShieldAlert,
+  ShieldCheck,
+  History,
+  AlertTriangle,
+  Activity,
 } from 'lucide-react';
 import {
   Card,
@@ -35,262 +33,250 @@ import {
 
 interface Credentials {
   configured: boolean;
-  dryRun: boolean;
-  notifyOnWrite: boolean;
   source: 'settings' | 'env' | 'none';
   tokenPreview: string | null;
   locationId: string | null;
   hasToken: boolean;
   hasLocationId: boolean;
-  followedCalendars: string[];
   requiredScopes: string[];
 }
 
-interface Discovery {
-  ok: boolean;
-  error?: string;
-  calendars: Array<{ id: string; name: string; inferredType: string }>;
-  pipelines: Array<{
-    id: string;
-    name: string;
-    stages: Array<{ id: string; name: string }>;
-    stageCount: number;
-  }>;
-  users: Array<{ id: string; name: string }>;
-  suggestedPipelineId: string | null;
-  stageMapping: Array<{
-    localStage: string;
-    ghlStageId: string | null;
-    confidence: number;
-    needsReview: boolean;
-  }>;
-  provenance: {
-    demoLeads: number;
-    ghlLeads: number;
-    demoAppointments: number;
-    ghlAppointments: number;
-    hasDemoData: boolean;
-    hasRealData: boolean;
-  };
+interface StageRow {
+  id: string;
+  pipelineId: string;
+  name: string;
+  position: number;
+  semanticRole: string | null;
+  roleSource: string;
+  roleConfidence: number | null;
+  suggestedRole: string | null;
+  archived: boolean;
+  origin: string;
 }
 
-const LOCAL_TYPES = ['Consult', 'Roadmap', 'Follow-Up', 'Check-In'];
+interface PipelineRow {
+  id: string;
+  name: string;
+  isTracked: boolean;
+  archived: boolean;
+  origin: string;
+  syncedAt: string;
+  stages: StageRow[];
+}
 
-function daysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+interface Incident {
+  id: string;
+  kind: string;
+  severity: string;
+  message: string;
+  createdAt: string;
+}
+
+interface PipelinesData {
+  pipelines: PipelineRow[];
+  unmapped: StageRow[];
+  roles: Array<{ value: string; label: string }>;
+  incidents: Incident[];
+}
+
+interface SyncRun {
+  id: string;
+  kind: string;
+  trigger: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  requestsUsed: number;
+  stats: Record<string, number>;
+  warnings: string[];
+  error: string | null;
+}
+
+interface SyncData {
+  connection: { ok: boolean; configured: boolean; message: string; pipelineCount?: number };
+  lastSyncAt: string | null;
+  runs: SyncRun[];
+  incidents: Incident[];
+}
+
+interface Provenance {
+  demoContacts: number;
+  ghlContacts: number;
+  demoAppointments: number;
+  ghlAppointments: number;
+  hasDemoData: boolean;
+  hasRealData: boolean;
+  backfillFrom: string | null;
+}
+
+const ROLE_VARIANT: Record<string, 'info' | 'accent' | 'warning' | 'danger' | 'success' | 'neutral'> = {
+  applied: 'info',
+  consult_booked: 'accent',
+  consult_noshow: 'warning',
+  roadmap_booked: 'accent',
+  roadmap_showed: 'accent',
+  enrolled: 'success',
+  other: 'neutral',
+};
+
+function fmt(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
 export default function SetupPage() {
   const [creds, setCreds] = useState<Credentials | null>(null);
-  const [discovery, setDiscovery] = useState<Discovery | null>(null);
-  const [provenance, setProvenance] = useState<Discovery['provenance'] | null>(null);
+  const [pipelines, setPipelines] = useState<PipelinesData | null>(null);
+  const [sync, setSync] = useState<SyncData | null>(null);
+  const [prov, setProv] = useState<Provenance | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [toast, setToast] = useState<{
-    message: string;
-    detail?: string;
-    type: 'success' | 'error' | 'info';
-  } | null>(null);
+  const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Credential form
   const [token, setToken] = useState('');
   const [locationId, setLocationId] = useState('');
   const [showToken, setShowToken] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
-
-  // Calendars / pipeline
-  const [followed, setFollowed] = useState<string[]>([]);
-  const [calendarMap, setCalendarMap] = useState<Record<string, string>>({});
-  const [pipelineId, setPipelineId] = useState('');
-  const [stageMap, setStageMap] = useState<Record<string, string>>({});
-
-  // Import
-  const [startDate, setStartDate] = useState(daysFromNow(-60));
-  const [endDate, setEndDate] = useState(daysFromNow(30));
-  const [clearDemo, setClearDemo] = useState(true);
-  const [importResult, setImportResult] = useState<Record<string, unknown> | null>(null);
-
-  const loadCreds = useCallback(async () => {
-    const res = await fetch('/api/ghl/credentials');
-    const data: Credentials = await res.json();
-    setCreds(data);
-    setLocationId(data.locationId ?? '');
-    setLiveMode(!data.dryRun);
-    setFollowed(data.followedCalendars ?? []);
-    return data;
-  }, []);
-
-  const loadDiscovery = useCallback(async () => {
-    const res = await fetch('/api/ghl/discover');
-    const data: Discovery = await res.json();
-    setDiscovery(data);
-
-    if (data.ok) {
-      if (data.suggestedPipelineId && !pipelineId) setPipelineId(data.suggestedPipelineId);
-
-      const nextStages: Record<string, string> = {};
-      for (const m of data.stageMapping ?? []) {
-        if (m.ghlStageId) nextStages[m.localStage] = m.ghlStageId;
-      }
-      setStageMap((prev) => (Object.keys(prev).length ? prev : nextStages));
-
-      setCalendarMap((prev) => {
-        const next = { ...prev };
-        for (const c of data.calendars ?? []) {
-          if (!next[c.id]) next[c.id] = c.inferredType;
-        }
-        return next;
-      });
-    }
-    return data;
-  }, [pipelineId]);
-
-  const loadProvenance = useCallback(async () => {
-    const res = await fetch('/api/ghl/import');
-    setProvenance(await res.json());
-  }, []);
+  const [backfillFrom, setBackfillFrom] = useState('2026-06-16');
 
   const loadAll = useCallback(async () => {
-    setLoading(true);
     try {
-      const c = await loadCreds();
-      await loadProvenance();
-      if (c.configured) await loadDiscovery();
-      else setDiscovery(null);
+      const [c, p, s, pv] = await Promise.all([
+        fetch('/api/ghl/credentials').then((r) => r.json()),
+        fetch('/api/ghl/pipelines').then((r) => r.json()),
+        fetch('/api/sync').then((r) => r.json()),
+        fetch('/api/ghl/backfill').then((r) => r.json()),
+      ]);
+      setCreds(c);
+      setLocationId(c.locationId ?? '');
+      setPipelines(p);
+      setSync(s);
+      setProv(pv);
+      if (pv?.backfillFrom) setBackfillFrom(pv.backfillFrom);
     } catch {
       setToast({ message: 'Could not load setup state', type: 'error' });
     } finally {
       setLoading(false);
     }
-  }, [loadCreds, loadDiscovery, loadProvenance]);
+  }, []);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  const saveCredentials = async () => {
+  const saveCreds = async () => {
     setBusy('creds');
     try {
       const res = await fetch('/api/ghl/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(token.trim() ? { token: token.trim() } : {}),
-          locationId: locationId.trim(),
-          dryRun: !liveMode,
-        }),
+        body: JSON.stringify({ token: token || undefined, locationId }),
       });
       const data = await res.json();
-
       setToast({
-        message: data.verification?.ok ? 'Credentials saved' : 'Saved, but not working',
-        detail: data.verification?.message,
-        type: data.verification?.ok ? 'success' : 'error',
+        message: data.ok ? 'Connected' : 'Could not verify',
+        detail: data.verification?.message ?? data.error,
+        type: data.ok ? 'success' : 'error',
       });
-
-      // Never keep the plaintext token in component state after saving.
       setToken('');
       await loadAll();
-    } catch {
-      setToast({ message: 'Could not save credentials', type: 'error' });
     } finally {
       setBusy(null);
     }
   };
 
-  const clearCredentials = async () => {
-    setBusy('clear-creds');
+  const clearCreds = async () => {
+    setBusy('creds');
     try {
       const res = await fetch('/api/ghl/credentials', { method: 'DELETE' });
       const data = await res.json();
-      setToast({ message: 'Credentials cleared', detail: data.message, type: 'info' });
+      setToast({ message: data.message, type: 'info' });
       await loadAll();
     } finally {
       setBusy(null);
     }
   };
 
-  const saveCalendars = async () => {
-    setBusy('calendars');
+  const runSync = async () => {
+    setBusy('sync');
     try {
-      await fetch('/api/ghl/credentials', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ followedCalendars: followed }),
-      });
-      await fetch('/api/ghl/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipelineId, stageMap, calendarMap }),
-      });
-      setToast({
-        message: 'Calendars saved',
-        detail: `Following ${followed.length} calendar${followed.length === 1 ? '' : 's'}.`,
-        type: 'success',
-      });
-      await loadCreds();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const saveMapping = async () => {
-    setBusy('mapping');
-    try {
-      const res = await fetch('/api/ghl/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipelineId, stageMap, calendarMap }),
-      });
+      const res = await fetch('/api/sync', { method: 'POST' });
       const data = await res.json();
       setToast({
-        message: 'Pipeline mapping saved',
-        detail: `${data.mappedStages} stages mapped.`,
-        type: 'success',
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const runImport = async () => {
-    setBusy('import');
-    setImportResult(null);
-    try {
-      const res = await fetch('/api/ghl/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          calendarIds: followed,
-          pipelineId,
-          startDate,
-          endDate,
-          clearDemoData: clearDemo,
-        }),
-      });
-      const data = await res.json();
-      setImportResult(data);
-      setToast({
-        message: data.ok ? 'Import complete' : 'Import failed',
+        message: data.ok ? 'Sync complete' : 'Sync failed',
         detail: data.message ?? data.error,
         type: data.ok ? 'success' : 'error',
       });
       await loadAll();
-    } catch {
-      setToast({ message: 'Import failed', type: 'error' });
     } finally {
       setBusy(null);
     }
   };
 
-  const wipeDemo = async () => {
+  const runBackfill = async () => {
+    setBusy('backfill');
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backfillFrom }),
+      });
+      const res = await fetch('/api/ghl/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ since: backfillFrom }),
+      });
+      const data = await res.json();
+      setToast({
+        message: data.ok ? 'Backfill complete' : 'Backfill failed',
+        detail: data.message ?? data.error,
+        type: data.ok ? 'success' : 'error',
+      });
+      await loadAll();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setRole = async (stageId: string, semanticRole: string) => {
+    setBusy(`role:${stageId}`);
+    try {
+      const res = await fetch('/api/ghl/pipelines', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stageId, semanticRole }),
+      });
+      const data = await res.json();
+      if (!data.ok) setToast({ message: 'Could not save role', detail: data.error, type: 'error' });
+      await loadAll();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setTracked = async (pipelineId: string, isTracked: boolean) => {
+    setBusy(`track:${pipelineId}`);
+    try {
+      await fetch('/api/ghl/pipelines', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pipelineId, isTracked }),
+      });
+      await loadAll();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const resetDemo = async () => {
     setBusy('reset');
     try {
       const res = await fetch('/api/ghl/reset', { method: 'POST' });
       const data = await res.json();
-      setToast({ message: 'Sample data cleared', detail: data.message, type: 'success' });
+      setToast({ message: data.message, type: data.ok ? 'success' : 'error' });
       await loadAll();
     } finally {
       setBusy(null);
@@ -300,7 +286,7 @@ export default function SetupPage() {
   if (loading) {
     return (
       <>
-        <PageHeader title="Setup" description="Connect FitFlow to GoHighLevel" />
+        <PageHeader title="Setup" description="Connect FitFlow to GoHighLevel (read-only)" />
         <PageBody>
           <PageLoader label="Checking connection" />
         </PageBody>
@@ -308,13 +294,14 @@ export default function SetupPage() {
     );
   }
 
-  const connected = creds?.configured && discovery?.ok;
-  const prov = provenance ?? discovery?.provenance;
-  const activePipeline = discovery?.pipelines.find((p) => p.id === pipelineId);
+  const connected = Boolean(creds?.configured && sync?.connection.ok);
+  const unmapped = pipelines?.unmapped ?? [];
+  const incidents = sync?.incidents ?? [];
+  const lastRun = sync?.runs[0];
 
-  const stepBadge = (done: boolean) => (
+  const stepBadge = (done: boolean, label?: string) => (
     <Badge variant={done ? 'success' : 'neutral'} dot>
-      {done ? 'Done' : 'Pending'}
+      {label ?? (done ? 'Done' : 'Pending')}
     </Badge>
   );
 
@@ -322,7 +309,7 @@ export default function SetupPage() {
     <>
       <PageHeader
         title="Setup"
-        description="Connect your GoHighLevel account, choose which calendars to follow, and import your real data."
+        description="Connect the read-only GoHighLevel integration, confirm how Miranda's stages map to the funnel, and watch sync health."
         actions={
           <Button icon={RefreshCw} loading={busy === 'creds'} onClick={loadAll}>
             Re-check
@@ -331,45 +318,54 @@ export default function SetupPage() {
       />
 
       <PageBody className="max-w-4xl space-y-4">
-        {/* ---- STEP 1: Private Integration Token ---- */}
+        {/* ---- Read-only guarantee ---- */}
+        <div
+          className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px]"
+          style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}
+        >
+          <ShieldCheck size={15} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--success)' }} />
+          <p className="text-[12.5px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
+            <strong style={{ color: 'var(--text-primary)' }}>FitFlow never writes to GoHighLevel.</strong> The
+            token only needs read scopes; every request this app makes is a GET. Miranda&apos;s pipeline stays the
+            source of truth.
+          </p>
+        </div>
+
+        {/* ---- STEP 1: Credentials ---- */}
         <Card padding="lg">
           <CardHeader
             title="1 · Private Integration Token"
-            subtitle="GoHighLevel's replacement for API keys — created per sub-account"
+            subtitle="Created per sub-account in GoHighLevel → Settings → Private Integrations"
             icon={KeyRound}
-            action={stepBadge(Boolean(creds?.configured))}
+            action={stepBadge(Boolean(creds?.configured), connected ? 'Connected' : creds?.configured ? 'Saved' : 'Pending')}
           />
 
           {creds?.configured && (
             <div
               className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-[8px] mb-4"
               style={{
-                background: 'var(--success-muted)',
-                border: '1px solid var(--success-border)',
+                background: connected ? 'var(--success-muted)' : 'var(--warning-muted)',
+                border: `1px solid ${connected ? 'var(--success-border)' : 'var(--warning-border)'}`,
               }}
             >
-              <CheckCircle2
-                size={14}
-                strokeWidth={2.3}
-                className="shrink-0"
-                style={{ color: 'var(--success)' }}
-              />
-              <span className="text-[12.5px]" style={{ color: 'var(--success)' }}>
-                Token <strong>{creds.tokenPreview}</strong> saved for location{' '}
-                <strong>{creds.locationId}</strong>
+              {connected ? (
+                <CheckCircle2 size={14} strokeWidth={2.3} style={{ color: 'var(--success)' }} />
+              ) : (
+                <XCircle size={14} strokeWidth={2.3} style={{ color: 'var(--warning)' }} />
+              )}
+              <span className="text-[12.5px]" style={{ color: connected ? 'var(--success)' : 'var(--warning)' }}>
+                Token <strong>{creds.tokenPreview}</strong> for location <strong>{creds.locationId}</strong>
+                {sync?.connection.message ? ` — ${sync.connection.message}` : ''}
               </span>
               <Badge variant="neutral" size="xs">
-                from {creds.source === 'settings' ? 'app settings' : '.env.local'}
+                from {creds.source === 'settings' ? 'app settings' : 'env vars'}
               </Badge>
             </div>
           )}
 
           <div className="space-y-3">
             <div>
-              <label
-                className="block text-[12.5px] font-medium mb-1.5"
-                style={{ color: 'var(--text-secondary)' }}
-              >
+              <label className="block text-[12.5px] font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Private Integration Token
               </label>
               <div className="relative">
@@ -377,9 +373,7 @@ export default function SetupPage() {
                   type={showToken ? 'text' : 'password'}
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder={
-                    creds?.hasToken ? 'Saved — paste a new token to replace' : 'pit-...'
-                  }
+                  placeholder={creds?.hasToken ? 'Saved — paste a new token to replace' : 'pit-...'}
                   autoComplete="off"
                   spellCheck={false}
                   className="w-full h-8 pl-2.5 pr-9 text-[13px] rounded-[7px]"
@@ -405,573 +399,353 @@ export default function SetupPage() {
               hint="GoHighLevel → Settings → Business Profile. Also visible in the URL when the sub-account is open."
             />
 
-            <div
-              className="px-3 py-2.5 rounded-[8px]"
-              style={{
-                background: 'var(--surface-sunken)',
-                border: '1px solid var(--border-subtle)',
-              }}
-            >
-              <Toggle
-                checked={liveMode}
-                onChange={setLiveMode}
-                label="Live mode"
-                description="Off = every write is queued and previewed but never sent. Turn on once you've confirmed the stage mapping below is right."
-              />
-            </div>
-
-            <div
-              className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px]"
-              style={{
-                background: 'var(--warning-muted)',
-                border: '1px solid var(--warning-border)',
-              }}
-            >
-              <ShieldAlert
-                size={14}
-                strokeWidth={2.3}
-                className="mt-px shrink-0"
-                style={{ color: 'var(--warning)' }}
-              />
-              <p
-                className="text-[11.5px] leading-relaxed"
-                style={{ color: 'var(--warning)' }}
-              >
-                A token entered here is stored in the app's local database in plain text.
-                That's fine for a single-user tool on your own machine. If you ever host
-                this for a team, put the token in <code>.env.local</code> instead and leave
-                this field blank.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="primary"
-                icon={KeyRound}
                 loading={busy === 'creds'}
-                disabled={!locationId.trim() || (!token.trim() && !creds?.hasToken)}
-                onClick={saveCredentials}
+                disabled={!locationId || (!token && !creds?.hasToken)}
+                onClick={saveCreds}
               >
                 Save &amp; verify
               </Button>
-
               {creds?.source === 'settings' && (
-                <Button
-                  variant="ghost"
-                  icon={Trash2}
-                  loading={busy === 'clear-creds'}
-                  onClick={clearCredentials}
-                >
+                <Button variant="ghost" icon={Trash2} onClick={clearCreds}>
                   Forget token
                 </Button>
               )}
             </div>
-          </div>
 
-          {!creds?.configured && (
-            <details className="mt-4">
-              <summary
-                className="text-[12.5px] cursor-pointer select-none"
-                style={{ color: 'var(--accent)' }}
-              >
-                Where do I find these?
+            <details className="group">
+              <summary className="text-[12px] cursor-pointer select-none" style={{ color: 'var(--accent)' }}>
+                Required scopes (read-only)
               </summary>
-              <div
-                className="mt-3 px-3.5 py-3 rounded-[8px] text-[12.5px] leading-relaxed"
-                style={{
-                  background: 'var(--surface-sunken)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <ol className="list-decimal ml-4 space-y-2">
-                  <li>
-                    In your GoHighLevel sub-account, go to{' '}
-                    <strong>Settings → Private Integrations → Create new integration</strong>.
-                  </li>
-                  <li>
-                    Grant these scopes:
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {(creds?.requiredScopes ?? []).map((s) => (
-                        <code
-                          key={s}
-                          className="px-1.5 py-0.5 rounded-[4px] text-[11px]"
-                          style={{
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border-subtle)',
-                            fontFamily: 'var(--font-jetbrains)',
-                          }}
-                        >
-                          {s}
-                        </code>
-                      ))}
-                    </div>
-                  </li>
-                  <li>
-                    Copy the token immediately — GoHighLevel shows it once and never again.
-                  </li>
-                  <li>
-                    The Location ID is in <strong>Settings → Business Profile</strong>, or in
-                    your browser URL as <code>/location/&lt;id&gt;/</code>.
-                  </li>
-                </ol>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {creds?.requiredScopes.map((scope) => (
+                  <code
+                    key={scope}
+                    className="px-1.5 py-0.5 rounded text-[11px]"
+                    style={{
+                      background: 'var(--surface-sunken)',
+                      border: '1px solid var(--border-subtle)',
+                      fontFamily: 'var(--font-jetbrains)',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {scope}
+                  </code>
+                ))}
               </div>
             </details>
-          )}
+          </div>
+        </Card>
 
-          {creds?.configured && discovery && !discovery.ok && (
-            <div
-              className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px] mt-4"
-              style={{
-                background: 'var(--danger-muted)',
-                border: '1px solid var(--danger-border)',
-              }}
-            >
-              <XCircle
-                size={14}
-                strokeWidth={2.3}
-                className="mt-px shrink-0"
-                style={{ color: 'var(--danger)' }}
-              />
-              <p
-                className="text-[12.5px] leading-relaxed"
-                style={{ color: 'var(--danger)' }}
-              >
-                {discovery.error}
+        {/* ---- STEP 2: Sync + backfill ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="2 · Sync"
+            subtitle="Hourly delta sync via Vercel cron, plus a one-off history backfill"
+            icon={Database}
+            action={stepBadge(Boolean(prov?.hasRealData), prov?.hasRealData ? 'Real data present' : 'No real data yet')}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="px-3 py-3 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+              <div className="text-[12.5px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Delta sync
+              </div>
+              <p className="text-[11.5px] mb-3" style={{ color: 'var(--text-quaternary)' }}>
+                Reads pipelines, stages, opportunities, contacts and the last 14 / next 90 days of appointments.
+                Stage moves are derived by diffing against the previous run.
+                {sync?.lastSyncAt ? ` Last: ${fmt(sync.lastSyncAt)}.` : ' Never run.'}
               </p>
+              <Button icon={RefreshCw} loading={busy === 'sync'} disabled={!creds?.configured} onClick={runSync}>
+                Sync now
+              </Button>
+            </div>
+
+            <div className="px-3 py-3 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+              <div className="text-[12.5px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Backfill history
+              </div>
+              <p className="text-[11.5px] mb-2" style={{ color: 'var(--text-quaternary)' }}>
+                Imports everything from this date forward, flagged <code>backfilled</code>. Safe to re-run.
+              </p>
+              <div className="flex items-end gap-2">
+                <Input label="From" type="date" value={backfillFrom} onChange={(e) => setBackfillFrom(e.target.value)} />
+                <Button icon={History} loading={busy === 'backfill'} disabled={!creds?.configured} onClick={runBackfill}>
+                  Run backfill
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {lastRun && (
+            <div className="mt-3 text-[11.5px]" style={{ color: 'var(--text-tertiary)' }}>
+              Last run: <strong>{lastRun.kind}</strong> ({lastRun.trigger}) ·{' '}
+              <Badge variant={lastRun.status === 'succeeded' ? 'success' : lastRun.status === 'failed' ? 'danger' : 'warning'} size="xs">
+                {lastRun.status}
+              </Badge>{' '}
+              · {fmt(lastRun.startedAt)} · {lastRun.requestsUsed} requests
+              {lastRun.error && (
+                <span style={{ color: 'var(--danger)' }}> · {lastRun.error}</span>
+              )}
+              {Object.keys(lastRun.stats).length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {Object.entries(lastRun.stats)
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <Badge key={k} variant="neutral" size="xs">
+                        {k} {v}
+                      </Badge>
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </Card>
 
-        {/* ---- STEP 2: Calendars ---- */}
-        {connected && (
-          <Card padding="lg">
-            <CardHeader
-              title="2 · Calendars to follow"
-              subtitle="Only appointments on these calendars appear in the Today View"
-              icon={CalendarDays}
-              action={stepBadge(followed.length > 0)}
-            />
+        {/* ---- STEP 3: Stage → role mapping ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="3 · Stage roles"
+            subtitle="Stages are read live from GoHighLevel. Each needs a funnel role so renamed stages never break the numbers."
+            icon={GitBranch}
+            action={stepBadge(unmapped.length === 0 && (pipelines?.pipelines.length ?? 0) > 0, unmapped.length ? `${unmapped.length} unmapped` : undefined)}
+          />
 
-            {discovery.calendars.length === 0 ? (
-              <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
-                No calendars found in this location.
-              </p>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setFollowed(discovery.calendars.map((c) => c.id))}
-                  >
-                    Select all
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setFollowed([])}>
-                    Clear
-                  </Button>
-                  <span
-                    className="text-[11.5px] tabular"
-                    style={{ color: 'var(--text-quaternary)' }}
-                  >
-                    {followed.length} of {discovery.calendars.length} selected
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  {discovery.calendars.map((c) => {
-                    const on = followed.includes(c.id);
-                    return (
-                      <label
-                        key={c.id}
-                        className="flex items-center gap-3 px-3 py-2 rounded-[8px] cursor-pointer transition-colors"
-                        style={{
-                          background: on ? 'var(--accent-muted)' : 'var(--surface-sunken)',
-                          border: `1px solid ${on ? 'color-mix(in srgb, var(--accent) 26%, transparent)' : 'var(--border-subtle)'}`,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={(e) =>
-                            setFollowed((prev) =>
-                              e.target.checked
-                                ? [...prev, c.id]
-                                : prev.filter((id) => id !== c.id),
-                            )
-                          }
-                          className="shrink-0"
-                          style={{ width: 14, height: 14, accentColor: 'var(--accent)' }}
-                        />
-
-                        <Radio
-                          size={13}
-                          strokeWidth={2.2}
-                          className="shrink-0"
-                          style={{
-                            color: on ? 'var(--accent)' : 'var(--text-quaternary)',
-                          }}
-                        />
-
-                        <span
-                          className="text-[12.5px] font-medium flex-1 truncate"
-                          style={{ color: 'var(--text-primary)' }}
-                        >
-                          {c.name}
-                        </span>
-
-                        <select
-                          value={calendarMap[c.id] ?? c.inferredType}
-                          onChange={(e) =>
-                            setCalendarMap((prev) => ({ ...prev, [c.id]: e.target.value }))
-                          }
-                          onClick={(e) => e.preventDefault()}
-                          className="h-7 px-2 text-[12px] rounded-[6px] w-[124px]"
-                        >
-                          {LOCAL_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <p
-                  className="text-[11.5px] mt-2.5 leading-relaxed"
-                  style={{ color: 'var(--text-quaternary)' }}
-                >
-                  GoHighLevel has no appointment-type field — an appointment's type is
-                  simply which calendar it sits on. The dropdown maps each calendar to one
-                  of FitFlow's four types.
-                </p>
-
-                <div className="mt-4">
-                  <Button
-                    variant="primary"
-                    loading={busy === 'calendars'}
-                    disabled={followed.length === 0}
-                    onClick={saveCalendars}
-                  >
-                    Save calendar selection
-                  </Button>
-                </div>
-              </>
-            )}
-          </Card>
-        )}
-
-        {/* ---- STEP 3: Pipeline ---- */}
-        {connected && (
-          <Card padding="lg">
-            <CardHeader
-              title="3 · Pipeline & stages"
-              subtitle="Stage IDs are unique to your account, so they're read live and stored"
-              icon={GitBranch}
-              action={stepBadge(Object.keys(stageMap).length > 0)}
-            />
-
-            <Select
-              label="Pipeline to track"
-              value={pipelineId}
-              onChange={(e) => {
-                setPipelineId(e.target.value);
-                setStageMap({});
-              }}
+          {unmapped.length > 0 && (
+            <div
+              className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px] mb-4"
+              style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)' }}
             >
-              <option value="">Select a pipeline…</option>
-              {discovery.pipelines.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.stageCount} stages)
-                </option>
-              ))}
-            </Select>
+              <AlertTriangle size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--warning)' }} />
+              <p className="text-[12.5px]" style={{ color: 'var(--warning)' }}>
+                {unmapped.length} stage{unmapped.length === 1 ? '' : 's'} could not be mapped confidently and{' '}
+                {unmapped.length === 1 ? 'is' : 'are'} excluded from the funnel until you pick a role below. FitFlow
+                never guesses.
+              </p>
+            </div>
+          )}
 
-            {activePipeline && (
-              <div className="mt-4 flex flex-col gap-1.5">
-                {discovery.stageMapping.map((m) => (
-                  <div
-                    key={m.localStage}
-                    className="flex items-center gap-3 px-3 py-2 rounded-[8px]"
-                    style={{
-                      background: 'var(--surface-sunken)',
-                      border: `1px solid ${m.needsReview ? 'var(--warning-border)' : 'var(--border-subtle)'}`,
-                    }}
-                  >
-                    <span
-                      className="text-[12.5px] font-medium w-[186px] shrink-0 truncate"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {m.localStage}
+          {(pipelines?.pipelines.length ?? 0) === 0 ? (
+            <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
+              No pipelines yet — run a sync (or <code>npm run db:seed</code> for sample data).
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {pipelines!.pipelines.map((p) => (
+                <div key={p.id}>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {p.name}
                     </span>
-                    <ArrowRight
-                      size={12}
-                      strokeWidth={2.3}
-                      className="shrink-0"
-                      style={{ color: 'var(--text-quaternary)' }}
-                    />
-                    <select
-                      value={stageMap[m.localStage] ?? ''}
-                      onChange={(e) =>
-                        setStageMap((prev) => ({ ...prev, [m.localStage]: e.target.value }))
-                      }
-                      className="flex-1 h-7 px-2 text-[12.5px] rounded-[6px]"
-                    >
-                      <option value="">— not mapped —</option>
-                      {activePipeline.stages.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                    {m.needsReview && stageMap[m.localStage] && (
+                    {p.origin === 'demo' && (
                       <Badge variant="warning" size="xs">
-                        check
+                        sample
                       </Badge>
                     )}
-                  </div>
-                ))}
-
-                <p
-                  className="text-[11.5px] mt-1.5 leading-relaxed"
-                  style={{ color: 'var(--text-quaternary)' }}
-                >
-                  Anything flagged <strong>check</strong> was matched by name similarity
-                  below the confidence threshold. A wrong mapping moves real opportunities
-                  to the wrong stage — confirm these before turning live mode on.
-                </p>
-              </div>
-            )}
-
-            <div className="mt-4">
-              <Button
-                variant="primary"
-                loading={busy === 'mapping'}
-                disabled={!pipelineId}
-                onClick={saveMapping}
-              >
-                Save pipeline mapping
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* ---- STEP 4: Import ---- */}
-        {connected && (
-          <Card padding="lg">
-            <CardHeader
-              title="4 · Import your data"
-              subtitle="Reads appointments, contacts and opportunities. Writes nothing back."
-              icon={Download}
-              action={stepBadge(Boolean(prov?.hasRealData))}
-            />
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <Input
-                label="From"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-              <Input
-                label="To"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-
-            <label className="flex items-start gap-2.5 mb-4 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={clearDemo}
-                onChange={(e) => setClearDemo(e.target.checked)}
-                className="mt-0.5 shrink-0"
-                style={{ width: 14, height: 14, accentColor: 'var(--accent)' }}
-              />
-              <span
-                className="text-[12.5px] leading-relaxed"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                Remove sample data first — recommended, so fabricated and real numbers are
-                never mixed in the same chart.
-              </span>
-            </label>
-
-            <Button
-              variant="primary"
-              icon={Download}
-              loading={busy === 'import'}
-              disabled={followed.length === 0 || !pipelineId}
-              onClick={runImport}
-            >
-              Import from GoHighLevel
-            </Button>
-
-            {followed.length === 0 && (
-              <p className="text-[11.5px] mt-2" style={{ color: 'var(--warning)' }}>
-                Select at least one calendar in step 2 first.
-              </p>
-            )}
-
-            {importResult && (
-              <div
-                className="mt-4 px-3.5 py-3 rounded-[8px]"
-                style={{
-                  background: 'var(--surface-sunken)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                <p
-                  className="text-[12.5px] font-semibold mb-2"
-                  style={{ color: 'var(--text-primary)' }}
-                >
-                  {String(importResult.message ?? '')}
-                </p>
-
-                {Boolean(importResult.counts) && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
-                    {Object.entries(importResult.counts as Record<string, number>).map(
-                      ([key, value]) => (
-                        <div key={key} className="flex items-center justify-between gap-2">
-                          <span
-                            className="text-[11.5px]"
-                            style={{ color: 'var(--text-tertiary)' }}
-                          >
-                            {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
-                          </span>
-                          <span
-                            className="text-[11.5px] font-semibold tabular"
-                            style={{ color: 'var(--text-primary)' }}
-                          >
-                            {value}
-                          </span>
-                        </div>
-                      ),
+                    {p.archived && (
+                      <Badge variant="neutral" size="xs">
+                        archived in GHL
+                      </Badge>
                     )}
+                    <div className="flex-1" />
+                    <Toggle
+                      checked={p.isTracked}
+                      onChange={(v) => setTracked(p.id, v)}
+                      label="Include in funnel"
+                    />
                   </div>
-                )}
-
-                {Array.isArray(importResult.warnings) &&
-                  (importResult.warnings as string[]).length > 0 && (
-                    <ul className="mt-3 space-y-1.5">
-                      {(importResult.warnings as string[]).map((w, i) => (
-                        <li
-                          key={i}
-                          className="text-[11.5px] leading-relaxed flex items-start gap-1.5"
-                          style={{ color: 'var(--warning)' }}
-                        >
-                          <span>•</span>
-                          <span>{w}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                {Boolean((importResult as { ok?: boolean }).ok) && (
-                  <div className="mt-3">
-                    <Link href="/today">
-                      <Button variant="primary" size="sm" iconRight={ArrowRight}>
-                        Go to Today View
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* ---- Data provenance ---- */}
-        {prov && (
-          <Card padding="lg">
-            <CardHeader
-              title="What's in your database"
-              subtitle="Sample data is fabricated — it exists only to demonstrate the interface"
-              icon={Database}
-            />
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-              {[
-                { label: 'Sample leads', value: prov.demoLeads, tone: 'warning' },
-                { label: 'Sample appts', value: prov.demoAppointments, tone: 'warning' },
-                { label: 'Real leads', value: prov.ghlLeads, tone: 'success' },
-                { label: 'Real appts', value: prov.ghlAppointments, tone: 'success' },
-              ].map((s) => (
-                <div
-                  key={s.label}
-                  className="px-3 py-2.5 rounded-[8px]"
-                  style={{
-                    background: 'var(--surface-sunken)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <div
-                    className="text-[20px] font-semibold tabular leading-none"
-                    style={{
-                      color: s.value > 0 ? `var(--${s.tone})` : 'var(--text-quaternary)',
-                    }}
-                  >
-                    {s.value}
-                  </div>
-                  <div
-                    className="text-[11px] mt-1"
-                    style={{ color: 'var(--text-quaternary)' }}
-                  >
-                    {s.label}
+                  <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
+                    <table className="w-full text-[12.5px]">
+                      <thead>
+                        <tr style={{ background: 'var(--surface-sunken)' }}>
+                          {['#', 'GHL stage', 'Funnel role', 'How', 'Confidence'].map((h) => (
+                            <th
+                              key={h}
+                              className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide"
+                              style={{ color: 'var(--text-quaternary)' }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {p.stages
+                          .filter((s) => !s.archived)
+                          .map((s) => (
+                            <tr key={s.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                              <td className="px-3 py-2 tabular" style={{ color: 'var(--text-quaternary)' }}>
+                                {s.position + 1}
+                              </td>
+                              <td className="px-3 py-2 font-medium" style={{ color: 'var(--text-primary)' }}>
+                                {s.name}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={s.semanticRole ?? ''}
+                                    onChange={(e) => e.target.value && setRole(s.id, e.target.value)}
+                                  >
+                                    <option value="">— choose role —</option>
+                                    {pipelines!.roles.map((r) => (
+                                      <option key={r.value} value={r.value}>
+                                        {r.label}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                  {s.semanticRole && (
+                                    <Badge variant={ROLE_VARIANT[s.semanticRole] ?? 'neutral'} size="xs">
+                                      {s.semanticRole}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Badge
+                                  variant={s.roleSource === 'manual' ? 'accent' : s.roleSource === 'auto' ? 'success' : 'warning'}
+                                  size="xs"
+                                >
+                                  {s.roleSource}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2 tabular" style={{ color: 'var(--text-tertiary)' }}>
+                                {s.roleConfidence != null ? `${Math.round(s.roleConfidence * 100)}%` : '—'}
+                                {!s.semanticRole && s.suggestedRole && (
+                                  <span className="ml-1.5" style={{ color: 'var(--text-quaternary)' }}>
+                                    (suggests {s.suggestedRole})
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ))}
             </div>
+          )}
+        </Card>
 
-            {prov.hasDemoData && (
-              <div
-                className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px] mb-3"
-                style={{
-                  background: 'var(--warning-muted)',
-                  border: '1px solid var(--warning-border)',
-                }}
-              >
-                <FlaskConical
-                  size={14}
-                  strokeWidth={2.3}
-                  className="mt-px shrink-0"
-                  style={{ color: 'var(--warning)' }}
-                />
-                <p
-                  className="text-[12.5px] leading-relaxed"
-                  style={{ color: 'var(--warning)' }}
+        {/* ---- Sync health ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="Sync health"
+            subtitle="Recent runs and anything that needs a human"
+            icon={Activity}
+            action={
+              <Badge variant={incidents.length ? 'warning' : 'success'} dot>
+                {incidents.length ? `${incidents.length} open` : 'All clear'}
+              </Badge>
+            }
+          />
+
+          {incidents.length > 0 && (
+            <ul className="space-y-1.5 mb-4">
+              {incidents.map((i) => (
+                <li
+                  key={i.id}
+                  className="flex items-start gap-2 px-3 py-2 rounded-[8px] text-[12.5px]"
+                  style={{
+                    background: i.severity === 'critical' ? 'var(--danger-muted)' : 'var(--warning-muted)',
+                    border: `1px solid ${i.severity === 'critical' ? 'var(--danger-border)' : 'var(--warning-border)'}`,
+                    color: i.severity === 'critical' ? 'var(--danger)' : 'var(--warning)',
+                  }}
                 >
-                  Numbers on the Dashboard, Metrics and Reports pages are generated sample
-                  data — not your business.
-                </p>
-              </div>
-            )}
+                  <Badge variant="neutral" size="xs">
+                    {i.kind}
+                  </Badge>
+                  <span className="flex-1">{i.message}</span>
+                  <span className="text-[11px] opacity-70 whitespace-nowrap">{fmt(i.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
 
-            <Button
-              variant="outline"
-              icon={Trash2}
-              loading={busy === 'reset'}
-              disabled={!prov.hasDemoData}
-              onClick={wipeDemo}
-            >
-              Clear all sample data
+          {(sync?.runs.length ?? 0) === 0 ? (
+            <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
+              No sync runs recorded yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr style={{ background: 'var(--surface-sunken)' }}>
+                    {['When', 'Kind', 'Trigger', 'Status', 'Requests', 'Result'].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide"
+                        style={{ color: 'var(--text-quaternary)' }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sync!.runs.slice(0, 10).map((r) => (
+                    <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <td className="px-3 py-2 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
+                        {fmt(r.startedAt)}
+                      </td>
+                      <td className="px-3 py-2">{r.kind}</td>
+                      <td className="px-3 py-2">{r.trigger}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'warning'} size="xs">
+                          {r.status}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 tabular">{r.requestsUsed}</td>
+                      <td className="px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>
+                        {r.error ??
+                          (Object.entries(r.stats)
+                            .filter(([, v]) => v)
+                            .map(([k, v]) => `${k} ${v}`)
+                            .join(' · ') ||
+                            '—')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {/* ---- Sample data ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="Sample data"
+            subtitle="Fabricated rows are labelled origin=demo and shown with a banner until removed"
+            icon={FlaskConical}
+            action={
+              <Badge variant={prov?.hasDemoData ? 'warning' : 'success'} dot>
+                {prov?.hasDemoData ? `${prov.demoContacts} demo contacts` : 'Clean'}
+              </Badge>
+            }
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-[12.5px] flex-1 min-w-[240px]" style={{ color: 'var(--text-tertiary)' }}>
+              {prov?.hasDemoData
+                ? `${prov.demoContacts} contacts and ${prov.demoAppointments} appointments are sample data${prov.hasRealData ? ', mixed with real rows' : ''}. Remove them once the real backfill has run.`
+                : 'No sample data in the database.'}
+            </p>
+            <Button variant="danger" icon={Trash2} loading={busy === 'reset'} disabled={!prov?.hasDemoData} onClick={resetDemo}>
+              Remove sample data
             </Button>
-          </Card>
-        )}
+          </div>
+        </Card>
       </PageBody>
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          detail={toast.detail}
-          type={toast.type}
-          isVisible={!!toast}
-          onClose={() => setToast(null)}
-        />
-      )}
+      <Toast
+        isVisible={toast !== null}
+        message={toast?.message ?? ''}
+        detail={toast?.detail}
+        type={toast?.type ?? 'info'}
+        onClose={() => setToast(null)}
+      />
     </>
   );
 }

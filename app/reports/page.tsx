@@ -47,21 +47,13 @@ interface Lead {
   firstName: string;
   lastName: string;
   stage: string;
+  semanticRole: string | null;
   source: string | null;
   estimatedValue: number | null;
   owner: string | null;
   createdAt: string;
 }
 
-const STAGES = [
-  'Applied',
-  'Consult Booked',
-  'Consult No Show',
-  'Pre-Roadmap Booked',
-  'Roadmap No Show',
-  'Roadmap Completed: Objection',
-  'Enrolled',
-];
 
 const RANGES = [
   { value: 'week', label: 'This week', days: 7 },
@@ -136,6 +128,7 @@ export default function ReportsPage() {
   const cutoff = Date.now() - (RANGES.find((r) => r.value === range)?.days ?? 30) * 86_400_000;
   const scoped = leads.filter((l) => new Date(l.createdAt).getTime() >= cutoff);
 
+  const STAGES = Array.from(new Set(scoped.map((l) => l.stage)));
   const stageData = STAGES.map((stage) => {
     const inStage = scoped.filter((l) => l.stage === stage);
     return {
@@ -160,7 +153,7 @@ export default function ReportsPage() {
     .map(([source, v]) => ({ source, count: v.count, value: v.value / 100 }))
     .sort((a, b) => b.count - a.count);
 
-  const enrolled = scoped.filter((l) => l.stage === 'Enrolled');
+  const enrolled = scoped.filter((l) => l.semanticRole === 'enrolled');
   const totalValue = scoped.reduce((s, l) => s + (l.estimatedValue ?? 0), 0);
   const wonValue = enrolled.reduce((s, l) => s + (l.estimatedValue ?? 0), 0);
   const conversion = scoped.length

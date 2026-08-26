@@ -44,6 +44,9 @@ const ACTION_META: Record<
   MarkNoShow: { label: 'No Show', variant: 'warning', icon: CalendarX },
   MarkNotContinuing: { label: 'Not Continuing', variant: 'danger', icon: UserMinus },
   GhlSyncRun: { label: 'Sync Run', variant: 'accent', icon: RefreshCw },
+  StageMoved: { label: 'Stage moved', variant: 'info', icon: ArrowRight },
+  FirstSeen: { label: 'First seen', variant: 'neutral', icon: ScrollText },
+  Backfilled: { label: 'Backfilled', variant: 'neutral', icon: ScrollText },
   Enroll: { label: 'Enrolled', variant: 'success', icon: Check },
   StatusUpdate: { label: 'Status Update', variant: 'info', icon: ArrowRight },
   Created: { label: 'Created', variant: 'neutral', icon: ScrollText },
@@ -54,6 +57,8 @@ const SYNC_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'neutral'>
   local: 'neutral',
   syncing: 'warning',
   failed: 'danger',
+  backfilled: 'neutral',
+  demo: 'warning',
 };
 
 export default function AuditLogPage() {

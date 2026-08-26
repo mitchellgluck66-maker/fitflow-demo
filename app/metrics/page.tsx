@@ -32,7 +32,6 @@ import {
   CardHeader,
   Badge,
   KPITile,
-  Button,
   PageHeader,
   PageBody,
   SampleDataBanner,
@@ -43,13 +42,15 @@ import { ChartTooltip, ChartLegend, MetricBar, CATEGORICAL } from '@/components/
 
 interface Derived {
   total: number;
+  /** showed + noShow — appointments with a recorded outcome. */
+  decided: number;
+  /** Alias kept for the table's "min 3" filter. */
   marked: number;
-  booked: number;
+  showed: number;
   noShow: number;
-  notContinuing: number;
-  attended: number;
+  cancelled: number;
+  unmarked: number;
   showRate: number;
-  rebookRate: number;
   noShowRate: number;
 }
 
@@ -58,7 +59,6 @@ interface MetricsData {
   overall: Derived;
   comparison: {
     showRate: number;
-    rebookRate: number;
     noShowRate: number;
     volume: number;
   };
@@ -66,19 +66,17 @@ interface MetricsData {
     date: string;
     label: string;
     total: number;
-    booked: number;
+    showed: number;
     noShow: number;
-    notContinuing: number;
+    cancelled: number;
     showRate: number | null;
-    rebookRate: number | null;
   }>;
   weekly: Array<{
     label: string;
-    booked: number;
+    showed: number;
     noShow: number;
-    notContinuing: number;
+    cancelled: number;
     showRate: number;
-    rebookRate: number;
   }>;
   sourcePerformance: Array<{ source: string } & Derived>;
   sourceVolume: Array<{ source: string; count: number; share: number }>;
@@ -152,14 +150,11 @@ export default function MetricsPage() {
   const showRateSeries = data.trend
     .map((t) => t.showRate)
     .filter((v): v is number => v !== null);
-  const rebookSeries = data.trend
-    .map((t) => t.rebookRate)
-    .filter((v): v is number => v !== null);
   const volumeSeries = data.trend.map((t) => t.total);
 
   // Only sources with enough appointments to mean anything.
   const rankedSources = data.sourcePerformance.filter((s) => s.marked >= 3);
-  const bestSource = [...rankedSources].sort((a, b) => b.rebookRate - a.rebookRate)[0];
+  const bestSource = [...rankedSources].sort((a, b) => b.showRate - a.showRate)[0];
   const maxSourceVolume = Math.max(...data.sourceVolume.map((s) => s.count), 1);
   const maxFunnel = Math.max(...data.funnel.map((f) => f.count), 1);
 
@@ -205,7 +200,7 @@ export default function MetricsPage() {
           <KPITile
             label="Show Rate"
             value={`${data.overall.showRate}%`}
-            subtext={`${data.overall.attended} of ${data.overall.marked} attended`}
+            subtext={`${data.overall.showed} of ${data.overall.decided} showed`}
             icon={CalendarCheck}
             accent="success"
             trend={data.comparison.showRate === 0 ? 'flat' : data.comparison.showRate > 0 ? 'up' : 'down'}
@@ -213,14 +208,11 @@ export default function MetricsPage() {
             sparkline={showRateSeries}
           />
           <KPITile
-            label="Rebook Rate"
-            value={`${data.overall.rebookRate}%`}
-            subtext="Of those who showed up"
+            label="Cancelled"
+            value={data.overall.cancelled}
+            subtext="Cancelled or invalid in GoHighLevel"
             icon={Repeat}
             accent="accent"
-            trend={data.comparison.rebookRate === 0 ? 'flat' : data.comparison.rebookRate > 0 ? 'up' : 'down'}
-            trendValue={fmtDelta(data.comparison.rebookRate)}
-            sparkline={rebookSeries}
           />
           <KPITile
             label="No-Show Rate"
@@ -254,8 +246,8 @@ export default function MetricsPage() {
             action={
               <ChartLegend
                 items={[
-                  { label: 'Booked', color: 'var(--success)' },
-                  { label: 'Not continuing', color: 'var(--danger)' },
+                  { label: 'Showed', color: 'var(--success)' },
+                  { label: 'Cancelled', color: 'var(--danger)' },
                   { label: 'No show', color: 'var(--warning)' },
                 ]}
               />
@@ -265,7 +257,7 @@ export default function MetricsPage() {
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={data.trend} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
               <defs>
-                <linearGradient id="gBooked" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="gShowed" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--success)" stopOpacity={0.35} />
                   <stop offset="100%" stopColor="var(--success)" stopOpacity={0.02} />
                 </linearGradient>
@@ -286,17 +278,17 @@ export default function MetricsPage() {
 
               <Area
                 type="monotone"
-                dataKey="booked"
-                name="Booked"
+                dataKey="showed"
+                name="Showed"
                 stackId="1"
                 stroke="var(--success)"
                 strokeWidth={1.8}
-                fill="url(#gBooked)"
+                fill="url(#gShowed)"
               />
               <Area
                 type="monotone"
-                dataKey="notContinuing"
-                name="Not continuing"
+                dataKey="cancelled"
+                name="Cancelled"
                 stackId="1"
                 stroke="var(--danger)"
                 strokeWidth={1.8}
@@ -319,15 +311,12 @@ export default function MetricsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
           <Card padding="lg" className="lg:col-span-3">
             <CardHeader
-              title="Show rate vs. rebook rate"
+              title="Show rate over time"
               subtitle="Turning up and continuing are separate problems — tracked separately"
               icon={Target}
               action={
                 <ChartLegend
-                  items={[
-                    { label: 'Show rate', color: 'var(--info)' },
-                    { label: 'Rebook rate', color: 'var(--accent)' },
-                  ]}
+                  items={[{ label: 'Show rate', color: 'var(--accent)' }]}
                 />
               }
             />
@@ -357,8 +346,8 @@ export default function MetricsPage() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="rebookRate"
-                  name="Rebook rate"
+                  dataKey="showRate"
+                  name="Show rate"
                   stroke="var(--accent)"
                   strokeWidth={2.2}
                   connectNulls
@@ -431,12 +420,12 @@ export default function MetricsPage() {
         <Card padding="lg">
           <CardHeader
             title="Which sources actually convert"
-            subtitle="Volume tells you where leads come from. Rebook rate tells you which ones are worth having."
+            subtitle="Volume tells you where leads come from. Show rate tells you which ones actually turn up."
             icon={Trophy}
             action={
               bestSource && (
                 <Badge variant="success" size="md" dot>
-                  Best: {bestSource.source} · {bestSource.rebookRate}%
+                  Best: {bestSource.source} · {bestSource.showRate}%
                 </Badge>
               )
             }
@@ -445,14 +434,14 @@ export default function MetricsPage() {
           {rankedSources.length === 0 ? (
             <EmptyState
               title="Not enough data yet"
-              description="Sources appear here once they have at least 3 marked appointments."
+              description="Sources appear here once they have at least 3 appointments with a recorded outcome."
             />
           ) : (
             <div className="overflow-x-auto -mx-1 px-1">
               <table className="w-full min-w-[720px]">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    {['Source', 'Leads', 'Appts', 'Show rate', 'Rebook rate', 'Outcome mix'].map(
+                    {['Source', 'Leads', 'Appts', 'Decided', 'Show rate', 'Outcome mix'].map(
                       (h, i) => (
                         <th
                           key={h}
@@ -508,20 +497,20 @@ export default function MetricsPage() {
                             className="text-[13px] font-semibold tabular"
                             style={{ color: 'var(--text-primary)' }}
                           >
-                            {s.showRate}%
+                            {s.decided}
                           </span>
                         </td>
                         <td className="py-3 text-right">
                           <Badge
                             variant={
-                              s.rebookRate >= 60
+                              s.showRate >= 60
                                 ? 'success'
-                                : s.rebookRate >= 40
+                                : s.showRate >= 40
                                   ? 'warning'
                                   : 'danger'
                             }
                           >
-                            {s.rebookRate}%
+                            {s.showRate}%
                           </Badge>
                         </td>
                         <td className="py-3 pl-6" style={{ width: '30%' }}>
@@ -532,13 +521,13 @@ export default function MetricsPage() {
                             >
                               <div
                                 style={{
-                                  width: `${(s.booked / Math.max(s.marked, 1)) * 100}%`,
+                                  width: `${(s.showed / Math.max(s.marked, 1)) * 100}%`,
                                   background: 'var(--success)',
                                 }}
                               />
                               <div
                                 style={{
-                                  width: `${(s.notContinuing / Math.max(s.marked, 1)) * 100}%`,
+                                  width: `${(s.cancelled / Math.max(s.marked, 1)) * 100}%`,
                                   background: 'var(--danger)',
                                 }}
                               />
@@ -553,7 +542,7 @@ export default function MetricsPage() {
                               className="text-[11px] tabular shrink-0 w-[68px] text-right"
                               style={{ color: 'var(--text-quaternary)' }}
                             >
-                              {s.booked}/{s.notContinuing}/{s.noShow}
+                              {s.showed}/{s.cancelled}/{s.noShow}
                             </span>
                           </div>
                         </td>
@@ -570,7 +559,7 @@ export default function MetricsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <Card padding="lg">
             <CardHeader
-              title="Rebook rate by appointment type"
+              title="Show rate by appointment type"
               subtitle="Which conversations move people forward"
               icon={Repeat}
             />
@@ -593,7 +582,7 @@ export default function MetricsPage() {
                   content={<ChartTooltip suffix="%" />}
                   cursor={{ fill: 'var(--surface-hover)' }}
                 />
-                <Bar dataKey="rebookRate" name="Rebook rate" radius={[5, 5, 0, 0]} maxBarSize={54}>
+                <Bar dataKey="showRate" name="Show rate" radius={[5, 5, 0, 0]} maxBarSize={54}>
                   {data.typePerformance.map((entry, i) => (
                     <Cell key={entry.type} fill={CATEGORICAL[i % CATEGORICAL.length]} />
                   ))}
@@ -640,11 +629,11 @@ export default function MetricsPage() {
                       className="text-[13px] font-semibold tabular shrink-0"
                       style={{ color: 'var(--text-primary)' }}
                     >
-                      {o.rebookRate}%
+                      {o.showRate}%
                     </span>
                   </div>
                   <MetricBar
-                    value={o.rebookRate}
+                    value={o.showRate}
                     color={i === 0 ? 'var(--accent)' : 'var(--text-quaternary)'}
                   />
                 </div>
@@ -726,10 +715,7 @@ export default function MetricsPage() {
               icon={TrendingUp}
               action={
                 <ChartLegend
-                  items={[
-                    { label: 'Show rate', color: 'var(--info)' },
-                    { label: 'Rebook rate', color: 'var(--accent)' },
-                  ]}
+                  items={[{ label: 'Show rate', color: 'var(--accent)' }]}
                 />
               }
             />
@@ -750,7 +736,7 @@ export default function MetricsPage() {
                   cursor={{ fill: 'var(--surface-hover)' }}
                 />
                 <Bar dataKey="showRate" name="Show rate" fill="var(--info)" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                <Bar dataKey="rebookRate" name="Rebook rate" fill="var(--accent)" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                <Bar dataKey="showRate" name="Show rate" fill="var(--accent)" radius={[4, 4, 0, 0]} maxBarSize={26} />
               </BarChart>
             </ResponsiveContainer>
           </Card>

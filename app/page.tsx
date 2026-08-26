@@ -1,13 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import {
   Users,
   DollarSign,
   Trophy,
   UserX,
-  ArrowRight,
   Search,
   Inbox,
 } from 'lucide-react';
@@ -36,33 +34,35 @@ interface Lead {
   appointmentTime: string | null;
   estimatedValue: number | null;
   owner: string | null;
+  semanticRole: string | null;
+  origin: string;
 }
 
-const STAGES = [
-  'Applied',
-  'Consult Booked',
-  'Consult No Show',
-  'Pre-Roadmap Booked',
-  'Roadmap No Show',
-  'Roadmap Completed: Objection',
-  'Enrolled',
-];
+interface StageInfo {
+  id: string;
+  name: string;
+  semanticRole: string | null;
+  archived: boolean;
+}
 
-const STAGE_VARIANT: Record<
+
+/** Colour by semantic role, so renamed stages still read correctly. */
+const ROLE_VARIANT: Record<
   string,
   'info' | 'accent' | 'warning' | 'danger' | 'success' | 'neutral'
 > = {
-  Applied: 'info',
-  'Consult Booked': 'accent',
-  'Consult No Show': 'warning',
-  'Pre-Roadmap Booked': 'accent',
-  'Roadmap No Show': 'warning',
-  'Roadmap Completed: Objection': 'danger',
-  Enrolled: 'success',
+  applied: 'info',
+  consult_booked: 'accent',
+  consult_noshow: 'warning',
+  roadmap_booked: 'accent',
+  roadmap_showed: 'accent',
+  enrolled: 'success',
+  other: 'neutral',
 };
 
 export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [stages, setStages] = useState<StageInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -72,9 +72,12 @@ export default function DashboardPage() {
   } | null>(null);
 
   useEffect(() => {
-    fetch('/api/leads')
+    fetch('/api/leads?withStages=1')
       .then((r) => r.json())
-      .then((data) => setLeads(Array.isArray(data) ? data : []))
+      .then((data) => {
+        setLeads(Array.isArray(data?.leads) ? data.leads : []);
+        setStages(Array.isArray(data?.stages) ? data.stages.filter((s: StageInfo) => !s.archived) : []);
+      })
       .catch(() => setToast({ message: 'Could not load leads', type: 'error' }))
       .finally(() => setLoading(false));
   }, []);
@@ -98,8 +101,8 @@ export default function DashboardPage() {
   }, [leads, selectedStage, query]);
 
   const stats = useMemo(() => {
-    const enrolled = leads.filter((l) => l.stage === 'Enrolled').length;
-    const noShow = leads.filter((l) => l.stage.includes('No Show')).length;
+    const enrolled = leads.filter((l) => l.semanticRole === 'enrolled').length;
+    const noShow = leads.filter((l) => l.semanticRole === 'consult_noshow' || /no.?show/i.test(l.stage)).length;
     return {
       total: leads.length,
       pipeline: leads.reduce((s, l) => s + (l.estimatedValue ?? 0), 0),
@@ -138,13 +141,6 @@ export default function DashboardPage() {
       <PageHeader
         title="Dashboard"
         description="Every lead in the pipeline, filterable by stage."
-        actions={
-          <Link href="/today">
-            <Button variant="primary" iconRight={ArrowRight}>
-              Today View
-            </Button>
-          </Link>
-        }
       />
 
       <PageBody className="space-y-5">
@@ -214,13 +210,14 @@ export default function DashboardPage() {
               <span className="ml-1.5 tabular opacity-70">{leads.length}</span>
             </button>
 
-            {STAGES.map((stage) => {
+            {stages.map((st) => {
+              const stage = st.name;
               const count = leads.filter((l) => l.stage === stage).length;
               const active = selectedStage === stage;
 
               return (
                 <button
-                  key={stage}
+                  key={st.id}
                   onClick={() => setSelectedStage(active ? null : stage)}
                   className="h-7 px-2.5 rounded-[6px] text-[12.5px] font-medium transition-all duration-150 hover:bg-[var(--surface-hover)]"
                   style={
@@ -324,7 +321,7 @@ export default function DashboardPage() {
                         {lead.email}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={STAGE_VARIANT[lead.stage] ?? 'neutral'}>
+                        <Badge variant={ROLE_VARIANT[lead.semanticRole ?? 'other'] ?? 'neutral'}>
                           {lead.stage}
                         </Badge>
                       </td>

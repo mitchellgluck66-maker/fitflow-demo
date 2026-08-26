@@ -1,24 +1,23 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
   LayoutDashboard,
-  CalendarCheck,
   BarChart3,
   FileText,
   ScrollText,
   Settings as SettingsIcon,
   Plug,
+  Eye,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 
 const LINKS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/today', label: 'Today', icon: CalendarCheck },
   { href: '/metrics', label: 'Metrics', icon: BarChart3 },
   { href: '/reports', label: 'Reports', icon: FileText },
   { href: '/audit-log', label: 'Audit', icon: ScrollText },
@@ -28,21 +27,6 @@ const LINKS = [
 
 export const NavBar: React.FC = () => {
   const pathname = usePathname();
-  const [syncState, setSyncState] = useState<{ isDryRun: boolean; pending: number } | null>(
-    null,
-  );
-
-  useEffect(() => {
-    fetch('/api/sync')
-      .then((r) => r.json())
-      .then((d) =>
-        setSyncState({
-          isDryRun: d.stats?.isDryRun ?? true,
-          pending: d.stats?.pending ?? 0,
-        }),
-      )
-      .catch(() => {});
-  }, [pathname]);
 
   return (
     <header
@@ -112,31 +96,18 @@ export const NavBar: React.FC = () => {
 
           {/* Right cluster */}
           <div className="flex items-center gap-2 shrink-0">
-            {syncState?.isDryRun && (
-              <div
-                title="GoHighLevel writes are queued but not sent. Add credentials and set GHL_DRY_RUN=false to go live."
-                className="hidden sm:flex items-center gap-1.5 h-[26px] px-2 rounded-[6px] text-[11.5px] font-medium"
-                style={{
-                  background: 'var(--warning-muted)',
-                  color: 'var(--warning)',
-                  border: '1px solid var(--warning-border)',
-                }}
-              >
-                <span
-                  className="rounded-full"
-                  style={{
-                    width: 5,
-                    height: 5,
-                    background: 'currentColor',
-                    animation: 'pulseSoft 2s ease-in-out infinite',
-                  }}
-                />
-                Dry run
-                {syncState.pending > 0 && (
-                  <span className="tabular opacity-80">· {syncState.pending}</span>
-                )}
-              </div>
-            )}
+            <div
+              title="FitFlow only reads from GoHighLevel. Nothing here changes Miranda's pipeline."
+              className="hidden sm:flex items-center gap-1.5 h-[26px] px-2 rounded-[6px] text-[11.5px] font-medium"
+              style={{
+                background: 'var(--surface-sunken)',
+                color: 'var(--text-tertiary)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <Eye size={12} strokeWidth={2.2} />
+              Read-only
+            </div>
 
             <ThemeToggle />
           </div>

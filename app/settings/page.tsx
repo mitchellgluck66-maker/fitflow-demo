@@ -22,7 +22,6 @@ import {
   Badge,
   Toast,
   Select,
-  Toggle,
   Input,
   PageHeader,
   PageBody,
@@ -233,7 +232,7 @@ export default function SettingsPage() {
         <Card padding="lg">
           <CardHeader
             title="Timezone"
-            subtitle="Defines the business day for the Today View and the midnight sync"
+            subtitle="Defines the business day for every report. Weeks are Sunday–Saturday."
             icon={Globe}
             action={
               <Badge variant="neutral">
@@ -259,20 +258,14 @@ export default function SettingsPage() {
         <Card padding="lg">
           <CardHeader
             title="GoHighLevel"
-            subtitle="Where attendance outcomes are written back"
+            subtitle="Read-only source of the funnel. Nothing is ever written back."
             icon={Plug}
             action={
               <Badge
-                variant={
-                  !data.ghl.configured ? 'neutral' : data.ghl.dryRun ? 'warning' : 'success'
-                }
+                variant={!data.ghl.configured ? 'neutral' : 'success'}
                 dot
               >
-                {!data.ghl.configured
-                  ? 'Not configured'
-                  : data.ghl.dryRun
-                    ? 'Dry run'
-                    : 'Live'}
+                {!data.ghl.configured ? 'Not configured' : 'Connected · read-only'}
               </Badge>
             }
           />
@@ -334,53 +327,18 @@ export default function SettingsPage() {
             ))}
           </div>
 
-          {/* Queue state */}
-          <div className="grid grid-cols-4 gap-2 mb-4">
-            {[
-              { label: 'Pending', value: data.queue.pending, color: 'var(--info)' },
-              { label: 'Previewed', value: data.queue.dryRun, color: 'var(--warning)' },
-              { label: 'Synced', value: data.queue.succeeded, color: 'var(--success)' },
-              { label: 'Failed', value: data.queue.failed, color: 'var(--danger)' },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="px-3 py-2.5 rounded-[8px]"
-                style={{
-                  background: 'var(--surface-sunken)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                <div
-                  className="text-[18px] font-semibold tabular leading-none"
-                  style={{ color: stat.color }}
-                >
-                  {stat.value}
-                </div>
-                <div
-                  className="text-[11px] mt-1"
-                  style={{ color: 'var(--text-quaternary)' }}
-                >
-                  {stat.label}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mb-4">
-            <Toggle
-              checked={data.autoSyncEnabled}
-              onChange={(v) => patch({ autoSyncEnabled: v })}
-              label="Midnight auto-sync"
-              description="Drain the queue to GoHighLevel automatically at local midnight."
-            />
-            {data.lastAutoSyncAt && (
-              <p
-                className="text-[11.5px] mt-2"
-                style={{ color: 'var(--text-quaternary)' }}
-              >
-                Last run: {new Date(data.lastAutoSyncAt).toLocaleString()}
-              </p>
-            )}
+          <div
+            className="px-3 py-2.5 rounded-[8px] mb-4"
+            style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}
+          >
+            <div className="text-[12.5px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+              Hourly delta sync (Vercel cron)
+            </div>
+            <p className="text-[11.5px] mt-1" style={{ color: 'var(--text-quaternary)' }}>
+              {data.lastAutoSyncAt
+                ? `Last successful sync: ${new Date(data.lastAutoSyncAt).toLocaleString()}`
+                : 'No sync has run yet. Run one from the Setup page.'}
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -445,10 +403,8 @@ export default function SettingsPage() {
                   to <code style={{ fontFamily: 'var(--font-jetbrains)' }}>.env.local</code>.
                 </li>
                 <li>
-                  Set{' '}
-                  <code style={{ fontFamily: 'var(--font-jetbrains)' }}>GHL_DRY_RUN=false</code>{' '}
-                  and restart. Until then every write is queued and previewed but never
-                  sent.
+                  Open Setup, save the token, then run the June-16 backfill. FitFlow only
+                  ever reads — nothing is written to GoHighLevel.
                 </li>
               </ol>
             </div>
@@ -475,7 +431,7 @@ export default function SettingsPage() {
             placeholder="name@example.com"
             value={data.summaryRecipientEmail}
             onChange={(e) => patch({ summaryRecipientEmail: e.target.value })}
-            hint="Pre-filled in the Export dialog. Sending from the Today View also updates this."
+            hint="Pre-filled in the Export dialog on the Reports page."
           />
 
           {!data.email.configured && (
