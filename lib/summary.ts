@@ -8,7 +8,6 @@
  */
 
 import { formatDayLabel, formatTime } from './day';
-import { OUTCOME_LABELS, type Outcome } from './ghl/mapping';
 
 export interface SummaryAppointment {
   startTime: string;
@@ -18,8 +17,8 @@ export interface SummaryAppointment {
   email: string;
   stage: string | null;
   owner: string | null;
+  /** showed | no_show | cancelled | null — mirrors GHL's appointmentStatus. */
   outcome: string | null;
-  outcomeNotes: string | null;
   estimatedValue: number | null;
 }
 
@@ -30,44 +29,46 @@ export interface DaySummaryData {
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
-  booked: '#059669',
+  showed: '#059669',
   no_show: '#d97706',
-  not_continuing: '#dc2626',
+  cancelled: '#dc2626',
+};
+
+const OUTCOME_LABELS: Record<string, string> = {
+  showed: 'Showed',
+  no_show: 'No Show',
+  cancelled: 'Cancelled',
 };
 
 function outcomeLabel(outcome: string | null): string {
-  if (!outcome) return 'Not marked';
-  return OUTCOME_LABELS[outcome as Outcome] ?? outcome;
+  if (!outcome) return 'Not recorded';
+  return OUTCOME_LABELS[outcome] ?? outcome;
 }
 
 export function computeStats(data: DaySummaryData) {
   const { appointments } = data;
   const marked = appointments.filter((a) => a.outcome);
 
-  const booked = appointments.filter((a) => a.outcome === 'booked').length;
+  const showed = appointments.filter((a) => a.outcome === 'showed').length;
   const noShow = appointments.filter((a) => a.outcome === 'no_show').length;
-  const notContinuing = appointments.filter((a) => a.outcome === 'not_continuing').length;
+  const cancelled = appointments.filter((a) => a.outcome === 'cancelled').length;
   const unmarked = appointments.length - marked.length;
 
-  const attended = booked + notContinuing;
-  const showRate =
-    marked.length > 0 ? Math.round((attended / marked.length) * 100) : 0;
-  const bookRate = marked.length > 0 ? Math.round((booked / marked.length) * 100) : 0;
+  const decided = showed + noShow;
+  const showRate = decided > 0 ? Math.round((showed / decided) * 100) : 0;
 
   const pipelineValue = appointments
-    .filter((a) => a.outcome === 'booked')
+    .filter((a) => a.outcome === 'showed')
     .reduce((sum, a) => sum + (a.estimatedValue ?? 0), 0);
 
   return {
     total: appointments.length,
     marked: marked.length,
     unmarked,
-    booked,
+    showed,
     noShow,
-    notContinuing,
-    attended,
+    cancelled,
     showRate,
-    bookRate,
     pipelineValue,
   };
 }
@@ -116,17 +117,16 @@ export function buildHtmlSummary(data: DaySummaryData): string {
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin-bottom:8px;">
         <tr>
           ${statCard('Appointments', stats.total, '#111827')}
-          ${statCard('Booked', stats.booked, '#059669')}
+          ${statCard('Showed', stats.showed, '#059669')}
           ${statCard('No Show', stats.noShow, '#d97706')}
-          ${statCard('Not Continuing', stats.notContinuing, '#dc2626')}
+          ${statCard('Cancelled', stats.cancelled, '#dc2626')}
         </tr>
       </table>
 
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin-top:8px;">
         <tr>
           ${statCard('Show Rate', `${stats.showRate}%`, '#2563eb')}
-          ${statCard('Book Rate', `${stats.bookRate}%`, '#7c3aed')}
-          ${statCard('Unmarked', stats.unmarked, stats.unmarked > 0 ? '#d97706' : '#059669')}
+          ${statCard('Not recorded', stats.unmarked, stats.unmarked > 0 ? '#d97706' : '#059669')}
           ${statCard('New Pipeline', `$${(stats.pipelineValue / 100).toLocaleString()}`, '#059669')}
         </tr>
       </table>
@@ -134,7 +134,7 @@ export function buildHtmlSummary(data: DaySummaryData): string {
       ${
         stats.unmarked > 0
           ? `<div style="margin-top:18px;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px;">
-               <strong>${stats.unmarked} appointment${stats.unmarked === 1 ? '' : 's'}</strong> ${stats.unmarked === 1 ? 'was' : 'were'} not marked before this summary was generated.
+               <strong>${stats.unmarked} appointment${stats.unmarked === 1 ? '' : 's'}</strong> ${stats.unmarked === 1 ? 'was' : 'were'} not yet recorded in GoHighLevel when this summary was generated.
              </div>`
           : ''
       }
@@ -171,12 +171,11 @@ export function buildTextSummary(data: DaySummaryData): string {
     '='.repeat(56),
     '',
     `Appointments:    ${stats.total}`,
-    `Booked:          ${stats.booked}`,
+    `Showed:          ${stats.showed}`,
     `No Show:         ${stats.noShow}`,
-    `Not Continuing:  ${stats.notContinuing}`,
-    `Unmarked:        ${stats.unmarked}`,
+    `Cancelled:       ${stats.cancelled}`,
+    `Not recorded:    ${stats.unmarked}`,
     `Show Rate:       ${stats.showRate}%`,
-    `Book Rate:       ${stats.bookRate}%`,
     '',
     'APPOINTMENTS',
     '-'.repeat(56),
@@ -194,7 +193,7 @@ export function buildTextSummary(data: DaySummaryData): string {
 }
 
 export function buildCsvSummary(data: DaySummaryData): string {
-  const header = ['Time', 'First Name', 'Last Name', 'Email', 'Type', 'Outcome', 'Stage', 'Owner', 'Notes'];
+  const header = ['Time', 'First Name', 'Last Name', 'Email', 'Type', 'Outcome', 'Stage', 'Owner'];
   const rows = data.appointments.map((a) => [
     formatTime(a.startTime, data.timezone),
     a.firstName,
@@ -204,7 +203,6 @@ export function buildCsvSummary(data: DaySummaryData): string {
     outcomeLabel(a.outcome),
     a.stage ?? '',
     a.owner ?? '',
-    a.outcomeNotes ?? '',
   ]);
 
   return [header, ...rows]

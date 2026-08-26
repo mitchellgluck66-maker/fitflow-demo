@@ -1,18 +1,25 @@
 /**
- * Persisted app settings (key/value in SQLite).
+ * Persisted app settings (key/value in the `settings` table).
  *
- * Used for anything that must survive a restart but isn't worth its own table -
- * most notably the remembered day-summary recipient, so staff type the address
- * once and it is pre-filled every day after.
+ * Credentials live here too (entered in /setup, verified on save). Rows flagged
+ * `isSecret` are never returned unmasked by any API route — see
+ * lib/ghl/config.ts#maskToken. Env vars are the fallback when nothing is stored.
  */
 
-import { db, appSettings } from '@/db';
+import { db, settings } from '@/db';
 import { eq } from 'drizzle-orm';
 
 export const SETTING_KEYS = {
+  timezone: 'timezone',
+  /** Comma-separated recipient list for the daily to-do digest. */
+  digestRecipients: 'digest_recipients',
   summaryRecipientEmail: 'summary_recipient_email',
   summaryRecipientHistory: 'summary_recipient_history',
-  timezone: 'timezone',
+  /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
+  ghlLastSyncAt: 'ghl_last_sync_at',
+  /** ISO date the backfill starts from. */
+  backfillFrom: 'backfill_from',
+  // Legacy keys kept so the dormant write-back code still resolves them.
   ghlPipelineId: 'ghl_pipeline_id',
   ghlStageMap: 'ghl_stage_map',
   ghlCalendarMap: 'ghl_calendar_map',
@@ -21,44 +28,38 @@ export const SETTING_KEYS = {
 } as const;
 
 export const DEFAULTS: Record<string, string> = {
-  [SETTING_KEYS.timezone]: 'America/New_York',
+  [SETTING_KEYS.timezone]: process.env.BUSINESS_TIMEZONE?.trim() || 'America/New_York',
   [SETTING_KEYS.autoSyncEnabled]: 'true',
   [SETTING_KEYS.summaryRecipientHistory]: '[]',
+  [SETTING_KEYS.backfillFrom]: '2026-06-16',
 };
 
 export async function getSetting(key: string): Promise<string | null> {
-  const rows = await db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.key, key))
-    .limit(1);
-
+  const rows = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
   if (rows.length > 0 && rows[0].value !== null) return rows[0].value;
   return DEFAULTS[key] ?? null;
 }
 
-export async function setSetting(key: string, value: string): Promise<void> {
-  const now = new Date().toISOString();
-  const existing = await db
-    .select({ key: appSettings.key })
-    .from(appSettings)
-    .where(eq(appSettings.key, key))
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(appSettings)
-      .set({ value, updatedAt: now })
-      .where(eq(appSettings.key, key));
-  } else {
-    await db.insert(appSettings).values({ key, value, updatedAt: now });
-  }
+export async function setSetting(
+  key: string,
+  value: string,
+  options: { secret?: boolean } = {},
+): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key, value, isSecret: options.secret ?? false, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value, isSecret: options.secret ?? false, updatedAt: new Date() },
+    });
 }
 
+/** Every non-secret setting, with defaults filled in. Secrets are never included. */
 export async function getAllSettings(): Promise<Record<string, string>> {
-  const rows = await db.select().from(appSettings);
+  const rows = await db.select().from(settings);
   const result: Record<string, string> = { ...DEFAULTS };
   for (const row of rows) {
+    if (row.isSecret) continue;
     if (row.value !== null) result[row.key] = row.value;
   }
   return result;
@@ -68,13 +69,8 @@ export async function getTimezone(): Promise<string> {
   return (await getSetting(SETTING_KEYS.timezone)) ?? 'America/New_York';
 }
 
-/**
- * Remember a recipient address and keep a short history so the export dialog can
- * offer recent addresses as suggestions rather than only the single last one.
- */
 export async function rememberRecipient(email: string): Promise<void> {
   await setSetting(SETTING_KEYS.summaryRecipientEmail, email);
-
   const raw = (await getSetting(SETTING_KEYS.summaryRecipientHistory)) ?? '[]';
   let history: string[] = [];
   try {
@@ -82,7 +78,6 @@ export async function rememberRecipient(email: string): Promise<void> {
   } catch {
     history = [];
   }
-
   const next = [email, ...history.filter((e) => e !== email)].slice(0, 5);
   await setSetting(SETTING_KEYS.summaryRecipientHistory, JSON.stringify(next));
 }

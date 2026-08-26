@@ -1,76 +1,31 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db, leads } from '@/db/index';
-import { desc } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
+import { listContactsAsLeads, listStages } from '@/lib/queries/contacts';
 
-export async function GET(request: NextRequest) {
+export const dynamic = 'force-dynamic';
+
+/**
+ * GET /api/leads — every contact with its current stage (read-only view).
+ * Returns the array directly for the existing pages; `?withStages=1` wraps
+ * it with the ordered stage list so pages can stop hard-coding stage names.
+ */
+export async function GET(request: Request) {
   try {
-    // Get all leads sorted by most recent first
-    const allLeads = await db
-      .select()
-      .from(leads)
-      .orderBy(desc(leads.createdAt))
-      .all();
-
-    return NextResponse.json(allLeads, { status: 200 });
+    const url = new URL(request.url);
+    const leads = await listContactsAsLeads();
+    if (url.searchParams.get('withStages')) {
+      return NextResponse.json({ leads, stages: await listStages() });
+    }
+    return NextResponse.json(leads);
   } catch (error) {
     console.error('Failed to fetch leads:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch leads' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 });
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-
-    // Validate required fields
-    if (!body.firstName || !body.lastName || !body.email) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    // Create new lead
-    const newLead = {
-      id: `lead_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      firstName: body.firstName,
-      lastName: body.lastName,
-      email: body.email,
-      phone: body.phone || '',
-      pipelineId: '[new] Application Pipeline',
-      pipelineName: '[new] Application Pipeline',
-      stage: 'Applied',
-      status: 'active',
-      source: body.source || 'Manual Entry',
-      originalSource: body.source || 'Manual Entry',
-      utmSource: body.utmSource || (body.source || 'Manual Entry').toLowerCase(),
-      utmCampaign: body.utmCampaign || 'Direct',
-      utmMedium: body.utmMedium || 'manual',
-      entryFunnel: 'Manual Entry',
-      ghlSource: 'Manual Entry',
-      appointmentTime: body.appointmentTime || new Date().toISOString(),
-      appointmentStatus: 'scheduled',
-      estimatedValue: body.estimatedValue || 0,
-      owner: body.owner || 'Unassigned',
-      tags: JSON.stringify(body.tags || ['manual_entry']),
-      notes: body.notes || '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      dateApplied: new Date().toISOString(),
-      lastActionAt: null,
-    };
-
-    const result = await db.insert(leads).values(newLead).run();
-
-    return NextResponse.json(newLead, { status: 201 });
-  } catch (error) {
-    console.error('Failed to create lead:', error);
-    return NextResponse.json(
-      { error: 'Failed to create lead' },
-      { status: 500 }
-    );
-  }
+/** FitFlow is read-only: contacts come from GoHighLevel, never from here. */
+export async function POST() {
+  return NextResponse.json(
+    { error: 'FitFlow is read-only. Create contacts in GoHighLevel; they appear here on the next sync.' },
+    { status: 405 },
+  );
 }

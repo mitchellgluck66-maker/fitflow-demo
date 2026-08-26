@@ -36,7 +36,9 @@ function tzOffsetMinutes(date: Date, timeZone: string): number {
     get('second'),
   );
 
-  return (asUtc - date.getTime()) / 60_000;
+  // Round to whole minutes: formatToParts drops milliseconds, and the
+  // sub-minute remainder would otherwise leak into the day boundary.
+  return Math.round((asUtc - date.getTime()) / 60_000);
 }
 
 /**

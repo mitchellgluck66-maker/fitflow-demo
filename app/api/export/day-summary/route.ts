@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, appointments, leads } from '@/db';
+import { db, appointments, contacts, stages } from '@/db';
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { getDayBounds, todayInTimezone, formatDayLabel } from '@/lib/day';
 import {
@@ -21,29 +21,37 @@ import {
 export const dynamic = 'force-dynamic';
 
 async function loadDay(date: string, timezone: string): Promise<DaySummaryData> {
-  const { startIso, endIso } = getDayBounds(date, timezone);
+  const { startMs, endMs } = getDayBounds(date, timezone);
 
   const rows = await db
     .select({
       startTime: appointments.startTime,
       type: appointments.type,
       outcome: appointments.outcome,
-      outcomeNotes: appointments.outcomeNotes,
-      firstName: leads.firstName,
-      lastName: leads.lastName,
-      email: leads.email,
-      stage: leads.stage,
-      owner: leads.owner,
-      estimatedValue: leads.estimatedValue,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      stage: stages.name,
+      owner: contacts.ownerName,
+      estimatedValue: contacts.monetaryValueCents,
     })
     .from(appointments)
-    .innerJoin(leads, eq(appointments.leadId, leads.id))
-    .where(
-      and(gte(appointments.startTime, startIso), lte(appointments.startTime, endIso)),
-    )
+    .leftJoin(contacts, eq(appointments.contactId, contacts.id))
+    .leftJoin(stages, eq(contacts.stageId, stages.id))
+    .where(and(gte(appointments.startTime, new Date(startMs)), lte(appointments.startTime, new Date(endMs))))
     .orderBy(asc(appointments.startTime));
 
-  return { date, timezone, appointments: rows };
+  return {
+    date,
+    timezone,
+    appointments: rows.map((r) => ({
+      ...r,
+      startTime: r.startTime.toISOString(),
+      firstName: r.firstName ?? 'Unknown',
+      lastName: r.lastName ?? '',
+      email: r.email ?? '',
+    })),
+  };
 }
 
 /**
@@ -124,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     const html = buildHtmlSummary(data);
     const text = buildTextSummary(data);
-    const subject = `FitFlow Day Summary — ${formatDayLabel(date, timezone)} (${stats.booked} booked, ${stats.noShow} no-show)`;
+    const subject = `FitFlow Day Summary — ${formatDayLabel(date, timezone)} (${stats.showed} showed, ${stats.noShow} no-show)`;
 
     const sendResult = await sendSummaryEmail({ to: email, subject, html, text });
 
