@@ -16,6 +16,7 @@ import {
   History,
   AlertTriangle,
   Activity,
+  DollarSign,
 } from 'lucide-react';
 import {
   Card,
@@ -30,6 +31,7 @@ import {
   PageBody,
   PageLoader,
 } from '@/components';
+import { SpendEntry } from '@/components/SpendEntry';
 
 interface Credentials {
   configured: boolean;
@@ -628,6 +630,18 @@ export default function SetupPage() {
             </div>
           )}
         </Card>
+
+        {/* ---- Ad spend (manual) ---- */}
+        <div id="spend">
+          <Card padding="lg">
+            <CardHeader
+              title="Ad spend (manual, weekly)"
+              subtitle="Sun–Sat weeks, in dollars. Replaced by real Meta/Google spend in Phase C."
+              icon={DollarSign}
+            />
+            <SpendEntry />
+          </Card>
+        </div>
 
         {/* ---- Sync health ---- */}
         <Card padding="lg">
