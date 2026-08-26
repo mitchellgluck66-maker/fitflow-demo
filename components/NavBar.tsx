@@ -7,22 +7,18 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
   LayoutDashboard,
-  BarChart3,
+  Filter,
   FileText,
-  ScrollText,
-  Settings as SettingsIcon,
   Plug,
   Eye,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 
 const LINKS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/metrics', label: 'Metrics', icon: BarChart3 },
+  { href: '/', label: 'Command Center', icon: LayoutDashboard, exact: true },
+  { href: '/funnel', label: 'Funnel', icon: Filter },
   { href: '/reports', label: 'Reports', icon: FileText },
-  { href: '/audit-log', label: 'Audit', icon: ScrollText },
   { href: '/setup', label: 'Setup', icon: Plug },
-  { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 export const NavBar: React.FC = () => {

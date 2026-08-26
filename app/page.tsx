@@ -1,367 +1,228 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Users,
-  DollarSign,
-  Trophy,
-  UserX,
-  Search,
-  Inbox,
-} from 'lucide-react';
-import {
-  Card,
-  Badge,
-  Button,
-  KPITile,
-  Toast,
-  PageHeader,
-  PageBody,
-  SampleDataBanner,
-  PageLoader,
-  EmptyState,
-  Input,
-} from '@/components';
+import React, { Suspense } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck, Sparkles } from 'lucide-react';
+import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
+import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast } from '@/components';
+import { ChartTooltip, ChartLegend } from '@/components/Chart';
+import { DateRangePicker } from '@/components/DateRangePicker';
+import { KpiDeltaTile } from '@/components/KpiDeltaTile';
+import { Funnel } from '@/components/Funnel';
+import { useScorecard } from '@/components/useScorecard';
+import { formatCents } from '@/lib/metrics';
 
-interface Lead {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string | null;
-  stage: string;
-  source: string | null;
-  appointmentTime: string | null;
-  estimatedValue: number | null;
-  owner: string | null;
-  semanticRole: string | null;
-  origin: string;
-}
+function CommandCenter() {
+  const { data, loading, error } = useScorecard();
+  const search = useSearchParams();
 
-interface StageInfo {
-  id: string;
-  name: string;
-  semanticRole: string | null;
-  archived: boolean;
-}
+  const trendRows = (data?.trend.current ?? []).map((p, i) => {
+      const c = data!.trend.comparison?.[i];
+      return {
+        label: p.label,
+        applied: p.applied,
+        enrolled: p.enrolled,
+        cac: p.cacCents !== null ? Math.round(p.cacCents / 100) : null,
+        appliedPrev: c?.applied ?? null,
+        enrolledPrev: c?.enrolled ?? null,
+      };
+    });
 
-
-/** Colour by semantic role, so renamed stages still read correctly. */
-const ROLE_VARIANT: Record<
-  string,
-  'info' | 'accent' | 'warning' | 'danger' | 'success' | 'neutral'
-> = {
-  applied: 'info',
-  consult_booked: 'accent',
-  consult_noshow: 'warning',
-  roadmap_booked: 'accent',
-  roadmap_showed: 'accent',
-  enrolled: 'success',
-  other: 'neutral',
-};
-
-export default function DashboardPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [stages, setStages] = useState<StageInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [toast, setToast] = useState<{
-    message: string;
-    type: 'success' | 'error' | 'info';
-  } | null>(null);
-
-  useEffect(() => {
-    fetch('/api/leads?withStages=1')
-      .then((r) => r.json())
-      .then((data) => {
-        setLeads(Array.isArray(data?.leads) ? data.leads : []);
-        setStages(Array.isArray(data?.stages) ? data.stages.filter((s: StageInfo) => !s.archived) : []);
-      })
-      .catch(() => setToast({ message: 'Could not load leads', type: 'error' }))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filtered = useMemo(() => {
-    let result = selectedStage
-      ? leads.filter((l) => l.stage === selectedStage)
-      : leads;
-
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      result = result.filter(
-        (l) =>
-          `${l.firstName} ${l.lastName}`.toLowerCase().includes(q) ||
-          l.email.toLowerCase().includes(q) ||
-          (l.source ?? '').toLowerCase().includes(q),
-      );
-    }
-
-    return result;
-  }, [leads, selectedStage, query]);
-
-  const stats = useMemo(() => {
-    const enrolled = leads.filter((l) => l.semanticRole === 'enrolled').length;
-    const noShow = leads.filter((l) => l.semanticRole === 'consult_noshow' || /no.?show/i.test(l.stage)).length;
-    return {
-      total: leads.length,
-      pipeline: leads.reduce((s, l) => s + (l.estimatedValue ?? 0), 0),
-      enrolled,
-      noShowRate: leads.length ? Math.round((noShow / leads.length) * 100) : 0,
-    };
-  }, [leads]);
-
-  const formatDate = (iso: string | null) => {
-    if (!iso) return '—';
-    try {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date(iso));
-    } catch {
-      return '—';
-    }
-  };
-
-  if (loading) {
+  if (loading && !data) {
     return (
       <>
-        <PageHeader title="Dashboard" description="Pipeline overview and lead management" />
+        <PageHeader title="Command Center" description="The 10-second read on the business." />
         <PageBody>
-          <PageLoader label="Loading pipeline" />
+          <PageLoader label="Computing scorecard" />
         </PageBody>
       </>
     );
   }
 
+  if (!data) {
+    return (
+      <>
+        <PageHeader title="Command Center" />
+        <PageBody>
+          <EmptyState title="Could not load the scorecard" description={error ?? 'Unknown error'} />
+        </PageBody>
+      </>
+    );
+  }
+
+  const { scorecard, comparison, range, trend } = data;
+  const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
+  const spark = (key: 'enrolled' | 'consultsBooked' | 'applied' | 'cacCents' | 'revenueCents') =>
+    trend.current.map((p) => (p[key] as number | null) ?? 0);
+  const weekly = trend.grain === 'week';
+
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        description="Every lead in the pipeline, filterable by stage."
-      />
+        title="Command Center"
+        description="The 10-second read on the business — every number here comes from the same tested engine as the emails."
+      >
+        <DateRangePicker timezone={data.timezone} />
+      </PageHeader>
 
       <PageBody className="space-y-5">
-        <SampleDataBanner page="figures" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 stagger">
-          <KPITile
-            label="Total Leads"
-            value={stats.total}
-            subtext="Across all stages"
-            icon={Users}
-            accent="info"
-          />
-          <KPITile
-            label="Pipeline Value"
-            value={`$${(stats.pipeline / 100).toLocaleString()}`}
-            subtext="Estimated"
+        <SampleDataBanner page="numbers" />
+
+        {/* ---- 5 pinned KPIs ---- */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
+          <KpiDeltaTile
+            label="Revenue collected"
+            value={formatCents(scorecard.revenue.collectedCents, { compact: true })}
+            delta={scorecard.kpis.revenueCents}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
             icon={DollarSign}
-            accent="accent"
-          />
-          <KPITile
-            label="Enrolled"
-            value={stats.enrolled}
-            subtext="Closed won"
-            icon={Trophy}
             accent="success"
+            sparkline={spark('revenueCents')}
+            subtext={`${scorecard.revenue.paymentCount} payments`}
+            empty={
+              scorecard.revenue.awaitingStripe
+                ? { title: 'Awaiting Stripe', description: 'Real cash collected appears once the Stripe key is connected (Phase C).' }
+                : undefined
+            }
           />
-          <KPITile
-            label="No-Show Rate"
-            value={`${stats.noShowRate}%`}
-            subtext="Currently in no-show stages"
-            icon={UserX}
+          <KpiDeltaTile
+            label="Enrollments"
+            value={String(scorecard.kpis.enrollments.current ?? 0)}
+            delta={scorecard.kpis.enrollments}
+            comparisonLabel={cmpLabel}
+            icon={Trophy}
+            accent="accent"
+            sparkline={spark('enrolled')}
+            subtext={comparison.range ? `${scorecard.kpis.enrollments.previous ?? 0} in ${comparison.range.resolvedLabel}` : 'new clients in period'}
+          />
+          <KpiDeltaTile
+            label="Cost per client"
+            value={formatCents(scorecard.cac.cacCents)}
+            delta={scorecard.kpis.cacCents}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Target}
             accent="warning"
+            sparkline={weekly ? spark('cacCents') : undefined}
+            subtext={
+              scorecard.cac.noSpendData ? (
+                <Link href="/setup#spend" style={{ color: 'var(--accent)' }}>
+                  Enter weekly spend →
+                </Link>
+              ) : scorecard.cac.cacCents === null ? (
+                'no enrollments in period'
+              ) : (
+                `${formatCents(scorecard.cac.spendCents, { compact: true })} spend ÷ ${scorecard.cac.enrollments} enrolled`
+              )
+            }
+          />
+          <KpiDeltaTile
+            label="ROAS"
+            value={scorecard.revenue.roas !== null ? `${scorecard.revenue.roas.toFixed(2)}×` : '—'}
+            delta={scorecard.kpis.roas}
+            deltaKind="ratio"
+            comparisonLabel={cmpLabel}
+            icon={TrendingUp}
+            accent="info"
+            subtext="revenue ÷ ad spend"
+            empty={
+              scorecard.revenue.awaitingStripe
+                ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Spend is tracked already.' }
+                : undefined
+            }
+          />
+          <KpiDeltaTile
+            label="Consults booked"
+            value={String(scorecard.kpis.consultsBooked.current ?? 0)}
+            delta={scorecard.kpis.consultsBooked}
+            comparisonLabel={cmpLabel}
+            icon={CalendarCheck}
+            accent="accent"
+            sparkline={spark('consultsBooked')}
+            subtext={`${scorecard.kpis.applied.current ?? 0} applied`}
           />
         </div>
 
-        {/* Filters */}
-        <Card padding="sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-full sm:w-56">
-              <Input
-                icon={Search}
-                placeholder="Search name, email, source…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-
-            <div
-              className="h-5 w-px mx-1 hidden sm:block"
-              style={{ background: 'var(--border-subtle)' }}
-            />
-
-            <button
-              onClick={() => setSelectedStage(null)}
-              className="h-7 px-2.5 rounded-[6px] text-[12.5px] font-medium transition-all duration-150"
-              style={
-                selectedStage === null
-                  ? {
-                      background: 'var(--accent)',
-                      color: 'var(--accent-text)',
-                      boxShadow: 'var(--shadow-accent)',
-                    }
-                  : { color: 'var(--text-tertiary)' }
-              }
-            >
-              All
-              <span className="ml-1.5 tabular opacity-70">{leads.length}</span>
-            </button>
-
-            {stages.map((st) => {
-              const stage = st.name;
-              const count = leads.filter((l) => l.stage === stage).length;
-              const active = selectedStage === stage;
-
-              return (
-                <button
-                  key={st.id}
-                  onClick={() => setSelectedStage(active ? null : stage)}
-                  className="h-7 px-2.5 rounded-[6px] text-[12.5px] font-medium transition-all duration-150 hover:bg-[var(--surface-hover)]"
-                  style={
-                    active
-                      ? {
-                          background: 'var(--accent)',
-                          color: 'var(--accent-text)',
-                          boxShadow: 'var(--shadow-accent)',
-                        }
-                      : { color: 'var(--text-tertiary)' }
-                  }
-                >
-                  {stage}
-                  <span className="ml-1.5 tabular opacity-70">{count}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* ---- Funnel, full width ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="Funnel"
+            subtitle={`${range.presetLabel} · ${range.resolvedLabel}`}
+            action={
+              <Link href={`/funnel?${search.toString()}`} className="text-[12.5px] font-medium" style={{ color: 'var(--accent)' }}>
+                Funnel deep-dive →
+              </Link>
+            }
+          />
+          <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} />
         </Card>
 
-        {/* Leads table */}
-        <Card padding="none" className="overflow-hidden">
-          <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{ borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <h3
-              className="text-[13.5px] font-semibold"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              {selectedStage ?? 'All leads'}
-              <span
-                className="ml-2 text-[12.5px] font-normal tabular"
-                style={{ color: 'var(--text-quaternary)' }}
-              >
-                {filtered.length}
-              </span>
-            </h3>
-          </div>
-
-          {filtered.length === 0 ? (
-            <EmptyState
-              icon={<Inbox size={19} />}
-              title="No leads match"
-              description={
-                query
-                  ? 'Try a different search term or clear the stage filter.'
-                  : 'Nothing in this stage right now.'
+        {/* ---- Trend + insights ---- */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <Card padding="lg" className="lg:col-span-2">
+            <CardHeader
+              title={weekly ? 'Weekly trend (Sun–Sat)' : 'Daily trend'}
+              subtitle={comparison.range ? `Dashed series = ${comparison.range.resolvedLabel}` : 'No comparison selected'}
+              action={
+                <ChartLegend
+                  items={[
+                    { label: 'Applied', color: 'var(--info)' },
+                    { label: 'Enrolled', color: 'var(--accent)' },
+                    ...(weekly ? [{ label: 'Cost per client ($)', color: 'var(--warning)' }] : []),
+                  ]}
+                />
               }
             />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[840px]">
-                <thead>
-                  <tr
-                    style={{
-                      borderBottom: '1px solid var(--border-subtle)',
-                      background: 'var(--surface-sunken)',
-                    }}
-                  >
-                    {['Name', 'Email', 'Stage', 'Appointment', 'Value', 'Owner'].map(
-                      (h, i) => (
-                        <th
-                          key={h}
-                          className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] ${
-                            i >= 4 ? 'text-right' : 'text-left'
-                          }`}
-                          style={{ color: 'var(--text-quaternary)' }}
-                        >
-                          {h}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      className="transition-colors hover:bg-[var(--surface-hover)]"
-                      style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                    >
-                      <td className="px-4 py-3">
-                        <div
-                          className="text-[13px] font-medium"
-                          style={{ color: 'var(--text-primary)' }}
-                        >
-                          {lead.firstName} {lead.lastName}
-                        </div>
-                        <div
-                          className="text-[11.5px] mt-0.5"
-                          style={{ color: 'var(--text-quaternary)' }}
-                        >
-                          {lead.source ?? 'Unknown source'}
-                        </div>
-                      </td>
-                      <td
-                        className="px-4 py-3 text-[12.5px]"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {lead.email}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={ROLE_VARIANT[lead.semanticRole ?? 'other'] ?? 'neutral'}>
-                          {lead.stage}
-                        </Badge>
-                      </td>
-                      <td
-                        className="px-4 py-3 text-[12.5px] tabular"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {formatDate(lead.appointmentTime)}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-right text-[13px] font-semibold tabular"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        {lead.estimatedValue
-                          ? `$${(lead.estimatedValue / 100).toLocaleString()}`
-                          : '—'}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-right text-[12.5px]"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {lead.owner ?? '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={trendRows} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="ccApplied" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--info)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--info)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--grid-line)" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
+                <YAxis yAxisId="count" tickLine={false} axisLine={false} allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
+                {weekly && (
+                  <YAxis yAxisId="money" orientation="right" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
+                )}
+                <Tooltip content={<ChartTooltip />} />
+                <Area yAxisId="count" type="monotone" dataKey="applied" name="Applied" stroke="var(--info)" strokeWidth={2} fill="url(#ccApplied)" />
+                <Line yAxisId="count" type="monotone" dataKey="appliedPrev" name="Applied (comparison)" stroke="var(--info)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
+                <Line yAxisId="count" type="monotone" dataKey="enrolled" name="Enrolled" stroke="var(--accent)" strokeWidth={2.2} dot={false} />
+                <Line yAxisId="count" type="monotone" dataKey="enrolledPrev" name="Enrolled (comparison)" stroke="var(--accent)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
+                {weekly && (
+                  <Line yAxisId="money" type="monotone" dataKey="cac" name="Cost per client ($)" stroke="var(--warning)" strokeWidth={1.8} dot={false} connectNulls />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <Card padding="lg">
+            <CardHeader title="Insights" subtitle="Max three specific findings" icon={Sparkles} />
+            <EmptyState icon={<Sparkles size={18} />} title="AI insights arrive in Phase D" description="This card stays quiet until there is something specific to say." />
+          </Card>
+        </div>
       </PageBody>
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          isVisible={!!toast}
-          onClose={() => setToast(null)}
-        />
-      )}
+      <Toast isVisible={Boolean(error)} message="Could not refresh the scorecard" detail={error ?? undefined} type="error" onClose={() => undefined} />
     </>
+  );
+}
+
+export default function CommandCenterPage() {
+  return (
+    <Suspense
+      fallback={
+        <PageBody>
+          <PageLoader />
+        </PageBody>
+      }
+    >
+      <CommandCenter />
+    </Suspense>
   );
 }

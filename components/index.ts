@@ -8,6 +8,13 @@ export { Modal } from './Modal';
 export { Loader, PageLoader, SkeletonRow } from './Loader';
 export { Input, Select, Toggle } from './Input';
 
+// Phase B
+export { DateRangePicker } from './DateRangePicker';
+export { Funnel } from './Funnel';
+export { PeopleDrawer } from './PeopleDrawer';
+export { KpiDeltaTile } from './KpiDeltaTile';
+export { useScorecard } from './useScorecard';
+
 // Layout
 export { NavBar } from './NavBar';
 export { SampleDataBanner } from './SampleDataBanner';
