@@ -1,0 +1,569 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   FitFlow Design System
+   --------------------------------------------------------------------------
+   A single source of truth for colour, elevation, motion and type.
+
+   Structure: semantic CSS custom properties are declared per theme, then
+   mapped into Tailwind's @theme so utilities like `bg-surface` or
+   `text-secondary` resolve correctly in both modes without any dark: variants
+   scattered through the markup. Components reference roles ("surface",
+   "border-subtle"), never raw hex - which is what keeps the app consistent as
+   it grows.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* --- Base canvas ------------------------------------------------------ */
+  --bg-base: #f7f7f8;
+  --bg-canvas: #ffffff;
+  --bg-subtle: #fbfbfc;
+
+  /* --- Elevated surfaces ------------------------------------------------ */
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-overlay: rgba(255, 255, 255, 0.86);
+  --surface-hover: rgba(9, 9, 11, 0.032);
+  --surface-active: rgba(9, 9, 11, 0.055);
+  --surface-sunken: #f2f2f4;
+
+  /* --- Borders ---------------------------------------------------------- */
+  --border-subtle: rgba(9, 9, 11, 0.07);
+  --border-default: rgba(9, 9, 11, 0.11);
+  --border-strong: rgba(9, 9, 11, 0.18);
+  /* The 1px inner highlight along a raised surface's top edge. This is the
+     detail that reads as "physical" rather than flat. */
+  --border-highlight: rgba(255, 255, 255, 0.9);
+
+  /* --- Text ------------------------------------------------------------- */
+  --text-primary: #0c0d0e;
+  --text-secondary: #55585e;
+  --text-tertiary: #82868d;
+  --text-quaternary: #a5a8ae;
+  --text-inverse: #ffffff;
+
+  /* --- Accent: deep purple --------------------------------------------- */
+  --accent-50: #f4f1ff;
+  --accent-100: #ebe5ff;
+  --accent-200: #d9cfff;
+  --accent-300: #bda9ff;
+  --accent-400: #9c7aff;
+  --accent-500: #7c4dff;
+  --accent-600: #6d33f2;
+  --accent-700: #5b22d4;
+  --accent-800: #4c1dad;
+  --accent-900: #3f1b8a;
+  --accent: #6d33f2;
+  --accent-hover: #5b22d4;
+  --accent-text: #ffffff;
+  --accent-muted: rgba(109, 51, 242, 0.09);
+  --accent-ring: rgba(109, 51, 242, 0.32);
+
+  /* --- Semantic status -------------------------------------------------- */
+  --success: #128a5c;
+  --success-muted: rgba(18, 138, 92, 0.1);
+  --success-border: rgba(18, 138, 92, 0.24);
+
+  --warning: #b45309;
+  --warning-muted: rgba(180, 83, 9, 0.1);
+  --warning-border: rgba(180, 83, 9, 0.24);
+
+  --danger: #c72d3e;
+  --danger-muted: rgba(199, 45, 62, 0.1);
+  --danger-border: rgba(199, 45, 62, 0.24);
+
+  --info: #1f6feb;
+  --info-muted: rgba(31, 111, 235, 0.1);
+  --info-border: rgba(31, 111, 235, 0.24);
+
+  /* --- Elevation -------------------------------------------------------- */
+  /* Layered rather than single-blur: a tight contact shadow plus a wider
+     ambient one, which is how real light behaves and why it reads as depth. */
+  --shadow-xs: 0 1px 2px rgba(9, 9, 11, 0.05);
+  --shadow-sm:
+    0 1px 2px rgba(9, 9, 11, 0.05),
+    0 1px 3px rgba(9, 9, 11, 0.06);
+  --shadow-md:
+    0 2px 4px rgba(9, 9, 11, 0.04),
+    0 4px 12px rgba(9, 9, 11, 0.07);
+  --shadow-lg:
+    0 4px 8px rgba(9, 9, 11, 0.045),
+    0 12px 28px rgba(9, 9, 11, 0.09);
+  --shadow-xl:
+    0 8px 16px rgba(9, 9, 11, 0.06),
+    0 24px 56px rgba(9, 9, 11, 0.13);
+  --shadow-accent: 0 2px 12px rgba(109, 51, 242, 0.28);
+
+  /* --- Effects ---------------------------------------------------------- */
+  --blur-glass: 20px;
+  --blur-heavy: 40px;
+  --grid-line: rgba(9, 9, 11, 0.028);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Near-black with a cool cast rather than pure #000 - pure black kills the
+     sense of depth because shadows have nothing left to darken into. */
+  --bg-base: #08090a;
+  --bg-canvas: #0d0e10;
+  --bg-subtle: #0a0b0c;
+
+  --surface: #131417;
+  --surface-raised: #17181c;
+  --surface-overlay: rgba(19, 20, 23, 0.82);
+  --surface-hover: rgba(255, 255, 255, 0.045);
+  --surface-active: rgba(255, 255, 255, 0.075);
+  --surface-sunken: #0a0b0c;
+
+  --border-subtle: rgba(255, 255, 255, 0.065);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-highlight: rgba(255, 255, 255, 0.07);
+
+  --text-primary: #f2f3f5;
+  --text-secondary: #9ba1a9;
+  --text-tertiary: #6f757e;
+  --text-quaternary: #4e535a;
+  --text-inverse: #0c0d0e;
+
+  /* Accent lifts in dark mode - the same purple reads muddy against black. */
+  --accent: #8f66ff;
+  --accent-hover: #a17fff;
+  --accent-text: #ffffff;
+  --accent-muted: rgba(143, 102, 255, 0.15);
+  --accent-ring: rgba(143, 102, 255, 0.4);
+
+  --success: #3fcf8e;
+  --success-muted: rgba(63, 207, 142, 0.14);
+  --success-border: rgba(63, 207, 142, 0.28);
+
+  --warning: #f5a524;
+  --warning-muted: rgba(245, 165, 36, 0.14);
+  --warning-border: rgba(245, 165, 36, 0.28);
+
+  --danger: #ff6369;
+  --danger-muted: rgba(255, 99, 105, 0.14);
+  --danger-border: rgba(255, 99, 105, 0.28);
+
+  --info: #4d9bff;
+  --info-muted: rgba(77, 155, 255, 0.14);
+  --info-border: rgba(77, 155, 255, 0.28);
+
+  /* Dark-mode shadows lean on opacity, not blur - plus the top highlight does
+     more of the work of separating a surface from its background. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md:
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg:
+    0 4px 8px rgba(0, 0, 0, 0.45),
+    0 12px 28px rgba(0, 0, 0, 0.55);
+  --shadow-xl:
+    0 8px 16px rgba(0, 0, 0, 0.5),
+    0 24px 56px rgba(0, 0, 0, 0.65);
+  --shadow-accent: 0 2px 16px rgba(143, 102, 255, 0.35);
+
+  --grid-line: rgba(255, 255, 255, 0.026);
+}
+
+/* Map semantic properties into Tailwind utilities. */
+@theme inline {
+  --color-base: var(--bg-base);
+  --color-canvas: var(--bg-canvas);
+  --color-subtle: var(--bg-subtle);
+
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+  --color-quaternary: var(--text-quaternary);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-muted: var(--accent-muted);
+
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-info: var(--info);
+  --color-info-muted: var(--info-muted);
+
+  /* Inter first, then the platform UI face. On macOS the fallback is SF Pro,
+     which is close enough in metrics that a failed webfont load is barely
+     perceptible rather than a visual collapse. */
+  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    'Segoe UI', Roboto, sans-serif;
+  --font-jetbrains: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+  border-color: var(--border-subtle);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter);
+  /* 14px base. Dense-but-readable is the register professional tools work in;
+     16px reads as a marketing site. */
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Only theme-relevant properties transition, and only when the user toggles -
+   a blanket `* { transition }` makes every hover feel laggy. */
+body,
+body * {
+  transition:
+    background-color 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html.theme-switching * {
+  transition-duration: 220ms !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  letter-spacing: -0.021em;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+h1 {
+  letter-spacing: -0.028em;
+}
+
+/* Tabular figures everywhere numbers are compared vertically. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Scrollbars - thin and unobtrusive, matching the theme
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-quaternary);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+
+/* ==========================================================================
+   Surface primitives
+   ========================================================================== */
+
+/* A raised panel: base shadow for lift, plus an inset hairline along the top
+   edge simulating light catching the bevel. */
+.surface-raised {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    var(--shadow-sm),
+    inset 0 1px 0 0 var(--border-highlight);
+}
+
+.surface-glass {
+  background: var(--surface-overlay);
+  backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    var(--shadow-md),
+    inset 0 1px 0 0 var(--border-highlight);
+}
+
+.surface-sunken {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Faint grid, like graph paper under the content. Adds texture without noise. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Accent glow behind hero areas. */
+.accent-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    620px circle at 12% -30%,
+    var(--accent-muted),
+    transparent 62%
+  );
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Focus - visible for keyboard users, invisible for mouse users
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulseSoft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-rise {
+  animation: riseIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-fade {
+  animation: fadeIn 200ms ease both;
+}
+.animate-scale {
+  animation: scaleIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-slide-down {
+  animation: slideDown 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger helper - list items rise in sequence rather than all at once. */
+.stagger > * {
+  animation: riseIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 28ms; }
+.stagger > *:nth-child(3) { animation-delay: 56ms; }
+.stagger > *:nth-child(4) { animation-delay: 84ms; }
+.stagger > *:nth-child(5) { animation-delay: 112ms; }
+.stagger > *:nth-child(6) { animation-delay: 140ms; }
+.stagger > *:nth-child(7) { animation-delay: 168ms; }
+.stagger > *:nth-child(8) { animation-delay: 196ms; }
+.stagger > *:nth-child(9) { animation-delay: 224ms; }
+.stagger > *:nth-child(10) { animation-delay: 252ms; }
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--surface-hover),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Form controls
+   ========================================================================== */
+
+input,
+select,
+textarea {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-quaternary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+/* Date pickers render a near-invisible black icon in dark mode. */
+[data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+}
+
+/* ==========================================================================
+   Recharts theming - the library inlines light-mode defaults
+   ========================================================================== */
+
+.recharts-cartesian-grid line {
+  stroke: var(--border-subtle);
+}
+.recharts-text,
+.recharts-cartesian-axis-tick-value {
+  fill: var(--text-tertiary);
+  font-size: 11.5px;
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--border-subtle);
+}
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+.recharts-legend-item-text {
+  color: var(--text-secondary) !important;
+  font-size: 12px;
+}
+.recharts-surface {
+  overflow: visible;
+}
