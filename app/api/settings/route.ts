@@ -14,6 +14,9 @@ export async function GET() {
       autoSyncEnabled: stored[SETTING_KEYS.autoSyncEnabled] !== 'false',
       summaryRecipientEmail: stored[SETTING_KEYS.summaryRecipientEmail] ?? '',
       digestRecipients: stored[SETTING_KEYS.digestRecipients] ?? '',
+      digestRecipientsTodo: stored[SETTING_KEYS.digestRecipientsTodo] ?? '',
+      digestRecipientsWeekly: stored[SETTING_KEYS.digestRecipientsWeekly] ?? '',
+      digestRecipientsMonthly: stored[SETTING_KEYS.digestRecipientsMonthly] ?? '',
       lastAutoSyncAt: stored[SETTING_KEYS.ghlLastSyncAt] ?? null,
       backfillFrom: stored[SETTING_KEYS.backfillFrom] ?? '2026-06-16',
       ghl: {
@@ -57,6 +60,13 @@ export async function POST(request: NextRequest) {
     if (typeof body.digestRecipients === 'string') {
       await setSetting(SETTING_KEYS.digestRecipients, body.digestRecipients);
     }
+    for (const [field, key] of [
+      ['digestRecipientsTodo', SETTING_KEYS.digestRecipientsTodo],
+      ['digestRecipientsWeekly', SETTING_KEYS.digestRecipientsWeekly],
+      ['digestRecipientsMonthly', SETTING_KEYS.digestRecipientsMonthly],
+    ] as const) {
+      if (typeof body[field] === 'string') await setSetting(key, body[field]);
+    }
     if (typeof body.backfillFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.backfillFrom)) {
       await setSetting(SETTING_KEYS.backfillFrom, body.backfillFrom);
     }
@@ -68,6 +78,9 @@ export async function POST(request: NextRequest) {
       autoSyncEnabled: stored[SETTING_KEYS.autoSyncEnabled] !== 'false',
       summaryRecipientEmail: stored[SETTING_KEYS.summaryRecipientEmail] ?? '',
       digestRecipients: stored[SETTING_KEYS.digestRecipients] ?? '',
+      digestRecipientsTodo: stored[SETTING_KEYS.digestRecipientsTodo] ?? '',
+      digestRecipientsWeekly: stored[SETTING_KEYS.digestRecipientsWeekly] ?? '',
+      digestRecipientsMonthly: stored[SETTING_KEYS.digestRecipientsMonthly] ?? '',
       backfillFrom: stored[SETTING_KEYS.backfillFrom],
     });
   } catch (error) {

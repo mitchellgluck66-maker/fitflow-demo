@@ -11,8 +11,11 @@ import { eq } from 'drizzle-orm';
 
 export const SETTING_KEYS = {
   timezone: 'timezone',
-  /** Comma-separated recipient list for the daily to-do digest. */
+  /** Comma-separated recipient lists per digest. */
   digestRecipients: 'digest_recipients',
+  digestRecipientsTodo: 'digest_recipients_todo',
+  digestRecipientsWeekly: 'digest_recipients_weekly',
+  digestRecipientsMonthly: 'digest_recipients_monthly',
   summaryRecipientEmail: 'summary_recipient_email',
   summaryRecipientHistory: 'summary_recipient_history',
   /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
@@ -32,6 +35,10 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.autoSyncEnabled]: 'true',
   [SETTING_KEYS.summaryRecipientHistory]: '[]',
   [SETTING_KEYS.backfillFrom]: '2026-06-16',
+  // First sends go to Mitchell until recipients are changed on the Reports page.
+  [SETTING_KEYS.digestRecipientsTodo]: 'mitchellgluck66@gmail.com',
+  [SETTING_KEYS.digestRecipientsWeekly]: 'mitchellgluck66@gmail.com',
+  [SETTING_KEYS.digestRecipientsMonthly]: 'mitchellgluck66@gmail.com',
 };
 
 export async function getSetting(key: string): Promise<string | null> {
