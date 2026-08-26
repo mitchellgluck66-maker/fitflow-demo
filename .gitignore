@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local databases (SQLite legacy + embedded PGlite dev DB)
+db/*.db
+db/*.db-*
+db/pglite/
+
+# local artifacts
+*.tgz
