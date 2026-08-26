@@ -1,7 +1,8 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Native/WASM database drivers must not be bundled by webpack/turbopack.
+  serverExternalPackages: ['@electric-sql/pglite', 'postgres'],
 };
 
 export default nextConfig;

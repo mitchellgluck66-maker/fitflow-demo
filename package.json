@@ -7,29 +7,34 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "tsx db/migrate.ts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx db/seed.ts",
-    "db:seed:appointments": "tsx db/seed-appointments.ts",
-    "sync:now": "tsx scripts/sync-now.ts"
+    "sync:now": "tsx scripts/sync-now.ts",
+    "backfill": "tsx scripts/backfill.ts",
+    "verify:readonly": "bash scripts/verify-readonly.sh",
+    "check": "npm run typecheck && npm run test && npm run verify:readonly && npm run build"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.7",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.0",
     "lucide-react": "^1.33.0",
     "next": "16.3.1",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260819.1",
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "better-sqlite3": "^13.0.3",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "eslint": "^9",
@@ -37,6 +42,6 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5",
-    "wrangler": "^4.124.0"
+    "vitest": "^4.1.11"
   }
 }
