@@ -93,6 +93,28 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - `/today` + `lib/ghl/{sync,mapping}.ts` are dormant (unlinked, gated).
 - `npm run check` = typecheck + vitest + verify:readonly + build.
 
+## Phase B status (done 2026-08-26)
+
+- `lib/dates/`: presets → Sun–Sat weeks in the business tz; `previousPeriod`
+  keeps week/month alignment, `samePeriodLastYear` shifts weeks by 364 days;
+  `trailingWeeks(date, 8)` is the funnel-chip baseline. 18 tests (DST, month ends).
+- `lib/metrics/`: pure engine (`index.ts`, 21 fixture tests), `load.ts` is the
+  only DB touchpoint, `service.ts#getScorecard/getTodoBuckets` is the one call
+  path for `/api/scorecard`, the Command Center, /funnel AND the emails.
+  Funnel definitions live in the header comment of `lib/metrics/index.ts`.
+- Nav: Command Center (/) · Funnel · Reports · Setup. `/metrics`, `/settings`,
+  `/today` are dormant (routable, unlinked).
+- Revenue/ROAS render "Awaiting Stripe" until a `payments` row with
+  origin='stripe' exists — never a number.
+- Manual weekly spend: `/setup#spend` → `ad_spend` rows `manual:{platform}:{weekStart}`;
+  `computeSpend` drops manual rows for any platform+week that has an API row.
+- Emails (`lib/email/`): daily_todo, weekly (last Sun–Sat week vs previous),
+  monthly (last month). Skip when empty; idempotent per (kind, period); without
+  `RESEND_API_KEY` the digest is stored (`email_digests.status='stored'`) and
+  viewable on /reports. Recipients: settings `digest_recipients_{todo,weekly,monthly}`,
+  default mitchellgluck66@gmail.com until changed on /reports. Crons fire at
+  11 and 12 UTC and the route only runs when it is 7am in the business tz.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
