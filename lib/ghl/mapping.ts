@@ -1,5 +1,10 @@
 /**
- * Outcome -> GoHighLevel write-back mapping.
+ * DORMANT — legacy outcome -> GoHighLevel write-back mapping.
+ *
+ * FitFlow v2 is read-only (CLAUDE.md rule 1). Nothing imports this module
+ * except lib/ghl/sync.ts, which is itself gated behind ENABLE_WRITEBACK
+ * (hard-off). Kept for history; do not wire it into anything.
+ *
  *
  * This is the answer to "what else should this sheet affect in GHL". Marking one
  * appointment is never a single write: it touches the calendar event, the
@@ -23,7 +28,7 @@
  *     without anyone needing to open this dashboard.
  */
 
-import type { GhlAppointmentStatus, GhlOpportunityStatus } from './types';
+import type { GhlAppointmentStatus, GhlOpportunityStatus } from './schemas';
 
 /** The three buttons a staff member sees on the Today View. */
 export type Outcome = 'booked' | 'no_show' | 'not_continuing';
