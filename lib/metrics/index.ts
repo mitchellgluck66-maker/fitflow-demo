@@ -41,6 +41,8 @@ export interface ContactRow {
   appliedOn: string | null;
   monetaryValueCents: number;
   origin: string;
+  /** utm_campaign from GHL attribution — joins to ad platform campaigns by name. */
+  campaign?: string | null;
 }
 
 export interface TransitionRow {
@@ -70,18 +72,37 @@ export interface SpendRow {
   date: string;
   platform: string;
   spendCents: number;
-  /** 'manual' rows are superseded by API rows for the same week (Phase C). */
+  /** 'manual' weekly rows are a per-day fallback wherever an API row exists (see expandSpend). */
   origin: string;
+  /** campaign | adset | ad | manual */
+  level?: string;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  adsetName?: string | null;
+  adName?: string | null;
+  impressions?: number | null;
+  clicks?: number | null;
+  /** Platform-reported leads (Meta `lead` action). */
+  leads?: number | null;
 }
 
 export interface PaymentRow {
+  id?: string;
+  stripeId?: string;
   contactId: string | null;
+  /** charge | invoice | subscription | refund */
+  kind?: string;
   amountCents: number;
   refundedCents: number;
+  /** succeeded | failed | refunded | pending | active | canceled … */
   status: string;
   /** Local calendar date. */
   on: string | null;
   origin: string;
+  email?: string | null;
+  customerName?: string | null;
+  description?: string | null;
+  matchSource?: string | null;
 }
 
 export interface MetricsInput {
@@ -170,14 +191,79 @@ export function funnelMembership(input: MetricsInput, range: Range): Record<Funn
   };
 }
 
+export interface DailySpend {
+  date: string;
+  platform: string;
+  spendCents: number;
+  /** 'api' when an API row covers the day, 'manual' when the weekly fallback does. */
+  from: 'api' | 'manual';
+  origin: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  impressions: number;
+  clicks: number;
+  leads: number;
+}
+
+/**
+ * Spend precedence (Phase C):
+ *   - API rows (origin meta/google) are the truth for their platform + date.
+ *   - A manual weekly row is spread evenly over its 7 days (integer cents,
+ *     remainder on the Sunday) and used ONLY for days of that week where the
+ *     platform has no API row. Manual therefore stays the fallback for
+ *     uncovered dates and never double-counts a day Meta already reports.
+ *   - Demo rows behave like manual rows.
+ */
+export function expandSpend(spend: SpendRow[]): DailySpend[] {
+  const apiDays = new Set<string>();
+  const out: DailySpend[] = [];
+
+  for (const s of spend) {
+    if (s.origin === 'manual' || s.origin === 'demo') continue;
+    apiDays.add(`${s.platform}:${s.date}`);
+    out.push({
+      date: s.date,
+      platform: s.platform,
+      spendCents: s.spendCents,
+      from: 'api',
+      origin: s.origin,
+      campaignId: s.campaignId ?? null,
+      campaignName: s.campaignName ?? null,
+      impressions: s.impressions ?? 0,
+      clicks: s.clicks ?? 0,
+      leads: s.leads ?? 0,
+    });
+  }
+
+  for (const s of spend) {
+    if (s.origin !== 'manual' && s.origin !== 'demo') continue;
+    const base = Math.floor(s.spendCents / 7);
+    const remainder = s.spendCents - base * 7;
+    const sunday = weekOf(s.date);
+    for (let i = 0; i < 7; i += 1) {
+      const date = dayShift(sunday, i);
+      if (apiDays.has(`${s.platform}:${date}`)) continue;
+      out.push({
+        date,
+        platform: s.platform,
+        spendCents: base + (i === 0 ? remainder : 0),
+        from: 'manual',
+        origin: s.origin,
+        campaignId: null,
+        campaignName: s.campaignName ?? `Manual entry (${s.platform})`,
+        impressions: 0,
+        clicks: 0,
+        leads: 0,
+      });
+    }
+  }
+  return out;
+}
+
 export function computeSpend(spend: SpendRow[], range: Range): number {
-  // Phase C rule: when an API row (meta/google) exists for a week, manual rows
-  // for the same platform+week are ignored. Manual-only today.
-  const apiWeeks = new Set(spend.filter((s) => s.origin !== 'manual' && s.origin !== 'demo').map((s) => `${s.platform}:${weekOf(s.date)}`));
-  return spend
-    .filter((s) => inRange(s.date, range))
-    .filter((s) => !(s.origin === 'manual' && apiWeeks.has(`${s.platform}:${weekOf(s.date)}`)))
-    .reduce((sum, s) => sum + s.spendCents, 0);
+  return expandSpend(spend)
+    .filter((d) => inRange(d.date, range))
+    .reduce((sum, d) => sum + d.spendCents, 0);
 }
 
 /** Sunday of the Sun–Sat week containing a YYYY-MM-DD (duplicated here to stay dependency-free). */
@@ -185,6 +271,13 @@ function weekOf(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() - dt.getUTCDay());
+  return dt.toISOString().slice(0, 10);
+}
+
+function dayShift(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
 }
 
@@ -492,13 +585,6 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   roadmap_noshow: 'Roadmap no-show',
 };
 
-function dayShift(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
 /**
  * Who needs a call today?
  *   applied_no_booking — applied exactly N days ago, still in the applied
@@ -628,6 +714,265 @@ export function computeScorecard(
     timeInStage: computeTimeInStage(input, range),
     empty: funnel.stages.every((s) => s.count === 0),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Ads (Phase C): KPIs + campaign table
+// ---------------------------------------------------------------------------
+
+export interface AdsKpis {
+  spendCents: number;
+  costPerLeadCents: number | null;
+  costPerConsultCents: number | null;
+  cacCents: number | null;
+  roas: number | null;
+  awaitingStripe: boolean;
+  /** No API-origin spend rows at all in range → "connect Meta" state. */
+  apiConnected: boolean;
+  byPlatform: Array<{ platform: string; spendCents: number; apiCents: number; manualCents: number }>;
+}
+
+export interface CampaignRow {
+  key: string;
+  campaignId: string | null;
+  campaignName: string;
+  platform: string;
+  from: 'api' | 'manual';
+  spendCents: number;
+  impressions: number;
+  clicks: number;
+  /** Platform-reported leads (Meta lead actions). */
+  platformLeads: number;
+  /** FitFlow-tracked funnel counts: contacts whose utm_campaign matches. */
+  tracked: Record<FunnelStageKey, number>;
+  costPer: Record<FunnelStageKey, number | null>;
+  /** Contact ids per stage, for drill-down. */
+  contactIds: Record<FunnelStageKey, string[]>;
+}
+
+function normalizeCampaign(name: string | null | undefined): string {
+  return (name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Campaign table: spend/impressions/clicks per campaign from expanded spend
+ * rows, joined to the funnel by normalised campaign name against each
+ * contact's utm_campaign. Manual weekly spend appears as one "Manual entry"
+ * row per platform so the table is never empty while Meta is unconnected.
+ */
+export function computeCampaignTable(input: MetricsInput, range: Range): CampaignRow[] {
+  const contactCampaign = new Map(input.contacts.map((c) => [c.id, c.campaign ?? null]));
+  const members = funnelMembership(input, range);
+  const rows = new Map<string, CampaignRow>();
+  const emptyCounts = (): Record<FunnelStageKey, number> => ({ applied: 0, consult_booked: 0, consult_showed: 0, roadmap_booked: 0, roadmap_showed: 0, enrolled: 0 });
+  const emptyIds = (): Record<FunnelStageKey, string[]> => ({ applied: [], consult_booked: [], consult_showed: [], roadmap_booked: [], roadmap_showed: [], enrolled: [] });
+
+  for (const d of expandSpend(input.spend).filter((x) => inRange(x.date, range))) {
+    const name = d.from === 'manual' ? `Manual entry (${d.platform})` : (d.campaignName ?? d.campaignId ?? 'Unnamed campaign');
+    const key = d.from === 'manual' ? `manual:${d.platform}` : `${d.platform}:${d.campaignId ?? normalizeCampaign(name)}`;
+    if (!rows.has(key)) {
+      rows.set(key, {
+        key,
+        campaignId: d.campaignId,
+        campaignName: name,
+        platform: d.platform,
+        from: d.from,
+        spendCents: 0,
+        impressions: 0,
+        clicks: 0,
+        platformLeads: 0,
+        tracked: emptyCounts(),
+        costPer: { applied: null, consult_booked: null, consult_showed: null, roadmap_booked: null, roadmap_showed: null, enrolled: null },
+        contactIds: emptyIds(),
+      });
+    }
+    const r = rows.get(key)!;
+    r.spendCents += d.spendCents;
+    r.impressions += d.impressions;
+    r.clicks += d.clicks;
+    r.platformLeads += d.leads;
+  }
+
+  // Join contacts to campaigns by normalised name.
+  const byName = new Map<string, CampaignRow>();
+  for (const r of rows.values()) if (r.from === 'api') byName.set(normalizeCampaign(r.campaignName), r);
+  for (const key of Object.keys(members) as FunnelStageKey[]) {
+    for (const id of members[key]) {
+      const row = byName.get(normalizeCampaign(contactCampaign.get(id)));
+      if (!row) continue;
+      row.tracked[key] += 1;
+      row.contactIds[key].push(id);
+    }
+  }
+
+  for (const r of rows.values()) {
+    for (const key of Object.keys(r.tracked) as FunnelStageKey[]) {
+      r.costPer[key] = r.tracked[key] > 0 && r.spendCents > 0 ? Math.round(r.spendCents / r.tracked[key]) : null;
+    }
+  }
+
+  return Array.from(rows.values()).sort((a, b) => b.spendCents - a.spendCents || a.campaignName.localeCompare(b.campaignName));
+}
+
+export function computeAdsKpis(input: MetricsInput, range: Range): AdsKpis {
+  const daily = expandSpend(input.spend).filter((d) => inRange(d.date, range));
+  const spendCents = daily.reduce((s, d) => s + d.spendCents, 0);
+  const members = funnelMembership(input, range);
+  const revenue = computeRevenue(input, range);
+  const platforms = new Map<string, { apiCents: number; manualCents: number }>();
+  for (const d of daily) {
+    if (!platforms.has(d.platform)) platforms.set(d.platform, { apiCents: 0, manualCents: 0 });
+    const p = platforms.get(d.platform)!;
+    if (d.from === 'api') p.apiCents += d.spendCents;
+    else p.manualCents += d.spendCents;
+  }
+  const per = (n: number) => (n > 0 && spendCents > 0 ? Math.round(spendCents / n) : null);
+  return {
+    spendCents,
+    costPerLeadCents: per(members.applied.length),
+    costPerConsultCents: per(members.consult_booked.length),
+    cacCents: per(members.enrolled.length),
+    roas: revenue.roas,
+    awaitingStripe: revenue.awaitingStripe,
+    apiConnected: daily.some((d) => d.from === 'api'),
+    byPlatform: Array.from(platforms.entries())
+      .map(([platform, p]) => ({ platform, spendCents: p.apiCents + p.manualCents, ...p }))
+      .sort((a, b) => b.spendCents - a.spendCents),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Revenue (Phase C): KPIs + payments list with cohorts
+// ---------------------------------------------------------------------------
+
+export interface PaymentDetail {
+  id: string;
+  stripeId: string | null;
+  kind: string;
+  status: string;
+  amountCents: number;
+  refundedCents: number;
+  on: string | null;
+  email: string | null;
+  customerName: string | null;
+  description: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  source: string | null;
+  /** Sun–Sat week the matched contact applied in, e.g. "2026-08-16". */
+  cohortWeek: string | null;
+  matchSource: string | null;
+}
+
+export interface RevenueSummary {
+  awaitingStripe: boolean;
+  collectedCents: number;
+  /** Monthly-normalised sum of active subscriptions (not range-bound). */
+  recurringCents: number;
+  activeSubscriptions: number;
+  failedCount: number;
+  failedCents: number;
+  refundedCents: number;
+  refundCount: number;
+  /** Payments in range, failed pinned first, then newest first. */
+  payments: PaymentDetail[];
+  unmatchedCount: number;
+}
+
+export function computeRevenueSummary(input: MetricsInput, range: Range): RevenueSummary {
+  const base = computeRevenue(input, range);
+  const contactById = new Map(input.contacts.map((c) => [c.id, c]));
+  const inR = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
+  const subs = input.payments.filter((p) => p.kind === 'subscription' && (p.status === 'active' || p.status === 'trialing' || p.status === 'past_due'));
+
+  const detail = (p: PaymentRow, i: number): PaymentDetail => {
+    const c = p.contactId ? contactById.get(p.contactId) : undefined;
+    return {
+      id: p.id ?? p.stripeId ?? String(i),
+      stripeId: p.stripeId ?? null,
+      kind: p.kind ?? 'charge',
+      status: p.status,
+      amountCents: p.amountCents,
+      refundedCents: p.refundedCents,
+      on: p.on,
+      email: p.email ?? null,
+      customerName: p.customerName ?? null,
+      description: p.description ?? null,
+      contactId: p.contactId,
+      contactName: c?.name ?? null,
+      source: c?.source ?? null,
+      cohortWeek: c?.appliedOn ? weekOf(c.appliedOn) : null,
+      matchSource: p.matchSource ?? null,
+    };
+  };
+
+  const list = inR.map(detail).sort((a, b) => {
+    const fa = a.status === 'failed' ? 0 : 1;
+    const fb = b.status === 'failed' ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+    return (b.on ?? '') < (a.on ?? '') ? -1 : (b.on ?? '') > (a.on ?? '') ? 1 : 0;
+  });
+
+  return {
+    awaitingStripe: base.awaitingStripe,
+    collectedCents: base.collectedCents,
+    recurringCents: subs.reduce((s, p) => s + p.amountCents, 0),
+    activeSubscriptions: subs.length,
+    failedCount: base.failedCount,
+    failedCents: inR.filter((p) => p.status === 'failed').reduce((s, p) => s + p.amountCents, 0),
+    refundedCents: base.refundedCents,
+    refundCount: inR.filter((p) => p.refundedCents > 0).length,
+    payments: list,
+    unmatchedCount: inR.filter((p) => !p.contactId && p.status === 'succeeded').length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Payment ↔ contact matching (identity by normalised email / phone)
+// ---------------------------------------------------------------------------
+
+export interface MatchablePayment {
+  id: string;
+  emailNormalized: string | null;
+  phoneNormalized: string | null;
+  contactId: string | null;
+  matchSource: string | null;
+}
+
+export interface MatchableContact {
+  id: string;
+  emailNormalized: string | null;
+  phoneNormalized: string | null;
+}
+
+export interface PaymentMatch {
+  paymentId: string;
+  contactId: string;
+  by: 'email' | 'phone';
+}
+
+/**
+ * Pure matcher. Email wins over phone. Payments with a manual match are never
+ * touched; already-auto-matched payments are re-evaluated (a contact may have
+ * been created after the payment arrived) but only ever gain a match.
+ */
+export function matchPayments(payments: MatchablePayment[], contacts: MatchableContact[]): PaymentMatch[] {
+  const byEmail = new Map<string, string>();
+  const byPhone = new Map<string, string>();
+  for (const c of contacts) {
+    if (c.emailNormalized && !byEmail.has(c.emailNormalized)) byEmail.set(c.emailNormalized, c.id);
+    if (c.phoneNormalized && !byPhone.has(c.phoneNormalized)) byPhone.set(c.phoneNormalized, c.id);
+  }
+  const out: PaymentMatch[] = [];
+  for (const p of payments) {
+    if (p.matchSource === 'manual') continue;
+    const byE = p.emailNormalized ? byEmail.get(p.emailNormalized) : undefined;
+    const byP = p.phoneNormalized ? byPhone.get(p.phoneNormalized) : undefined;
+    const contactId = byE ?? byP;
+    if (!contactId || contactId === p.contactId) continue;
+    out.push({ paymentId: p.id, contactId, by: byE ? 'email' : 'phone' });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

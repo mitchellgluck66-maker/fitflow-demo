@@ -16,7 +16,6 @@ import {
   History,
   AlertTriangle,
   Activity,
-  DollarSign,
 } from 'lucide-react';
 import {
   Card,
@@ -31,7 +30,9 @@ import {
   PageBody,
   PageLoader,
 } from '@/components';
-import { SpendEntry } from '@/components/SpendEntry';
+import { MetaCard } from '@/components/setup/MetaCard';
+import { StripeCard } from '@/components/setup/StripeCard';
+import { UnmatchedPayments } from '@/components/setup/UnmatchedPayments';
 
 interface Credentials {
   configured: boolean;
@@ -632,16 +633,9 @@ export default function SetupPage() {
         </Card>
 
         {/* ---- Ad spend (manual) ---- */}
-        <div id="spend">
-          <Card padding="lg">
-            <CardHeader
-              title="Ad spend (manual, weekly)"
-              subtitle="Sun–Sat weeks, in dollars. Replaced by real Meta/Google spend in Phase C."
-              icon={DollarSign}
-            />
-            <SpendEntry />
-          </Card>
-        </div>
+        {/* ---- Money rails (Phase C) ---- */}
+        <MetaCard />
+        <StripeCard />
 
         {/* ---- Sync health ---- */}
         <Card padding="lg">
@@ -655,6 +649,8 @@ export default function SetupPage() {
               </Badge>
             }
           />
+
+          <UnmatchedPayments />
 
           {incidents.length > 0 && (
             <ul className="space-y-1.5 mb-4">

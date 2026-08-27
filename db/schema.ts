@@ -305,8 +305,14 @@ export const adSpend = pgTable(
      */
     externalId: text('external_id').notNull(),
     accountId: text('account_id'),
+    /** campaign | adset | ad | manual — granularity of this row. */
+    level: text('level').notNull().default('manual'),
     campaignId: text('campaign_id'),
     campaignName: text('campaign_name'),
+    adsetId: text('adset_id'),
+    adsetName: text('adset_name'),
+    adId: text('ad_id'),
+    adName: text('ad_name'),
     /** Business-local calendar date the spend applies to. */
     date: date('date').notNull(),
     spendCents: integer('spend_cents').notNull().default(0),
@@ -349,6 +355,11 @@ export const payments = pgTable(
     phoneNormalized: text('phone_normalized'),
     /** Resolved by identity join (email/phone) — null until matched. */
     contactId: text('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+    /** auto (email/phone join) | manual (picked in Setup — never overwritten by sync). */
+    matchSource: text('match_source'),
+    customerName: text('customer_name'),
+    /** For subscriptions: monthly-normalised plan amount lives in amountCents. */
+    intervalMonths: integer('interval_months'),
     description: text('description'),
     paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
     failedAt: timestamp('failed_at', { withTimezone: true, mode: 'date' }),

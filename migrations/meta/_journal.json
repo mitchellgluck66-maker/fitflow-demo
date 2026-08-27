@@ -8,6 +8,13 @@
       "when": 1787763474140,
       "tag": "0000_fitflow_v2_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787802305673,
+      "tag": "0001_money_rails",
+      "breakpoints": true
     }
   ]
 }

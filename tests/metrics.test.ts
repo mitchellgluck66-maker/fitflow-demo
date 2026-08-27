@@ -136,13 +136,14 @@ describe('spend, CAC and revenue', () => {
     expect(computeSpend(FIXTURE.spend, P)).toBe(50_000);
   });
 
-  it('API spend supersedes manual spend for the same platform + week', () => {
+  it('an API row replaces the manual fallback for its date only', () => {
     const spend = [
       ...FIXTURE.spend,
-      { date: '2026-08-04', platform: 'meta', spendCents: 90_000, origin: 'meta' }, // real Meta row, same week
+      { date: '2026-08-04', platform: 'meta', spendCents: 90_000, origin: 'meta' }, // real Meta row, one day
     ];
-    // manual meta 100,000 ignored; manual google 20,000 kept; meta api 90,000
-    expect(computeSpend(spend, R)).toBe(110_000);
+    // manual meta 100,000 ÷ 7 = 14,285 r5 → Sunday 14,290; Tue Aug 4 replaced by 90,000
+    // meta: 100,000 − 14,285 + 90,000 = 175,715; google manual 20,000 untouched
+    expect(computeSpend(spend, R)).toBe(195_715);
   });
 
   it('CAC = spend ÷ enrollments; null when no enrollments', () => {

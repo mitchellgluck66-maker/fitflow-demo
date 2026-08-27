@@ -23,6 +23,12 @@ import {
   computeScorecard,
   computeTrend,
   computeTodoBuckets,
+  computeAdsKpis,
+  computeCampaignTable,
+  computeRevenueSummary,
+  type AdsKpis,
+  type CampaignRow,
+  type RevenueSummary,
   type Scorecard,
   type TrendPoint,
   type TodoBuckets,
@@ -38,6 +44,10 @@ export interface ScorecardResult {
   baseline: { start: string; end: string };
   scorecard: Scorecard;
   trend: { grain: 'day' | 'week'; current: TrendPoint[]; comparison: TrendPoint[] | null };
+  /** Ads tab: KPIs + campaign table (current and comparison period). */
+  ads: { kpis: AdsKpis; previousKpis: AdsKpis | null; campaigns: CampaignRow[]; previousCampaigns: CampaignRow[] | null };
+  /** Revenue tab. */
+  revenue: RevenueSummary;
 }
 
 export async function getScorecard(params: {
@@ -82,6 +92,13 @@ export async function getScorecard(params: {
       current: computeTrend(input, bucketsFor(range)),
       comparison: comparison.range ? computeTrend(input, bucketsFor(comparison.range)) : null,
     },
+    ads: {
+      kpis: computeAdsKpis(input, range),
+      previousKpis: comparison.range ? computeAdsKpis(input, comparison.range) : null,
+      campaigns: computeCampaignTable(input, range),
+      previousCampaigns: comparison.range ? computeCampaignTable(input, comparison.range) : null,
+    },
+    revenue: computeRevenueSummary(input, range),
   };
 }
 

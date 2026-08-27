@@ -20,6 +20,13 @@ export interface LoadOptions {
   pipelineId?: string;
 }
 
+function shiftDate(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
 export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput> {
   const { start, end } = rangeToInstants({ start: opts.start, end: opts.end }, opts.timezone);
   const tz = opts.timezone;
@@ -52,6 +59,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       createdAt: contacts.createdAt,
       monetaryValueCents: contacts.monetaryValueCents,
       origin: contacts.origin,
+      campaign: contacts.utmCampaign,
     })
     .from(contacts)
     .leftJoin(stages, eq(contacts.stageId, stages.id))
@@ -87,19 +95,41 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     .from(appointments)
     .where(and(gte(appointments.startTime, new Date(start.getTime() - 120 * 86_400_000)), lte(appointments.startTime, new Date(end.getTime() + 120 * 86_400_000))));
 
+  // Manual weekly rows are dated by their Sunday, so widen by a week each side.
   const spendRows = await db
-    .select({ date: adSpend.date, platform: adSpend.platform, spendCents: adSpend.spendCents, origin: adSpend.origin })
+    .select({
+      date: adSpend.date,
+      platform: adSpend.platform,
+      spendCents: adSpend.spendCents,
+      origin: adSpend.origin,
+      level: adSpend.level,
+      campaignId: adSpend.campaignId,
+      campaignName: adSpend.campaignName,
+      adsetName: adSpend.adsetName,
+      adName: adSpend.adName,
+      impressions: adSpend.impressions,
+      clicks: adSpend.clicks,
+      leads: adSpend.leads,
+    })
     .from(adSpend)
-    .where(and(gte(adSpend.date, opts.start), lte(adSpend.date, opts.end)));
+    .where(and(gte(adSpend.date, shiftDate(opts.start, -7)), lte(adSpend.date, shiftDate(opts.end, 7))));
 
   const paymentRows = await db
     .select({
+      id: payments.id,
+      stripeId: payments.stripeId,
       contactId: payments.contactId,
+      kind: payments.kind,
       amountCents: payments.amountCents,
       refundedCents: payments.refundedCents,
       status: payments.status,
       paidAt: payments.paidAt,
+      failedAt: payments.failedAt,
       origin: payments.origin,
+      email: payments.email,
+      customerName: payments.customerName,
+      description: payments.description,
+      matchSource: payments.matchSource,
     })
     .from(payments);
 
@@ -115,6 +145,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       appliedOn: localDate(c.ghlCreatedAt ?? c.createdAt, tz),
       monetaryValueCents: c.monetaryValueCents ?? 0,
       origin: c.origin,
+      campaign: c.campaign,
     })),
     transitions: transitionRows.map((t) => ({
       contactId: t.contactId,
@@ -131,14 +162,21 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       on: localDate(a.startTime, tz),
       atMs: a.startTime.getTime(),
     })),
-    spend: spendRows.map((s) => ({ date: s.date, platform: s.platform, spendCents: s.spendCents, origin: s.origin })),
+    spend: spendRows,
     payments: paymentRows.map((p) => ({
+      id: p.id,
+      stripeId: p.stripeId,
       contactId: p.contactId,
+      kind: p.kind,
       amountCents: p.amountCents,
       refundedCents: p.refundedCents,
       status: p.status,
-      on: p.paidAt ? localDate(p.paidAt, tz) : null,
+      on: p.paidAt ? localDate(p.paidAt, tz) : p.failedAt ? localDate(p.failedAt, tz) : null,
       origin: p.origin,
+      email: p.email,
+      customerName: p.customerName,
+      description: p.description,
+      matchSource: p.matchSource,
     })),
   };
 }
