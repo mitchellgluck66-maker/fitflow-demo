@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'lib/**/*.test.ts'],
     environment: 'node',
-    env: { PGLITE_DATA_DIR: 'memory' },
+    // Tests NEVER touch a real database: in-memory PGlite, DATABASE_URL blanked.
+    env: { PGLITE_DATA_DIR: 'memory', DATABASE_URL: '' },
     testTimeout: 30_000,
   },
   resolve: {

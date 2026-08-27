@@ -16,8 +16,9 @@ npm run db:seed      # sample data, every row origin='demo'
 npm run dev          # http://localhost:3000
 ```
 
-With a Supabase project, set `DATABASE_URL` (see `.env.example`) and the same
-commands run against Postgres.
+With a Supabase project, put `DATABASE_URL` in `.env.local` (see `.env.example`)
+and the same commands run against Postgres — the CLIs load `.env.local` too, so
+`db:seed`, `sync:*` and the app always hit the same database.
 
 ## Connecting GoHighLevel (read-only)
 
@@ -29,8 +30,13 @@ commands run against Postgres.
 4. Confirm any **unmapped stages** in the stage-role table.
 5. **Remove sample data** once real rows are present.
 
-The hourly delta sync runs from Vercel cron (`vercel.json` → `/api/cron/sync-ghl`,
-protected by `CRON_SECRET`). CLI equivalents: `npm run sync:now`, `npm run backfill`.
+Vercel crons (`vercel.json`, `CRON_SECRET`-protected): `/api/cron/sync-ghl` hourly and
+`/api/cron/dispatch` (GHL → Meta → Stripe → digests) at 11/12 UTC. CLI equivalents:
+`npm run sync:now`, `npm run backfill`, `npm run sync:meta`, `npm run sync:stripe`.
+
+Meta Ads and Stripe are connected the same way on **/setup** (token pasted, verified
+with one read call, masked). Until then the Ads tab runs on manual weekly spend and the
+Revenue tab shows a "Connect Stripe" state — never estimated numbers.
 
 ## Scripts
 

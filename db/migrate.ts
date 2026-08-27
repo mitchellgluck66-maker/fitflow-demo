@@ -9,7 +9,12 @@ import * as schema from './schema';
 const migrationsFolder = path.join(__dirname, '..', 'migrations');
 
 export async function runMigrations(): Promise<void> {
-  if (!process.env.DATABASE_URL && typeof process.loadEnvFile === 'function') {
+  if (
+    !process.env.VITEST &&
+    !process.env.PGLITE_DATA_DIR &&
+    process.env.DATABASE_URL === undefined &&
+    typeof process.loadEnvFile === 'function'
+  ) {
     try {
       process.loadEnvFile(path.join(process.cwd(), '.env.local'));
     } catch {
