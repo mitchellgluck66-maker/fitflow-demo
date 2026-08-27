@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runGhlSync } from '@/lib/ghl/ingest';
 import { runMetaSync } from '@/lib/meta/ingest';
 import { runStripeSync } from '@/lib/stripe/ingest';
+import { runGoogleAdsSync } from '@/lib/googleads/ingest';
+import { runInsights } from '@/lib/anthropic/insights';
+import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
 import { localHour, SEND_HOUR_LOCAL } from '@/lib/email/cron';
 import { getTimezone } from '@/lib/settings';
@@ -19,10 +22,14 @@ export const maxDuration = 300;
  *   1. GHL delta sync        — always (idempotent)
  *   2. Meta insights delta   — always when configured (restates last 3 days)
  *   3. Stripe reconcile      — always when configured (last 7 days)
- *   4. Daily to-do digest    — only at 7am local; idempotent per day
- *   5. Weekly scorecard      — only Mondays at 7am local; idempotent per week
- *   6. Monthly scorecard     — only the 1st at 7am local; idempotent per month
- * `?only=ghl,meta,stripe,daily,weekly,monthly` limits the steps; `?force=1`
+ *   4. Google Ads delta      — always when configured (OAuth granted)
+ *   5. Insights (Anthropic)  — this week vs previous, cached by input hash
+ *   6. Weekly/monthly narrative — generated ahead of the Monday / 1st emails
+ *   7. Daily to-do digest    — only at 7am local; idempotent per day
+ *   8. Weekly scorecard      — only Mondays at 7am local; idempotent per week
+ *   9. Monthly scorecard     — only the 1st at 7am local; idempotent per month
+ * `?only=ghl,meta,stripe,google,insights,narrative,daily,weekly,monthly`
+ * limits the steps; `?force=1`
  * bypasses the hour/day guards (never the secret).
  */
 export async function GET(request: NextRequest) {
@@ -61,6 +68,15 @@ export async function GET(request: NextRequest) {
   if (want('ghl')) await run('ghl', () => runGhlSync({ mode: 'delta', trigger: 'cron' }));
   if (want('meta')) await run('meta', () => runMetaSync({ mode: 'delta', trigger: 'cron' }));
   if (want('stripe')) await run('stripe', () => runStripeSync({ mode: 'reconcile', trigger: 'cron' }));
+  if (want('google')) await run('google', () => runGoogleAdsSync({ mode: 'delta', trigger: 'cron' }));
+
+  // Intelligence: cheap when nothing changed (cached by input hash), silent
+  // without a key. Narratives are prepared the same morning the email goes.
+  if (want('insights')) await run('insights', () => runInsights({ range: 'this_week', compare: 'previous_period' }));
+  if (want('narrative')) {
+    if (force || dow === 1) await run('narrative_weekly', () => runWeeklyNarrative('weekly', { force }));
+    if (force || d === 1) await run('narrative_monthly', () => runWeeklyNarrative('monthly', { force }));
+  }
 
   if (want('daily')) {
     steps.daily = isSendHour ? await runDigest('daily_todo', { force }) : { skipped: 'not 7am local', localHour: hour };

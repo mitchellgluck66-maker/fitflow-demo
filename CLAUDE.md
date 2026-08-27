@@ -143,6 +143,35 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   still exist under `app/api/cron/*`) and, if desired, run dispatch hourly.
 - Read-only GHL guarantee untouched: `npm run verify:readonly` still passes.
 
+## Phase D status (done 2026-08-26 — intelligence + design; keys paste in later)
+
+- Outcome tokens in `app/globals.css`: `--positive*` (muted emerald) and
+  `--negative*` (muted crimson), both themes. Enrolled/converted = positive,
+  drop-off/no-show/failed = negative; purple stays the structural accent.
+- Command Center = 5 KPI tiles + compact `FunnelStrip` (links to /funnel) +
+  trend + `InsightsCard`. /funnel owns the full funnel, per-source table,
+  small multiples and people drawer. They are deliberately different.
+- Clients: `/clients` (search/filter/paginate) and `/clients/[id]` (identity,
+  stage + time-in-stage, unified timeline of transitions/appointments/payments,
+  "Open in GoHighLevel"). Every person anywhere links there. ⌘K global search.
+- Anthropic (`lib/anthropic/`): key in settings (masked); prompts in
+  `prompts.ts`; `lib/metrics/insights.ts#buildInsightInput` is the pure,
+  tested JSON snapshot handed to the model. Outputs cached in `ai_reports` by
+  input hash: kind `insight` (≤3 findings, deep links), `weekly_narrative` /
+  `monthly_narrative` (rendered in the scorecard email only when present).
+  Remap suggester: `POST /api/anthropic/suggest-role` — suggestion only,
+  applied by a human in Setup → Sync health.
+- Sync health (Setup): last run per source, rejected rows, unmapped stages
+  (assign / Claude-suggest → Apply), unmatched payments picker, incident list
+  with resolve. `lib/sentry.ts` posts errors when `SENTRY_DSN` is set.
+- Google Ads (`lib/googleads/`): full OAuth + GAQL client behind a "pending"
+  Setup card; CSV export upload on /ads writes `ad_spend` origin='google_csv'
+  (API-grade for its dates, replacing manual).
+- Reports: archive of every digest (sent/stored/skipped/failed) + per-digest
+  enabled toggles and recipients.
+- Dispatch order: GHL → Meta → Stripe → Google → insights → narratives →
+  digests. `vercel.json` unchanged (Hobby: 2 crons).
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
