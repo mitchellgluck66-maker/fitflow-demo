@@ -108,7 +108,7 @@ function CommandCenter() {
             sparkline={weekly ? spark('cacCents') : undefined}
             subtext={
               scorecard.cac.noSpendData ? (
-                <Link href="/setup#spend" style={{ color: 'var(--accent)' }}>
+                <Link href="/ads" style={{ color: 'var(--accent)' }}>
                   Enter weekly spend →
                 </Link>
               ) : scorecard.cac.cacCents === null ? (

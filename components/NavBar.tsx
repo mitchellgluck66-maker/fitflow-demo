@@ -8,6 +8,8 @@ import clsx from 'clsx';
 import {
   LayoutDashboard,
   Filter,
+  Megaphone,
+  Banknote,
   FileText,
   Plug,
   Eye,
@@ -17,6 +19,8 @@ import { ThemeToggle } from './ThemeToggle';
 const LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard, exact: true },
   { href: '/funnel', label: 'Funnel', icon: Filter },
+  { href: '/ads', label: 'Ads', icon: Megaphone },
+  { href: '/revenue', label: 'Revenue', icon: Banknote },
   { href: '/reports', label: 'Reports', icon: FileText },
   { href: '/setup', label: 'Setup', icon: Plug },
 ];

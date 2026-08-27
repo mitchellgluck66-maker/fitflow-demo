@@ -15,6 +15,10 @@ export { PeopleDrawer } from './PeopleDrawer';
 export { KpiDeltaTile } from './KpiDeltaTile';
 export { useScorecard } from './useScorecard';
 
+// Phase C
+export { CampaignTable } from './CampaignTable';
+export { PaymentsTable } from './PaymentsTable';
+
 // Layout
 export { NavBar } from './NavBar';
 export { SampleDataBanner } from './SampleDataBanner';
