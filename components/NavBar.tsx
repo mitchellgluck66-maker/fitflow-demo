@@ -10,17 +10,20 @@ import {
   Filter,
   Megaphone,
   Banknote,
+  Users,
   FileText,
   Plug,
   Eye,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { GlobalSearch } from './GlobalSearch';
 
 const LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard, exact: true },
   { href: '/funnel', label: 'Funnel', icon: Filter },
   { href: '/ads', label: 'Ads', icon: Megaphone },
   { href: '/revenue', label: 'Revenue', icon: Banknote },
+  { href: '/clients', label: 'Clients', icon: Users },
   { href: '/reports', label: 'Reports', icon: FileText },
   { href: '/setup', label: 'Setup', icon: Plug },
 ];
@@ -96,6 +99,7 @@ export const NavBar: React.FC = () => {
 
           {/* Right cluster */}
           <div className="flex items-center gap-2 shrink-0">
+            <GlobalSearch />
             <div
               title="FitFlow only reads from GoHighLevel. Nothing here changes Miranda's pipeline."
               className="hidden sm:flex items-center gap-1.5 h-[26px] px-2 rounded-[6px] text-[11.5px] font-medium"
