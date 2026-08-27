@@ -21,6 +21,7 @@
     "sync:stripe": "tsx scripts/sync-stripe.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.121.0",
     "@electric-sql/pglite": "^0.5.7",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.0",
