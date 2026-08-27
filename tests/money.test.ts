@@ -80,9 +80,19 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
     expect(computeSpend([manualMeta], { start: '2026-08-06', end: '2026-08-10' })).toBe(30_003);
   });
 
-  it('demo rows behave like manual rows', () => {
+  it('manual-level demo rows behave like manual rows', () => {
     const spend: SpendRow[] = [{ ...manualMeta, origin: 'demo' }, { date: '2026-08-03', platform: 'meta', spendCents: 500, origin: 'meta' }];
     expect(computeSpend(spend, R)).toBe(500 + 70_010 - 10_001);
+  });
+
+  it('campaign-level demo rows are API-grade: daily, and they suppress manual for their dates', () => {
+    const spend: SpendRow[] = [
+      manualMeta,
+      { date: '2026-08-03', platform: 'meta', spendCents: 2_000, origin: 'demo', level: 'campaign', campaignId: 'd1', campaignName: 'Demo Broad' },
+    ];
+    const days = expandSpend(spend).filter((d) => d.date === '2026-08-03');
+    expect(days).toEqual([expect.objectContaining({ from: 'api', spendCents: 2_000, campaignName: 'Demo Broad' })]);
+    expect(computeSpend(spend, R)).toBe(2_000 + 70_010 - 10_001);
   });
 });
 

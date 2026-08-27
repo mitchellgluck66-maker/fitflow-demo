@@ -212,14 +212,22 @@ export interface DailySpend {
  *     remainder on the Sunday) and used ONLY for days of that week where the
  *     platform has no API row. Manual therefore stays the fallback for
  *     uncovered dates and never double-counts a day Meta already reports.
- *   - Demo rows behave like manual rows.
+ *   - Demo rows follow their level: manual-level demo rows spread like manual;
+ *     campaign/ad-level demo rows are API-grade (the demo seed fakes daily
+ *     platform reporting).
  */
+function isManualLike(s: SpendRow): boolean {
+  if (s.origin === 'manual') return true;
+  if (s.origin === 'demo') return !s.level || s.level === 'manual';
+  return false;
+}
+
 export function expandSpend(spend: SpendRow[]): DailySpend[] {
   const apiDays = new Set<string>();
   const out: DailySpend[] = [];
 
   for (const s of spend) {
-    if (s.origin === 'manual' || s.origin === 'demo') continue;
+    if (isManualLike(s)) continue;
     apiDays.add(`${s.platform}:${s.date}`);
     out.push({
       date: s.date,
@@ -236,7 +244,7 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
   }
 
   for (const s of spend) {
-    if (s.origin !== 'manual' && s.origin !== 'demo') continue;
+    if (!isManualLike(s)) continue;
     const base = Math.floor(s.spendCents / 7);
     const remainder = s.spendCents - base * 7;
     const sunday = weekOf(s.date);

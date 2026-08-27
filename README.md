@@ -38,6 +38,36 @@ Meta Ads and Stripe are connected the same way on **/setup** (token pasted, veri
 with one read call, masked). Until then the Ads tab runs on manual weekly spend and the
 Revenue tab shows a "Connect Stripe" state — never estimated numbers.
 
+## Demo mode
+
+FitFlow can run on a fabricated but internally consistent dataset for demos.
+Every demo row is labelled (`origin='demo'`, AI reports `content.demo=true`,
+digests prefixed `[demo]`, sync runs `trigger='demo'`), the **sample-data banner
+shows on every analytics page while any demo row exists**, and wiping never
+touches real rows.
+
+| Command | What it does |
+| --- | --- |
+| `npm run db:seed:demo` | Rich story from June 16 → today: ~200 leads across Facebook (two campaigns — one winner, one loser), Google, Referral and Website with UTMs; week-over-week variation; recovered no-shows; ~15 enrollments with Stripe-like payments (2 failed, 1 refund, 3 subscriptions, 2 unmatched); daily campaign spend; 3 pre-generated insight reports + 1 weekly narrative (model `demo`, so the AI card renders without a key); 4 weeks of digest history; sync runs. Idempotent — wipes demo rows first. |
+| `npm run db:wipe:demo` | Removes every demo row and confirms the banner is gone. |
+| `npm run db:seed` | The small original sample set (kept for quick local checks). |
+
+### Two databases: real vs demo
+
+- **Real** — `DATABASE_URL` in `.env.local` points at the Supabase project. The app
+  *and* every CLI (`db:seed:demo`, `db:wipe:demo`, `sync:*`) load `.env.local`, so
+  they always target the same database. Running `db:seed:demo` here puts the demo
+  story in the live app; `db:wipe:demo` takes it out again before real syncs.
+- **Local / embedded** — with `DATABASE_URL` unset (or blank) the app and CLIs use
+  the embedded PGlite Postgres in `db/pglite/`. To keep a demo copy separate from
+  the real project: `DATABASE_URL= npm run db:seed:demo` then
+  `DATABASE_URL= npm run dev`. `PGLITE_DATA_DIR=/some/dir` selects a different
+  embedded copy. Tests always use an in-memory PGlite and never touch either.
+
+AI insight cards and email digests in the demo are pre-generated snapshots marked
+`demo`; with a real Anthropic / Resend key the nightly job replaces them with live
+output and the `[demo]` rows are removed by `db:wipe:demo`.
+
 ## Scripts
 
 | Command | What it does |

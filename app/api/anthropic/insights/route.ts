@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
     const timezone = await getTimezone();
     const range = rangeFromParams({ range: p.get('range'), start: p.get('start'), end: p.get('end') }, todayInTimezone(timezone));
     const latest = await getLatestInsights(range);
-    return NextResponse.json({ notConfigured: !config.configured, cached: true, range: { start: range.start, end: range.end }, ...latest });
+    // Stored findings (including pre-generated demo reports) render without a
+    // key; "not configured" only when there is nothing to show.
+    const notConfigured = !config.configured && latest.findings.length === 0;
+    return NextResponse.json({ notConfigured, cached: true, range: { start: range.start, end: range.end }, ...latest });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to read insights', detail: String(error) }, { status: 500 });
   }

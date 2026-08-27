@@ -3,8 +3,8 @@
  * The sample-data banner reads this; the Setup page's reset button uses it.
  */
 
-import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns } from '@/db';
-import { desc, eq, sql } from 'drizzle-orm';
+import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents } from '@/db';
+import { desc, eq, like, sql } from 'drizzle-orm';
 
 export interface Provenance {
   demoContacts: number;
@@ -62,17 +62,45 @@ export async function getDataProvenance(): Promise<Provenance> {
   };
 }
 
-/** Remove every fabricated row. Real (ghl/manual) rows are never touched. */
+/**
+ * Remove every fabricated row. Real (ghl/meta/stripe/manual) rows are never
+ * touched. Demo markers: origin='demo' where the column exists; ai_reports
+ * content.demo=true; email_digests subject prefix "[demo] "; sync_runs
+ * trigger='demo'; sync_incidents details.demo=true.
+ */
 export async function clearDemoData(): Promise<{
   contactsRemoved: number;
   appointmentsRemoved: number;
   transitionsRemoved: number;
+  paymentsRemoved: number;
+  spendRemoved: number;
+  aiReportsRemoved: number;
+  digestsRemoved: number;
+  syncRunsRemoved: number;
 }> {
+  const p = await db.delete(payments).where(eq(payments.origin, 'demo')).returning({ id: payments.id });
   const t = await db.delete(stageTransitions).where(eq(stageTransitions.origin, 'demo')).returning({ id: stageTransitions.id });
   const a = await db.delete(appointments).where(eq(appointments.origin, 'demo')).returning({ id: appointments.id });
   const c = await db.delete(contacts).where(eq(contacts.origin, 'demo')).returning({ id: contacts.id });
-  await db.delete(adSpend).where(eq(adSpend.origin, 'demo'));
+  const s = await db.delete(adSpend).where(eq(adSpend.origin, 'demo')).returning({ id: adSpend.id });
+  await db.delete(stageSnapshots).where(eq(stageSnapshots.origin, 'demo'));
   await db.delete(stages).where(eq(stages.origin, 'demo'));
   await db.delete(pipelines).where(eq(pipelines.origin, 'demo'));
-  return { contactsRemoved: c.length, appointmentsRemoved: a.length, transitionsRemoved: t.length };
+  const ai = await db
+    .delete(aiReports)
+    .where(sql`${aiReports.content} ->> 'demo' = 'true'`)
+    .returning({ id: aiReports.id });
+  const d = await db.delete(emailDigests).where(like(emailDigests.subject, '[demo] %')).returning({ id: emailDigests.id });
+  const r = await db.delete(syncRuns).where(eq(syncRuns.trigger, 'demo')).returning({ id: syncRuns.id });
+  await db.delete(syncIncidents).where(sql`${syncIncidents.details} ->> 'demo' = 'true'`);
+  return {
+    contactsRemoved: c.length,
+    appointmentsRemoved: a.length,
+    transitionsRemoved: t.length,
+    paymentsRemoved: p.length,
+    spendRemoved: s.length,
+    aiReportsRemoved: ai.length,
+    digestsRemoved: d.length,
+    syncRunsRemoved: r.length,
+  };
 }
