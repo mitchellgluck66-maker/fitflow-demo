@@ -20,6 +20,13 @@ export { useScorecard } from './useScorecard';
 export { CampaignTable } from './CampaignTable';
 export { PaymentsTable } from './PaymentsTable';
 
+// Phase E — filtering
+export { FilterBar, NoMatches } from './FilterBar';
+export { SortableHeader } from './SortableHeader';
+export { SourceBreakdownTable } from './SourceBreakdownTable';
+export { useTableState, applyClient, facetOptions } from './useTableState';
+export type { TableState, SortDir } from './tableState';
+
 // Layout
 export { NavBar } from './NavBar';
 export { SampleDataBanner } from './SampleDataBanner';
@@ -42,3 +49,7 @@ export type { BadgeProps } from './Badge';
 export type { KPITileProps } from './KPITile';
 export type { ModalProps } from './Modal';
 export type { ToastProps } from './Toast';
+
+// Phase E polish
+export { RadialRing } from './RadialRing';
+export { Skeleton, SkeletonText, SkeletonTile, SkeletonTable, SkeletonChart } from './Skeleton';

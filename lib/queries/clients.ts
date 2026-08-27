@@ -6,7 +6,7 @@
  * is editable in FitFlow.
  */
 
-import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, payments } from '@/db';
 import type { SemanticRole } from '@/db/schema';
@@ -220,16 +220,25 @@ export interface ClientListRow {
   origin: string;
 }
 
+export type ClientSortKey = 'applied' | 'name' | 'stage' | 'source' | 'activity';
+
 export interface ClientListParams {
   q?: string | null;
-  stageId?: string | null;
-  source?: string | null;
+  /** One or many stage ids (OR). */
+  stageId?: string | string[] | null;
+  /** One or many attribution sources (OR). 'Unknown' matches null. */
+  source?: string | string[] | null;
+  /** One or many opportunity statuses: open | won | lost | abandoned (OR). */
+  status?: string | string[] | null;
+  /** Contacts with at least one appointment of this type (OR across values). */
+  apptType?: string | string[] | null;
   /** Applied date range, YYYY-MM-DD inclusive. */
   from?: string | null;
   to?: string | null;
   limit?: number;
   offset?: number;
-  sort?: 'applied_desc' | 'applied_asc' | 'name_asc' | 'activity_desc';
+  sort?: ClientSortKey | 'applied_desc' | 'applied_asc' | 'name_asc' | 'activity_desc';
+  dir?: 'asc' | 'desc';
 }
 
 export interface ClientListResult {
@@ -240,11 +249,19 @@ export interface ClientListResult {
   facets: {
     stages: Array<{ id: string; name: string; role: SemanticRole | null; count: number }>;
     sources: Array<{ source: string; count: number }>;
+    statuses: Array<{ status: string; count: number }>;
+    apptTypes: Array<{ type: string; count: number }>;
   };
 }
 
 function digits(value: string): string {
   return value.replace(/\D/g, '');
+}
+
+function many(value: string | string[] | null | undefined): string[] {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : value.split(',');
+  return list.map((v) => v.trim()).filter(Boolean);
 }
 
 export async function listClients(params: ClientListParams = {}): Promise<ClientListResult> {
@@ -264,21 +281,56 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       ),
     );
   }
-  if (params.stageId) conditions.push(eq(contacts.stageId, params.stageId));
-  if (params.source) conditions.push(eq(contacts.attributionSource, params.source));
+  const stageIds = many(params.stageId);
+  if (stageIds.length) conditions.push(inArray(contacts.stageId, stageIds));
+  const sources = many(params.source);
+  if (sources.length) {
+    const named = sources.filter((s) => s !== 'Unknown');
+    const parts = [];
+    if (named.length) parts.push(inArray(contacts.attributionSource, named));
+    if (sources.includes('Unknown')) parts.push(isNull(contacts.attributionSource));
+    conditions.push(parts.length === 1 ? parts[0] : or(...parts)!);
+  }
+  const statuses = many(params.status);
+  if (statuses.length) conditions.push(inArray(contacts.opportunityStatus, statuses));
+  const apptTypes = many(params.apptType);
+  if (apptTypes.length) {
+    conditions.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(appointments)
+          .where(and(eq(appointments.contactId, contacts.id), inArray(appointments.type, apptTypes))),
+      ),
+    );
+  }
   if (params.from) conditions.push(gte(sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`, new Date(`${params.from}T00:00:00Z`)));
   if (params.to) conditions.push(lte(sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`, new Date(`${params.to}T23:59:59.999Z`)));
   const where = conditions.length ? and(...conditions) : undefined;
 
   const appliedExpr = sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`;
+  // Legacy sort names map onto key + dir.
+  const legacy: Record<string, { key: ClientSortKey; dir: 'asc' | 'desc' }> = {
+    applied_desc: { key: 'applied', dir: 'desc' },
+    applied_asc: { key: 'applied', dir: 'asc' },
+    name_asc: { key: 'name', dir: 'asc' },
+    activity_desc: { key: 'activity', dir: 'desc' },
+  };
+  const resolved = params.sort && legacy[params.sort] ? legacy[params.sort] : { key: (params.sort as ClientSortKey) || 'applied', dir: params.dir ?? (params.sort === 'name' ? 'asc' : 'desc') };
+  const d = resolved.dir === 'asc' ? asc : desc;
+  const activityExpr = sql`greatest(coalesce(${contacts.lastStageChangeAt}, ${contacts.ghlUpdatedAt}, ${contacts.updatedAt}), ${contacts.updatedAt})`;
   const orderBy =
-    params.sort === 'applied_asc'
-      ? [asc(appliedExpr)]
-      : params.sort === 'name_asc'
-        ? [asc(contacts.firstName), asc(contacts.lastName)]
-        : [desc(appliedExpr)];
+    resolved.key === 'name'
+      ? [d(contacts.firstName), d(contacts.lastName)]
+      : resolved.key === 'stage'
+        ? [d(sql`${stages.position}`), desc(appliedExpr)]
+        : resolved.key === 'source'
+          ? [d(sql`coalesce(${contacts.attributionSource}, 'zzz')`), desc(appliedExpr)]
+          : resolved.key === 'activity'
+            ? [d(activityExpr)]
+            : [d(appliedExpr)];
 
-  const [rows, [{ total }], stageFacets, sourceFacets] = await Promise.all([
+  const [rows, [{ total }], stageFacets, sourceFacets, statusFacets, apptFacets] = await Promise.all([
     db
       .select({
         id: contacts.id,
@@ -315,6 +367,16 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       .from(contacts)
       .groupBy(contacts.attributionSource)
       .orderBy(desc(sql`count(*)`)),
+    db
+      .select({ status: contacts.opportunityStatus, count: sql<number>`count(*)::int` })
+      .from(contacts)
+      .groupBy(contacts.opportunityStatus)
+      .orderBy(desc(sql`count(*)`)),
+    db
+      .select({ type: appointments.type, count: sql<number>`count(distinct ${appointments.contactId})::int` })
+      .from(appointments)
+      .groupBy(appointments.type)
+      .orderBy(desc(sql`count(distinct ${appointments.contactId})`)),
   ]);
 
   // Last activity: newest of the latest transition / appointment / payment per listed contact.
@@ -367,6 +429,8 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
     facets: {
       stages: stageFacets.map((s) => ({ id: s.id, name: s.name, role: s.role ?? null, count: s.count })),
       sources: sourceFacets.map((s) => ({ source: s.source ?? 'Unknown', count: s.count })),
+      statuses: statusFacets.filter((s) => s.status).map((s) => ({ status: s.status as string, count: s.count })),
+      apptTypes: apptFacets.map((a) => ({ type: a.type, count: a.count })),
     },
   };
 }

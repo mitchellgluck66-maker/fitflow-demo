@@ -1,10 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { Badge } from './Badge';
 import { EmptyState } from './PageHeader';
+import { FilterBar, NoMatches } from './FilterBar';
+import { SortableHeader } from './SortableHeader';
+import { useTableState, applyClient, facetOptions } from './useTableState';
 import { formatCents, type PaymentDetail } from '@/lib/metrics';
 import { addDays, formatRangeLabel } from '@/lib/dates';
 
@@ -15,13 +18,17 @@ const STATUS_VARIANT: Record<string, 'positive' | 'negative' | 'warning' | 'info
   pending: 'info',
 };
 
-const th = 'text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap';
+const FACETS = ['status', 'kind', 'source', 'matched'];
+
+const th = { color: 'var(--text-quaternary)' };
 
 function fmtDate(on: string | null): string {
   if (!on) return '—';
   const [y, m, d] = on.split('-').map(Number);
   return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d)));
 }
+
+const kindLabel = (k: string) => (k === 'invoice' ? 'recurring' : k);
 
 const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
   const failed = p.status === 'failed';
@@ -47,7 +54,7 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
       </td>
       <td className="px-3 py-2.5">
         <Badge variant="neutral" size="xs">
-          {p.kind === 'invoice' ? 'recurring' : p.kind}
+          {kindLabel(p.kind)}
         </Badge>
       </td>
       <td className="px-3 py-2.5 text-right tabular">
@@ -69,7 +76,7 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
         {p.contactId ? (
           <>
             <div style={{ color: 'var(--text-primary)' }}>
-              <Link href={`/clients/${p.contactId}`} className="font-medium hover:underline" style={{ color: 'var(--text-primary)' }}>
+              <Link href={`/clients/${p.contactId}`} className="font-medium hover:underline focus-ring rounded" style={{ color: 'var(--text-primary)' }}>
                 {p.contactName ?? 'Matched contact'}
               </Link>
               {p.matchSource === 'manual' && (
@@ -95,13 +102,43 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
   );
 };
 
-/** Payments in the period, failed ones pinned at the top so nobody misses them. */
+/**
+ * Payments in the period. Failed payments stay pinned at the top regardless
+ * of sort (sort applies within each group). Filter/sort/search state lives
+ * in the URL under the `p_` prefix.
+ */
 export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount: number }> = ({ payments, unmatchedCount }) => {
+  const t = useTableState({ prefix: 'p_', facetKeys: FACETS });
+
+  const rows = useMemo(
+    () =>
+      applyClient(payments, t.state, {
+        search: [(p) => p.customerName, (p) => p.email, (p) => p.description, (p) => p.contactName, (p) => p.stripeId],
+        facets: {
+          status: (p) => p.status,
+          kind: (p) => kindLabel(p.kind),
+          source: (p) => p.source ?? 'Unknown',
+          matched: (p) => (p.contactId ? 'matched' : 'unmatched'),
+        },
+        sorts: {
+          date: (p) => p.on,
+          amount: (p) => p.amountCents,
+          customer: (p) => p.customerName ?? p.email,
+          status: (p) => p.status,
+        },
+        defaultSort: { key: 'date', dir: 'desc' },
+      }),
+    [payments, t.state],
+  );
+
   if (payments.length === 0) {
     return <EmptyState title="No payments in this period" description="Stripe is connected; nothing was charged in the selected dates." />;
   }
-  const failed = payments.filter((p) => p.status === 'failed');
-  const rest = payments.filter((p) => p.status !== 'failed');
+
+  const failed = rows.filter((p) => p.status === 'failed');
+  const rest = rows.filter((p) => p.status !== 'failed');
+  const activeSort = t.state.sort ?? 'date';
+  const dir = t.state.sort ? t.state.dir : 'desc';
 
   return (
     <div className="space-y-3">
@@ -114,43 +151,72 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
           .
         </p>
       )}
-      <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
-        <table className="w-full text-[12.5px]">
-          <thead>
-            <tr style={{ background: 'var(--surface-sunken)' }}>
-              {['Date', 'Customer', 'Kind', 'Amount', 'Status', 'Matched contact'].map((h, i) => (
-                <th key={h} className={`${th} ${i === 3 ? 'text-right' : ''}`} style={{ color: 'var(--text-quaternary)' }}>
-                  {h}
+
+      <FilterBar
+        state={t.state}
+        facets={[
+          { key: 'status', label: 'Status', options: facetOptions(payments, (p) => p.status) },
+          { key: 'kind', label: 'Kind', options: facetOptions(payments, (p) => kindLabel(p.kind)) },
+          { key: 'source', label: 'Source', options: facetOptions(payments, (p) => p.source ?? 'Unknown') },
+          { key: 'matched', label: 'Matched', options: facetOptions(payments, (p) => (p.contactId ? 'matched' : 'unmatched')) },
+        ]}
+        onQ={t.setQ}
+        onToggle={t.toggleFilter}
+        onClear={t.clearFilters}
+        shown={rows.length}
+        total={payments.length}
+        placeholder="Search customer, email, description…"
+        noun="payments"
+      />
+
+      {rows.length === 0 ? (
+        <NoMatches onClear={t.clearFilters} noun="payments" />
+      ) : (
+        <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr style={{ background: 'var(--surface-sunken)' }}>
+                <SortableHeader label="Date" sortKey="date" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                <SortableHeader label="Customer" sortKey="customer" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
+                  Kind
                 </th>
+                <SortableHeader label="Amount" sortKey="amount" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={th} />
+                <SortableHeader label="Status" sortKey="status" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
+                  Matched contact
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {failed.length > 0 && (
+                <>
+                  <tr>
+                    <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <AlertTriangle size={12} strokeWidth={2.4} /> Needs attention · {failed.length} failed
+                      </span>
+                    </td>
+                  </tr>
+                  {failed.map((p) => (
+                    <Row key={p.id} p={p} />
+                  ))}
+                  {rest.length > 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-quaternary)', background: 'var(--surface-sunken)' }}>
+                        All payments
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )}
+              {rest.map((p) => (
+                <Row key={p.id} p={p} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {failed.length > 0 && (
-              <>
-                <tr>
-                  <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
-                    <span className="inline-flex items-center gap-1.5">
-                      <AlertTriangle size={12} strokeWidth={2.4} /> Needs attention · {failed.length} failed
-                    </span>
-                  </td>
-                </tr>
-                {failed.map((p) => (
-                  <Row key={p.id} p={p} />
-                ))}
-                <tr>
-                  <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-quaternary)', background: 'var(--surface-sunken)' }}>
-                    All payments
-                  </td>
-                </tr>
-              </>
-            )}
-            {rest.map((p) => (
-              <Row key={p.id} p={p} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

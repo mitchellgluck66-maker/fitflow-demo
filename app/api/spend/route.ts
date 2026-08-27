@@ -38,15 +38,28 @@ async function loadWeek(start: string): Promise<SpendWeekView> {
     .from(adSpend)
     .where(and(gte(adSpend.date, start), lte(adSpend.date, end)))
     .orderBy(desc(adSpend.updatedAt));
-  const view = rows.map((r) => ({
-    platform: r.platform,
-    spendCents: r.spendCents,
-    origin: r.origin,
-    enteredBy: r.enteredBy,
-    updatedAt: r.updatedAt.toISOString(),
-    externalId: r.externalId,
-    notes: r.notes,
-  }));
+  // One line per platform per week: API/demo daily rows are summed; a manual
+  // row (there is at most one per platform+week) is shown as itself.
+  const byPlatform = new Map<string, (typeof rows)[number][]>();
+  for (const r of rows) {
+    if (!byPlatform.has(r.platform)) byPlatform.set(r.platform, []);
+    byPlatform.get(r.platform)!.push(r);
+  }
+  const view = Array.from(byPlatform.entries()).map(([platform, list]) => {
+    const manual = list.find((r) => r.origin === 'manual');
+    const lead = manual ?? list[0];
+    return {
+      platform,
+      spendCents: manual ? manual.spendCents : list.reduce((s, r) => s + r.spendCents, 0),
+      origin: lead.origin,
+      enteredBy: lead.enteredBy,
+      updatedAt: lead.updatedAt.toISOString(),
+      externalId: lead.externalId,
+      notes: lead.notes,
+      /** How many daily rows were summed (0 for a manual entry). */
+      dailyRows: manual ? 0 : list.length,
+    };
+  });
   return {
     start,
     end,

@@ -1,17 +1,21 @@
 'use client';
 
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Users, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Card, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Badge, Button, Input, Select } from '@/components';
+import { Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Card, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Badge, Button, Input } from '@/components';
+import { FilterBar, NoMatches } from '@/components/FilterBar';
+import { SortableHeader } from '@/components/SortableHeader';
+import { useTableState } from '@/components/useTableState';
+import { SkeletonTable } from '@/components/Skeleton';
 import type { ClientListResult } from '@/lib/queries/clients';
 
 const PAGE = 50;
+const FACETS = ['stage', 'source', 'status', 'appt', 'from', 'to'];
 
-function roleVariant(role: string | null): 'success' | 'danger' | 'neutral' | 'accent' {
-  if (role === 'enrolled') return 'success';
-  if (role === 'consult_noshow') return 'danger';
+function roleVariant(role: string | null): 'positive' | 'negative' | 'neutral' | 'accent' {
+  if (role === 'enrolled') return 'positive';
+  if (role === 'consult_noshow') return 'negative';
   if (role === 'consult_booked' || role === 'roadmap_booked' || role === 'roadmap_showed') return 'accent';
   return 'neutral';
 }
@@ -26,57 +30,35 @@ function fmtDate(iso: string | null): string {
 }
 
 function ClientsIndex() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const params = useSearchParams();
-
-  const filters = useMemo(
-    () => ({
-      q: params.get('q') ?? '',
-      stage: params.get('stage') ?? '',
-      source: params.get('source') ?? '',
-      from: params.get('from') ?? '',
-      to: params.get('to') ?? '',
-      page: Math.max(Number(params.get('page') ?? 1), 1),
-    }),
-    [params],
-  );
-
-  const [q, setQ] = useState(filters.q);
+  const t = useTableState({ facetKeys: FACETS });
+  const { state } = t;
   const [data, setData] = useState<ClientListResult | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Loading is derived: the key of the last fulfilled request vs the current one.
+  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
 
-  const setFilter = useCallback(
-    (patch: Record<string, string | number | null>) => {
-      const next = new URLSearchParams(params.toString());
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null || v === '' || v === 0) next.delete(k);
-        else next.set(k, String(v));
-      }
-      if (!('page' in patch)) next.delete('page');
-      router.replace(`${pathname}?${next.toString()}`);
-    },
-    [params, pathname, router],
-  );
-
-  // Debounce the search box into the URL.
-  useEffect(() => {
-    if (q === filters.q) return;
-    const t = setTimeout(() => setFilter({ q }), 250);
-    return () => clearTimeout(t);
-  }, [q, filters.q, setFilter]);
+  // Applied-date bounds ride along as single-value "facets".
+  const from = state.filters.from?.[0] ?? '';
+  const to = state.filters.to?.[0] ?? '';
+  const requestKey = JSON.stringify([state, from, to]);
+  const loading = fetchedKey !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
     const query = new URLSearchParams();
-    if (filters.q) query.set('q', filters.q);
-    if (filters.stage) query.set('stage', filters.stage);
-    if (filters.source) query.set('source', filters.source);
-    if (filters.from) query.set('from', filters.from);
-    if (filters.to) query.set('to', filters.to);
+    if (state.q) query.set('q', state.q);
+    for (const key of ['stage', 'source', 'status', 'appt'] as const) {
+      const v = state.filters[key];
+      if (v?.length) query.set(key, v.join(','));
+    }
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    if (state.sort) {
+      query.set('sort', state.sort);
+      query.set('dir', state.dir);
+    }
     query.set('limit', String(PAGE));
-    query.set('offset', String((filters.page - 1) * PAGE));
+    query.set('offset', String((state.page - 1) * PAGE));
     fetch(`/api/clients?${query.toString()}`)
       .then(async (r) => {
         const body = await r.json();
@@ -92,21 +74,19 @@ function ClientsIndex() {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setFetchedKey(requestKey);
       });
     return () => {
       cancelled = true;
     };
-  }, [filters]);
+  }, [state, from, to, requestKey]);
 
-  const clear = () => {
-    setQ('');
-    router.replace(pathname);
-  };
-
-  const hasFilters = Boolean(filters.q || filters.stage || filters.source || filters.from || filters.to);
   const total = data?.total ?? 0;
   const pages = Math.max(Math.ceil(total / PAGE), 1);
+  const activeSort = state.sort ?? 'applied';
+  const dir = state.sort ? state.dir : 'desc';
+  const th = { color: 'var(--text-quaternary)' };
+  const hasFilters = Boolean(state.q || Object.keys(state.filters).length);
 
   return (
     <>
@@ -116,75 +96,74 @@ function ClientsIndex() {
         <SampleDataBanner page="clients" />
 
         <Card padding="sm">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="w-full sm:w-60">
-              <Input icon={Search} placeholder="Name, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} />
-            </div>
-            <div className="w-full sm:w-48">
-              <Select value={filters.stage} onChange={(e) => setFilter({ stage: e.target.value })}>
-                <option value="">All stages</option>
-                {data?.facets.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.count})
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="w-full sm:w-44">
-              <Select value={filters.source} onChange={(e) => setFilter({ source: e.target.value })}>
-                <option value="">All sources</option>
-                {data?.facets.sources.map((s) => (
-                  <option key={s.source} value={s.source === 'Unknown' ? '' : s.source}>
-                    {s.source} ({s.count})
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="w-full sm:w-40">
-              <Input label="Applied from" type="date" value={filters.from} onChange={(e) => setFilter({ from: e.target.value })} />
-            </div>
-            <div className="w-full sm:w-40">
-              <Input label="to" type="date" value={filters.to} onChange={(e) => setFilter({ to: e.target.value })} />
-            </div>
-            {hasFilters && (
-              <Button variant="ghost" icon={X} onClick={clear}>
-                Clear
-              </Button>
-            )}
-            <div className="flex-1" />
-            <span className="text-[12px] tabular pb-2" style={{ color: 'var(--text-tertiary)' }}>
-              {total.toLocaleString()} {total === 1 ? 'person' : 'people'}
-            </span>
-          </div>
+          <FilterBar
+            state={state}
+            facets={[
+              { key: 'stage', label: 'Stage', options: (data?.facets.stages ?? []).filter((s) => s.count > 0).map((s) => ({ value: s.id, label: s.name, count: s.count })) },
+              { key: 'source', label: 'Source', options: (data?.facets.sources ?? []).map((s) => ({ value: s.source, label: s.source, count: s.count })) },
+              { key: 'status', label: 'Status', options: (data?.facets.statuses ?? []).map((s) => ({ value: s.status, label: s.status, count: s.count })) },
+              { key: 'appt', label: 'Appointment', options: (data?.facets.apptTypes ?? []).map((a) => ({ value: a.type, label: a.type, count: a.count })) },
+            ]}
+            onQ={t.setQ}
+            onToggle={t.toggleFilter}
+            onClear={t.clearFilters}
+            shown={data?.rows.length ?? 0}
+            total={total}
+            placeholder="Name, email or phone…"
+            noun="people"
+            extra={
+              <div className="flex items-center gap-1.5">
+                <div className="w-36">
+                  <Input type="date" aria-label="Applied from" value={from} onChange={(e) => t.setFilter('from', e.target.value ? [e.target.value] : [])} />
+                </div>
+                <span className="text-[12px]" style={{ color: 'var(--text-quaternary)' }}>
+                  to
+                </span>
+                <div className="w-36">
+                  <Input type="date" aria-label="Applied to" value={to} onChange={(e) => t.setFilter('to', e.target.value ? [e.target.value] : [])} />
+                </div>
+              </div>
+            }
+          />
         </Card>
 
         {loading && !data ? (
-          <PageLoader label="Loading clients" />
+          <Card padding="sm">
+            <SkeletonTable rows={8} cols={6} />
+          </Card>
         ) : error ? (
           <Card>
             <EmptyState title="Could not load clients" description={error} />
           </Card>
         ) : !data || data.rows.length === 0 ? (
           <Card>
-            <EmptyState icon={<Users size={18} />} title="No one matches" description={hasFilters ? 'Try widening the filters.' : 'Run a GoHighLevel sync to populate this list.'} />
+            {hasFilters ? (
+              <NoMatches onClear={t.clearFilters} noun="people" />
+            ) : (
+              <EmptyState icon={<Users size={18} />} title="No one yet" description="Run a GoHighLevel sync to populate this list." />
+            )}
           </Card>
         ) : (
           <Card padding="sm" className="overflow-x-auto">
+            <div style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 150ms' }}>
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr style={{ background: 'var(--surface-sunken)' }}>
-                  {['Name', 'Stage', 'Source', 'Applied', 'Last activity', 'Owner'].map((h) => (
-                    <th key={h} className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-quaternary)' }}>
-                      {h}
-                    </th>
-                  ))}
+                  <SortableHeader label="Name" sortKey="name" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                  <SortableHeader label="Stage" sortKey="stage" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                  <SortableHeader label="Source" sortKey="source" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                  <SortableHeader label="Applied" sortKey="applied" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                  <SortableHeader label="Last activity" sortKey="activity" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                  <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
+                    Owner
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {data.rows.map((r) => (
-                  <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                  <tr key={r.id} className="row-clickable" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <td className="px-3 py-2">
-                      <Link href={`/clients/${r.id}`} className="font-medium hover:underline" style={{ color: 'var(--text-primary)' }}>
+                      <Link href={`/clients/${r.id}`} className="font-medium hover:underline focus-ring rounded" style={{ color: 'var(--text-primary)' }}>
                         {r.name}
                       </Link>
                       <div className="text-[11.5px] truncate max-w-[260px]" style={{ color: 'var(--text-tertiary)' }}>
@@ -222,16 +201,17 @@ function ClientsIndex() {
               </tbody>
             </table>
 
+            </div>
             {pages > 1 && (
               <div className="flex items-center justify-between px-3 pt-3">
                 <span className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
-                  Page {filters.page} of {pages}
+                  Page {state.page} of {pages}
                 </span>
                 <div className="flex gap-1.5">
-                  <Button variant="ghost" icon={ChevronLeft} disabled={filters.page <= 1} onClick={() => setFilter({ page: filters.page - 1 })}>
+                  <Button variant="ghost" icon={ChevronLeft} disabled={state.page <= 1} onClick={() => t.setPage(state.page - 1)}>
                     Prev
                   </Button>
-                  <Button variant="ghost" iconRight={ChevronRight} disabled={filters.page >= pages} onClick={() => setFilter({ page: filters.page + 1 })}>
+                  <Button variant="ghost" iconRight={ChevronRight} disabled={state.page >= pages} onClick={() => t.setPage(state.page + 1)}>
                     Next
                   </Button>
                 </div>

@@ -65,8 +65,11 @@ describe('manual weekly spend', () => {
     expect(data.weeks.length).toBe(52);
     expect(data.weeks[0].start > data.weeks[1].start).toBe(true);
     const wk = data.weeks.find((w: { start: string }) => w.start === '2026-08-09');
-    expect(wk.rows.map((r: { platform: string; origin: string }) => [r.platform, r.origin]).sort()).toEqual([['google', 'manual'], ['meta', 'manual'], ['meta', 'meta']]);
-    expect(wk.totalCents).toBe(99900 + 100 + 700);
+    // One line per platform: the manual meta row is shown as itself (the API
+    // row for that week is a separate source of truth the engine prefers).
+    expect(wk.rows.map((r: { platform: string; origin: string }) => [r.platform, r.origin]).sort()).toEqual([['google', 'manual'], ['meta', 'manual']]);
+    expect(wk.rows.find((r: { platform: string }) => r.platform === 'meta').spendCents).toBe(100);
+    expect(wk.totalCents).toBe(100 + 700);
   });
 
   it('rejects bad input', async () => {
