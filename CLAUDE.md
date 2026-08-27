@@ -174,6 +174,26 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - Dispatch order: GHL → Meta → Stripe → Google → insights → narratives →
   digests. `vercel.json` unchanged (Hobby: 2 crons).
 
+## Phase E status (done 2026-08-27 — polish + demo)
+
+- `RadialRing` (components/RadialRing.tsx): rates only (0–100% frame), never
+  counts or currency. Used for consult/roadmap show rates on /funnel and the
+  applied→enrolled share on the Command Center strip.
+- Deep filtering: one `FilterBar` + `useTableState` (URL query string, per-
+  table prefix) on the clients index, campaign, payments and per-source
+  tables — combinable chips, instant search, sortable headers. Filtered
+  views are shareable links.
+- Loading = section skeletons (`components/Skeleton.tsx`), never full-page
+  spinners. Empty states audited in both themes. `.focus-ring` /
+  `.row-clickable` utilities in globals.css.
+- Screenshots: `npm run screenshots` (Playwright, Chromium) walks every tab in
+  both themes → `docs/screens/{light,dark}/*.png`. Re-run after UI changes and
+  commit the shots.
+- Demo mode: `npm run db:seed:demo` (rich June-16→today story, ALL rows
+  origin='demo', pre-generated insight cards + narrative marked demo, digest
+  history) and `npm run db:wipe:demo`. Works on PGlite and DATABASE_URL. The
+  sample-data banner shows whenever any demo row exists.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,

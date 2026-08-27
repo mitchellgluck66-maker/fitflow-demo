@@ -18,7 +18,10 @@
     "verify:readonly": "bash scripts/verify-readonly.sh",
     "check": "npm run typecheck && npm run test && npm run verify:readonly && npm run build",
     "sync:meta": "tsx scripts/sync-meta.ts",
-    "sync:stripe": "tsx scripts/sync-stripe.ts"
+    "sync:stripe": "tsx scripts/sync-stripe.ts",
+    "db:seed:demo": "tsx db/seed-demo.ts",
+    "db:wipe:demo": "tsx scripts/wipe-demo.ts",
+    "screenshots": "tsx scripts/screenshots.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",
@@ -42,6 +45,7 @@
     "drizzle-orm": "^0.45.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
+    "playwright": "^1.49.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5",
