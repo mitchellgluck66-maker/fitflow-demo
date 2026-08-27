@@ -54,6 +54,7 @@ function fakeResult(): ScorecardResult {
     baseline: { start: '2026-06-21', end: '2026-08-15' },
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
+    trendWeekly: { current: [], comparison: null },
     ads: { kpis: { spendCents: 0, costPerLeadCents: null, costPerConsultCents: null, cacCents: null, roas: null, awaitingStripe: true, apiConnected: false, byPlatform: [] }, previousKpis: null, campaigns: [], previousCampaigns: null },
     revenue: { awaitingStripe: true, collectedCents: 0, recurringCents: 0, activeSubscriptions: 0, failedCount: 0, failedCents: 0, refundedCents: 0, refundCount: 0, payments: [], unmatchedCount: 0 },
   };

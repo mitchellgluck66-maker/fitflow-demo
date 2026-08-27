@@ -27,7 +27,8 @@ import {
   Select,
   PageHeader,
   PageBody,
-  PageLoader,
+  Skeleton,
+  SkeletonText,
 } from '@/components';
 import { MetaCard } from '@/components/setup/MetaCard';
 import { StripeCard } from '@/components/setup/StripeCard';
@@ -290,9 +291,14 @@ export default function SetupPage() {
   if (loading) {
     return (
       <>
-        <PageHeader title="Setup" description="Connect FitFlow to GoHighLevel (read-only)" />
-        <PageBody>
-          <PageLoader label="Checking connection" />
+        <PageHeader title="Setup" description="Connect the read-only integrations, confirm stage roles, and watch sync health." />
+        <PageBody className="max-w-4xl space-y-4" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} padding="lg">
+              <Skeleton className="h-3 w-48 mb-4" />
+              <SkeletonText lines={3} />
+            </Card>
+          ))}
         </PageBody>
       </>
     );

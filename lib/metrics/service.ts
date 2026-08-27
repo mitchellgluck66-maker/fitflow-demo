@@ -44,6 +44,8 @@ export interface ScorecardResult {
   baseline: { start: string; end: string };
   scorecard: Scorecard;
   trend: { grain: 'day' | 'week'; current: TrendPoint[]; comparison: TrendPoint[] | null };
+  /** Always Sun–Sat weeks (range padded to whole weeks) — for conversion-over-time charts. */
+  trendWeekly: { current: TrendPoint[]; comparison: TrendPoint[] | null };
   /** Ads tab: KPIs + campaign table (current and comparison period). */
   ads: { kpis: AdsKpis; previousKpis: AdsKpis | null; campaigns: CampaignRow[]; previousCampaigns: CampaignRow[] | null };
   /** Revenue tab. */
@@ -91,6 +93,10 @@ export async function getScorecard(params: {
       grain,
       current: computeTrend(input, bucketsFor(range)),
       comparison: comparison.range ? computeTrend(input, bucketsFor(comparison.range)) : null,
+    },
+    trendWeekly: {
+      current: computeTrend(input, weekBuckets(range.start, range.end)),
+      comparison: comparison.range ? computeTrend(input, weekBuckets(comparison.range.start, comparison.range.end)) : null,
     },
     ads: {
       kpis: computeAdsKpis(input, range),

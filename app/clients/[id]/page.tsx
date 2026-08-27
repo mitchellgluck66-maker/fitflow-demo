@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, ExternalLink, User, GitBranch, History, Eye } from 'lucide-react';
-import { Card, CardHeader, PageHeader, PageBody, PageLoader, EmptyState, Badge, Button } from '@/components';
+import { Card, CardHeader, PageHeader, PageBody, EmptyState, Badge, Button, Skeleton, SkeletonText, SkeletonTable } from '@/components';
 import { ClientTimeline } from '@/components/ClientTimeline';
 import type { ClientProfile } from '@/lib/queries/clients';
 
@@ -77,9 +77,22 @@ export default function ClientProfilePage() {
   if (status === 'loading') {
     return (
       <>
-        <PageHeader title="Client" />
-        <PageBody>
-          <PageLoader label="Loading profile" />
+        <PageHeader title="Client" description="Loading profile…" />
+        <PageBody className="space-y-4" aria-busy="true">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <Card padding="lg">
+              <Skeleton className="h-3 w-24 mb-4" />
+              <SkeletonText lines={5} />
+            </Card>
+            <Card padding="lg">
+              <Skeleton className="h-3 w-32 mb-4" />
+              <SkeletonText lines={4} />
+            </Card>
+          </div>
+          <Card padding="lg">
+            <Skeleton className="h-3 w-28 mb-4" />
+            <SkeletonTable rows={6} cols={3} />
+          </Card>
         </PageBody>
       </>
     );

@@ -75,7 +75,7 @@ export const Funnel: React.FC<{
             <button
               type="button"
               onClick={() => setOpenIndex(i)}
-              className="group w-full flex items-center gap-3 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--surface-hover)]"
+              className="group focus-ring w-full flex items-center gap-3 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--surface-hover)]"
               title={`Show the ${s.count} ${s.count === 1 ? 'person' : 'people'} at ${s.label}`}
             >
               <div className="w-[148px] shrink-0">

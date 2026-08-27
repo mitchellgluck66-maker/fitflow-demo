@@ -94,8 +94,10 @@ export const EmptyState: React.FC<{
   title: string;
   description?: string;
   action?: React.ReactNode;
-}> = ({ icon, title, description, action }) => (
-  <div className="flex flex-col items-center justify-center text-center py-16 px-6">
+  /** Tighter vertical padding for use inside a card. */
+  compact?: boolean;
+}> = ({ icon, title, description, action, compact = false }) => (
+  <div className={clsx('flex flex-col items-center justify-center text-center px-6', compact ? 'py-8' : 'py-16')}>
     {icon && (
       <div
         className="h-11 w-11 grid place-items-center rounded-[11px] mb-3.5"

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
-import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast } from '@/components';
+import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, Toast, SkeletonTile, SkeletonChart, Skeleton } from '@/components';
 import { InsightsCard } from '@/components/InsightsCard';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
@@ -33,9 +33,29 @@ function CommandCenter() {
   if (loading && !data) {
     return (
       <>
-        <PageHeader title="Command Center" description="The 10-second read on the business." />
-        <PageBody>
-          <PageLoader label="Computing scorecard" />
+        <PageHeader title="Command Center" description="The 10-second read on the business — every number here comes from the same tested engine as the emails.">
+          <DateRangePicker timezone="America/New_York" />
+        </PageHeader>
+        <PageBody className="space-y-5" aria-busy="true">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonTile key={i} />
+            ))}
+          </div>
+          <div className="surface-raised rounded-[12px] px-4 py-3" style={{ minHeight: 90 }}>
+            <Skeleton className="h-3 w-24 mb-3" />
+            <div className="flex gap-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-11 flex-1" />
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <Card padding="lg" className="lg:col-span-2">
+              <Skeleton className="h-3 w-40 mb-4" />
+              <SkeletonChart height={260} />
+            </Card>
+          </div>
         </PageBody>
       </>
     );
@@ -165,6 +185,13 @@ function CommandCenter() {
                 />
               }
             />
+            {trendRows.every((r) => r.applied === 0 && r.enrolled === 0) ? (
+              <EmptyState
+                compact
+                title="Nothing happened in this range"
+                description="No applications or enrollments were observed — try Last 30 days, or run a sync from Setup."
+              />
+            ) : (
             <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={trendRows} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
                 <defs>
@@ -189,6 +216,7 @@ function CommandCenter() {
                 )}
               </ComposedChart>
             </ResponsiveContainer>
+            )}
           </Card>
 
           <InsightsCard rangeKey={`${range.start}:${range.end}:${comparison.mode}`} />
@@ -204,8 +232,13 @@ export default function CommandCenterPage() {
   return (
     <Suspense
       fallback={
-        <PageBody>
-          <PageLoader />
+        <PageBody className="space-y-5" aria-busy="true">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonTile key={i} />
+            ))}
+          </div>
+          <SkeletonChart height={260} />
         </PageBody>
       }
     >

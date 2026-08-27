@@ -104,9 +104,16 @@ export const InsightsCard: React.FC<{ rangeKey?: string }> = ({ rangeKey }) => {
         subtitle="Specific findings for this period — nothing generic"
         icon={Sparkles}
         action={
-          <Button variant="ghost" icon={RefreshCw} loading={busy} onClick={refresh}>
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {busy && (
+              <span className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }} aria-live="polite">
+                Refreshing…
+              </span>
+            )}
+            <Button variant="ghost" icon={RefreshCw} loading={busy} onClick={refresh}>
+              Refresh
+            </Button>
+          </div>
         }
       />
       <ul className="space-y-3">

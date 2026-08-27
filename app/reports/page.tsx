@@ -12,7 +12,9 @@ import {
   PageHeader,
   PageBody,
   SampleDataBanner,
-  PageLoader,
+  Skeleton,
+  SkeletonText,
+  SkeletonTable,
   EmptyState,
   Toggle,
 } from '@/components';
@@ -184,8 +186,15 @@ export default function ReportsPage() {
     return (
       <>
         <PageHeader title="Reports" description="Email digests and their archive" />
-        <PageBody>
-          <PageLoader />
+        <PageBody className="space-y-4" aria-busy="true">
+          <Card padding="lg">
+            <Skeleton className="h-3 w-40 mb-4" />
+            <SkeletonText lines={3} />
+          </Card>
+          <Card padding="lg">
+            <Skeleton className="h-3 w-24 mb-4" />
+            <SkeletonTable rows={6} cols={5} />
+          </Card>
         </PageBody>
       </>
     );

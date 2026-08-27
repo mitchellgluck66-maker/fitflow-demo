@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import { formatPct, type Scorecard, type ChipTone } from '@/lib/metrics';
+import { RadialRing } from './RadialRing';
 
 /**
  * Compact funnel summary for the Command Center — one slim row of stage
@@ -34,7 +35,7 @@ export const FunnelStrip: React.FC<{
   return (
     <Link
       href={href}
-      className="group surface-raised block rounded-[12px] px-4 py-3 transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]"
+      className="group surface-raised focus-ring block rounded-[12px] px-4 py-3 transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]"
       style={{ minHeight: 90 }}
       title="Open the full funnel"
     >
@@ -78,19 +79,29 @@ export const FunnelStrip: React.FC<{
                   border: `1px solid ${isEnrolled ? 'var(--positive-border)' : 'var(--border-subtle)'}`,
                 }}
               >
-                <div className="text-[11px] leading-tight truncate" style={{ color: 'var(--text-tertiary)' }}>
-                  {s.label}
-                </div>
-                <div className="flex items-baseline gap-1.5 mt-0.5">
-                  <span
-                    className="text-[17px] font-semibold leading-none tabular tracking-[-0.01em]"
-                    style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}
-                  >
-                    {s.count}
-                  </span>
-                  <span className="text-[10.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
-                    {formatPct(s.shareOfApplied)}
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] leading-tight truncate" style={{ color: 'var(--text-tertiary)' }}>
+                      {s.label}
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span
+                        className="text-[17px] font-semibold leading-none tabular tracking-[-0.01em]"
+                        style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}
+                      >
+                        {s.count}
+                      </span>
+                      {!isEnrolled && (
+                        <span className="text-[10.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
+                          {formatPct(s.shareOfApplied)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {isEnrolled && (
+                    // Applied → enrolled share: a rate with a natural 0–100% frame.
+                    <RadialRing value={s.shareOfApplied} size={34} stroke={4} tone="positive" />
+                  )}
                 </div>
               </div>
             </React.Fragment>

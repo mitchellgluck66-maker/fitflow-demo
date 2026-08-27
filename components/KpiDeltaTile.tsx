@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { TrendingUp, TrendingDown, Minus, type LucideIcon } from 'lucide-react';
 import type { Delta } from '@/lib/metrics';
 import { formatDelta } from '@/lib/metrics';
+import { RadialRing } from './RadialRing';
 
 /**
  * KPI tile driven by an engine `Delta`. Same chrome as KPITile, plus a
@@ -22,9 +23,11 @@ export const KpiDeltaTile: React.FC<{
   icon?: LucideIcon;
   accent?: 'accent' | 'success' | 'warning' | 'danger' | 'info';
   sparkline?: number[];
+  /** 0..1 rate with a natural 0–100% frame — rendered as a radial ring instead of a sparkline. Never for counts/currency. */
+  ring?: number | null;
   empty?: { title: string; description: string };
   className?: string;
-}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, empty, className }) => {
+}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, className }) => {
   const ACCENTS = {
     accent: 'var(--accent)',
     success: 'var(--success)',
@@ -92,7 +95,7 @@ export const KpiDeltaTile: React.FC<{
               </div>
             )}
           </div>
-          {sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
+          {ring !== undefined ? <RadialRing value={ring} size={44} stroke={5} /> : sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
         </div>
       )}
     </div>

@@ -1,14 +1,15 @@
 'use client';
 
 import React, { Suspense } from 'react';
-import { Filter, Hourglass, Table2 } from 'lucide-react';
+import { Filter, Hourglass, Table2, CalendarCheck } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Badge } from '@/components';
+import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, SkeletonChart, SkeletonTable, Skeleton, RadialRing } from '@/components';
+import { SourceBreakdownTable } from '@/components/SourceBreakdownTable';
 import { ChartTooltip } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { Funnel } from '@/components/Funnel';
 import { useScorecard } from '@/components/useScorecard';
-import { formatPct, FUNNEL_STAGES, type FunnelStageKey } from '@/lib/metrics';
+
 import { ROLE_LABELS } from '@/lib/ghl/roles';
 
 function pct(n: number, d: number): number | null {
@@ -20,8 +21,10 @@ function FunnelTab() {
 
   const multiples = (() => {
     if (!data) return [];
-    const cur = data.trend.current;
-    const cmp = data.trend.comparison;
+    // Conversion ratios are only meaningful over whole weeks; daily counts
+    // of 1-vs-0 produce 400% spikes that say nothing.
+    const cur = data.trendWeekly.current;
+    const cmp = data.trendWeekly.comparison;
     const series = (num: 'consultsBooked' | 'enrolled', den: 'applied' | 'consultsBooked') =>
       cur.map((p, i) => ({
         label: p.label,
@@ -38,9 +41,26 @@ function FunnelTab() {
   if (loading && !data) {
     return (
       <>
-        <PageHeader title="Funnel" description="Where people drop, by stage and by source." />
-        <PageBody>
-          <PageLoader label="Computing funnel" />
+        <PageHeader title="Funnel" description="Every stage, every person behind it.">
+          <DateRangePicker timezone="America/New_York" />
+        </PageHeader>
+        <PageBody className="space-y-5" aria-busy="true">
+          <Card padding="lg">
+            <Skeleton className="h-3 w-32 mb-4" />
+            <SkeletonChart height={300} />
+          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} padding="md">
+                <Skeleton className="h-3 w-40 mb-3" />
+                <SkeletonChart height={120} />
+              </Card>
+            ))}
+          </div>
+          <Card padding="lg">
+            <Skeleton className="h-3 w-24 mb-4" />
+            <SkeletonTable rows={5} cols={8} />
+          </Card>
         </PageBody>
       </>
     );
@@ -57,7 +77,10 @@ function FunnelTab() {
   }
 
   const { scorecard, range, comparison } = data;
-  const stageKeys = FUNNEL_STAGES.map((s) => s.key) as FunnelStageKey[];
+  const showRate = (type: string) => scorecard.showRates.find((r) => r.type === type) ?? null;
+  const consult = showRate('Consult');
+  const roadmap = showRate('Roadmap');
+  const funnelEmpty = scorecard.funnel.stages.every((st) => st.count === 0);
   const days = (h: number | null) => (h === null ? '—' : h < 48 ? `${h.toFixed(0)}h` : `${(h / 24).toFixed(1)} days`);
 
   return (
@@ -69,17 +92,57 @@ function FunnelTab() {
       <PageBody className="space-y-5">
         <SampleDataBanner page="funnel figures" />
 
-        <Card padding="lg">
-          <CardHeader title="Full funnel" subtitle={`${range.presetLabel} · ${range.resolvedLabel}`} icon={Filter} />
-          <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+          <Card padding="lg" className="lg:col-span-3">
+            <CardHeader title="Full funnel" subtitle={`${range.presetLabel} · ${range.resolvedLabel}`} icon={Filter} />
+            {funnelEmpty ? (
+              <EmptyState
+                compact
+                title="No one entered the funnel in this range"
+                description="Try Last 30 days, or run a sync from Setup to pull the latest opportunities."
+              />
+            ) : (
+              <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
+            )}
+          </Card>
+
+          {/* ---- Show rates: rates with a natural 0–100% frame → rings ---- */}
+          <Card padding="lg">
+            <CardHeader title="Show rates" subtitle="showed ÷ (showed + no-show)" icon={CalendarCheck} />
+            {!consult && !roadmap ? (
+              <EmptyState compact title="No appointments in this range" description="Show rates appear once consults or roadmaps have an outcome." />
+            ) : (
+              <div className="flex flex-col gap-4">
+                <RadialRing
+                  value={consult?.rate ?? null}
+                  size={72}
+                  stroke={7}
+                  label="Consult"
+                  sublabel={consult ? `${consult.showed} showed · ${consult.noShow} no-show${consult.cancelled ? ` · ${consult.cancelled} cancelled` : ''}` : 'no consults'}
+                />
+                <RadialRing
+                  value={roadmap?.rate ?? null}
+                  size={72}
+                  stroke={7}
+                  label="Roadmap"
+                  sublabel={roadmap ? `${roadmap.showed} showed · ${roadmap.noShow} no-show${roadmap.cancelled ? ` · ${roadmap.cancelled} cancelled` : ''}` : 'no roadmaps'}
+                />
+              </div>
+            )}
+          </Card>
+        </div>
 
         {/* ---- Conversion over time ---- */}
         <div>
           <div className="text-[11.5px] font-semibold uppercase tracking-[0.06em] mb-3" style={{ color: 'var(--text-quaternary)' }}>
-            Conversion over time · {data.trend.grain === 'week' ? 'Sun–Sat weeks' : 'days'}
+            Conversion over time · Sun–Sat weeks
             {comparison.range ? ` · faded = ${comparison.range.resolvedLabel}` : ''}
           </div>
+          {multiples.every((m) => m.rows.every((r) => r.value === null)) ? (
+            <Card padding="lg">
+              <EmptyState compact title="No conversions to plot yet" description="Small multiples fill in as weeks with applications accumulate." />
+            </Card>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {multiples.map((m) => (
               <Card key={m.title} padding="md">
@@ -99,49 +162,16 @@ function FunnelTab() {
               </Card>
             ))}
           </div>
+          )}
         </div>
 
         {/* ---- Per-source table ---- */}
         <Card padding="lg">
           <CardHeader title="By source" subtitle="Volume says where leads come from; the last two columns say which ones are worth having." icon={Table2} />
           {scorecard.sources.length === 0 ? (
-            <EmptyState title="No contacts in this period" />
+            <EmptyState compact title="No contacts in this period" description="Sources appear as soon as someone applies in the selected range." />
           ) : (
-            <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
-              <table className="w-full text-[12.5px]">
-                <thead>
-                  <tr style={{ background: 'var(--surface-sunken)' }}>
-                    {['Source', ...FUNNEL_STAGES.map((s) => s.label), 'Applied → enrolled', 'Consult show rate'].map((h) => (
-                      <th key={h} className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style={{ color: 'var(--text-quaternary)' }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {scorecard.sources.map((s) => (
-                    <tr key={s.source} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                      <td className="px-3 py-2 font-medium" style={{ color: 'var(--text-primary)' }}>
-                        {s.source}
-                      </td>
-                      {stageKeys.map((k) => (
-                        <td key={k} className="px-3 py-2 tabular" style={{ color: 'var(--text-secondary)' }}>
-                          {s.counts[k]}
-                        </td>
-                      ))}
-                      <td className="px-3 py-2">
-                        <Badge variant={s.appliedToEnrolled === null ? 'neutral' : s.appliedToEnrolled >= 0.1 ? 'success' : s.appliedToEnrolled > 0 ? 'warning' : 'danger'} size="xs">
-                          {formatPct(s.appliedToEnrolled)}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 tabular" style={{ color: 'var(--text-secondary)' }}>
-                        {formatPct(s.consultShowRate)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <SourceBreakdownTable sources={scorecard.sources} />
           )}
         </Card>
 
@@ -149,7 +179,7 @@ function FunnelTab() {
         <Card padding="lg">
           <CardHeader title="Time in stage" subtitle="How long people sat in a stage before moving on (moves inside the period)" icon={Hourglass} />
           {scorecard.timeInStage.length === 0 ? (
-            <EmptyState title="No stage moves in this period" />
+            <EmptyState compact title="No stage moves in this range" description="Try Last 30 days, or run a sync — time in stage needs at least one observed move." />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
               {scorecard.timeInStage.map((t) => (
@@ -175,7 +205,14 @@ function FunnelTab() {
 
 export default function FunnelPage() {
   return (
-    <Suspense fallback={<PageBody><PageLoader /></PageBody>}>
+    <Suspense
+      fallback={
+        <PageBody className="space-y-5" aria-busy="true">
+          <SkeletonChart height={300} />
+          <SkeletonTable rows={5} cols={8} />
+        </PageBody>
+      }
+    >
       <FunnelTab />
     </Suspense>
   );
