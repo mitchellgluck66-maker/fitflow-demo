@@ -84,8 +84,8 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - Read-only GHL: `lib/ghl/client.ts#ghlRequest` throws on any non-GET while
   `ENABLE_WRITEBACK` (literal `false` in `lib/ghl/config.ts`) is off.
   `npm run verify:readonly` proves it by grep; `tests/readonly.test.ts` by test.
-- Sync: `lib/ghl/ingest.ts#runGhlSync({mode:'delta'|'backfill'})`; hourly cron
-  in `vercel.json` → `/api/cron/sync-ghl` (needs `CRON_SECRET`). Backfill from
+- Sync: `lib/ghl/ingest.ts#runGhlSync({mode:'delta'|'backfill'})`; cron in
+  `vercel.json` → `/api/cron/sync-ghl` (hourly on Pro, daily on Hobby; needs `CRON_SECRET`). Backfill from
   `settings.backfill_from` (2026-06-16) via Setup or `npm run backfill`.
 - Stage roles: `lib/ghl/roles.ts` suggests; ≥0.8 confidence auto-applies,
   otherwise `unmapped` + `sync_incidents` row; humans override in /setup
@@ -134,13 +134,15 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   FitFlow-tracked columns; manual weekly spend now lives here) and Revenue
   (whole-tab "Connect Stripe" state until rows exist). Nav: Command Center ·
   Funnel · Ads · Revenue · Reports · Setup.
-- Crons (Vercel Hobby = 2 jobs): `vercel.json` has only `/api/cron/sync-ghl`
-  (hourly) and `/api/cron/dispatch` (11 + 12 UTC). Dispatch runs GHL delta →
-  Meta delta → Stripe reconcile → daily/weekly/monthly digests behind their
-  own 7am-local / Monday / 1st guards; every step is idempotent.
-  **Pro plan:** add back per-job lines, e.g.
-  `{ "path": "/api/cron/daily-todo", "schedule": "0 11,12 * * *" }` (routes
-  still exist under `app/api/cron/*`) and, if desired, run dispatch hourly.
+- Crons (Vercel Hobby = 2 jobs, each once daily): `vercel.json` has only
+  `/api/cron/sync-ghl` (12:00 UTC) and `/api/cron/dispatch` (13:00 UTC).
+  Dispatch runs GHL delta → Meta → Stripe → Google → insights → narratives →
+  daily/weekly/monthly digests. Digest guards are "at/after 7am local" +
+  Monday / 1st, and every step is idempotent, so a once-daily 9am-ET run
+  still sends each digest exactly once. **Pro plan:** set sync-ghl to
+  `0 * * * *`, dispatch to `0 11,12 * * *` (lands on 7am ET across DST) and
+  optionally add per-job lines (routes still exist under `app/api/cron/*`).
+  Do not edit vercel.json casually — it is Hobby-constrained on purpose.
 - Read-only GHL guarantee untouched: `npm run verify:readonly` still passes.
 
 ## Phase D status (done 2026-08-26 — intelligence + design; keys paste in later)

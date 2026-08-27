@@ -16,18 +16,21 @@ export const maxDuration = 300;
 /**
  * GET /api/cron/dispatch — the ONE scheduled job besides the hourly GHL sync.
  *
- * Vercel Hobby allows two cron jobs, so everything else funnels through here.
- * vercel.json fires it at 11:00 and 12:00 UTC (7am business-local floats
- * across DST); each step guards itself:
+ * Vercel Hobby allows two cron jobs, each at most once a day, so everything
+ * else funnels through here. vercel.json fires it once daily (13:00 UTC);
+ * each step guards itself:
  *   1. GHL delta sync        — always (idempotent)
  *   2. Meta insights delta   — always when configured (restates last 3 days)
  *   3. Stripe reconcile      — always when configured (last 7 days)
  *   4. Google Ads delta      — always when configured (OAuth granted)
  *   5. Insights (Anthropic)  — this week vs previous, cached by input hash
  *   6. Weekly/monthly narrative — generated ahead of the Monday / 1st emails
- *   7. Daily to-do digest    — only at 7am local; idempotent per day
- *   8. Weekly scorecard      — only Mondays at 7am local; idempotent per week
- *   9. Monthly scorecard     — only the 1st at 7am local; idempotent per month
+ *   7. Daily to-do digest    — at/after 7am local; idempotent per day
+ *   8. Weekly scorecard      — Mondays at/after 7am local; idempotent per week
+ *   9. Monthly scorecard     — the 1st at/after 7am local; idempotent per month
+ * "At/after" rather than "exactly": a once-daily cron cannot land on 7:00
+ * sharp in every DST regime, and runDigest's per-period idempotency means
+ * the first dispatch after 7am is the only one that sends.
  * `?only=ghl,meta,stripe,google,insights,narrative,daily,weekly,monthly`
  * limits the steps; `?force=1`
  * bypasses the hour/day guards (never the secret).
@@ -52,7 +55,7 @@ export async function GET(request: NextRequest) {
   const today = todayInTimezone(timezone);
   const [y, m, d] = today.split('-').map(Number);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 1 = Monday
-  const isSendHour = force || hour === SEND_HOUR_LOCAL;
+  const isSendHour = force || hour >= SEND_HOUR_LOCAL;
 
   const steps: Record<string, unknown> = {};
   const startedAt = Date.now();
@@ -79,15 +82,15 @@ export async function GET(request: NextRequest) {
   }
 
   if (want('daily')) {
-    steps.daily = isSendHour ? await runDigest('daily_todo', { force }) : { skipped: 'not 7am local', localHour: hour };
+    steps.daily = isSendHour ? await runDigest('daily_todo', { force }) : { skipped: 'before 7am local', localHour: hour };
   }
   if (want('weekly')) {
     steps.weekly =
-      isSendHour && (force || dow === 1) ? await runDigest('weekly', { force }) : { skipped: dow === 1 ? 'not 7am local' : 'not Monday', localHour: hour };
+      isSendHour && (force || dow === 1) ? await runDigest('weekly', { force }) : { skipped: dow === 1 ? 'before 7am local' : 'not Monday', localHour: hour };
   }
   if (want('monthly')) {
     steps.monthly =
-      isSendHour && (force || d === 1) ? await runDigest('monthly', { force }) : { skipped: d === 1 ? 'not 7am local' : 'not the 1st', localHour: hour };
+      isSendHour && (force || d === 1) ? await runDigest('monthly', { force }) : { skipped: d === 1 ? 'before 7am local' : 'not the 1st', localHour: hour };
   }
 
   const failed = Object.values(steps).some((s) => s && typeof s === 'object' && 'ok' in s && (s as { ok: unknown }).ok === false && !('notConfigured' in s && (s as { notConfigured: unknown }).notConfigured));
