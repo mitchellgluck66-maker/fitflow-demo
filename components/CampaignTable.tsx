@@ -18,7 +18,7 @@ const num = 'px-3 py-2.5 text-right tabular';
 
 const DeltaChip: React.FC<{ delta: Delta; kind?: 'count' | 'cents'; label: string | null }> = ({ delta, kind = 'count', label }) => {
   if (delta.direction === 'none' || delta.direction === 'flat') return null;
-  const color = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--success)' : 'var(--danger)';
+  const color = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--positive-text)' : 'var(--negative-text)';
   const Icon = delta.direction === 'up' ? TrendingUp : TrendingDown;
   return (
     <span

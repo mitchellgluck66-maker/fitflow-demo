@@ -78,6 +78,20 @@
   --info-muted: rgba(31, 111, 235, 0.1);
   --info-border: rgba(31, 111, 235, 0.24);
 
+  /* --- Outcome semantics (not system status) ---------------------------
+     positive = enrolled / converted / collected; negative = drop-off / lost /
+     no-show / failed. Muted, corporate: tinted fills, tinted text. Purple stays
+     the brand accent for structure and selection. */
+  --positive: #17996b;
+  --positive-muted: rgba(23, 153, 107, 0.1);
+  --positive-border: rgba(23, 153, 107, 0.24);
+  --positive-text: #12734f;
+
+  --negative: #d4444e;
+  --negative-muted: rgba(212, 68, 78, 0.1);
+  --negative-border: rgba(212, 68, 78, 0.24);
+  --negative-text: #a8313a;
+
   /* --- Elevation -------------------------------------------------------- */
   /* Layered rather than single-blur: a tight contact shadow plus a wider
      ambient one, which is how real light behaves and why it reads as depth. */
@@ -151,6 +165,16 @@
   --info: #4d9bff;
   --info-muted: rgba(77, 155, 255, 0.14);
   --info-border: rgba(77, 155, 255, 0.28);
+
+  --positive: #3fb389;
+  --positive-muted: rgba(63, 179, 137, 0.13);
+  --positive-border: rgba(63, 179, 137, 0.28);
+  --positive-text: #6fcaa6;
+
+  --negative: #e0616a;
+  --negative-muted: rgba(224, 97, 106, 0.13);
+  --negative-border: rgba(224, 97, 106, 0.28);
+  --negative-text: #ef8a91;
 
   /* Dark-mode shadows lean on opacity, not blur - plus the top highlight does
      more of the work of separating a surface from its background. */

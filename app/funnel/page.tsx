@@ -62,7 +62,7 @@ function FunnelTab() {
 
   return (
     <>
-      <PageHeader title="Funnel" description="Proportional bars, the people behind them, and which sources actually convert.">
+      <PageHeader title="Funnel" description="Every stage, every person behind it.">
         <DateRangePicker timezone={data.timezone} />
       </PageHeader>
 
@@ -71,7 +71,7 @@ function FunnelTab() {
 
         <Card padding="lg">
           <CardHeader title="Full funnel" subtitle={`${range.presetLabel} · ${range.resolvedLabel}`} icon={Filter} />
-          <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} />
+          <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
         </Card>
 
         {/* ---- Conversion over time ---- */}

@@ -20,7 +20,9 @@ export const Funnel: React.FC<{
   baseline: { start: string; end: string };
   rangeLabel: string;
   compact?: boolean;
-}> = ({ scorecard, baseline, rangeLabel, compact }) => {
+  /** Bar height in px. The Funnel tab uses 44; compact = 22. */
+  rowHeight?: number;
+}> = ({ scorecard, baseline, rangeLabel, compact, rowHeight }) => {
   const stages = scorecard.funnel.stages;
   const max = Math.max(...stages.map((s) => s.count), 1);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -29,11 +31,11 @@ export const Funnel: React.FC<{
   const toneStyle = (tone: ChipTone): React.CSSProperties => {
     switch (tone) {
       case 'good':
-        return { background: 'var(--success-muted)', color: 'var(--success)', border: '1px solid var(--success-border)' };
+        return { background: 'var(--positive-muted)', color: 'var(--positive-text)', border: '1px solid var(--positive-border)' };
       case 'warn':
-        return { background: 'var(--warning-muted)', color: 'var(--warning)', border: '1px solid var(--warning-border)' };
+        return { background: 'var(--negative-muted)', color: 'var(--negative-text)', border: '1px solid var(--negative-border)' };
       case 'ok':
-        return { background: 'var(--info-muted)', color: 'var(--info)', border: '1px solid var(--info-border)' };
+        return { background: 'var(--surface-sunken)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' };
       default:
         return { background: 'var(--surface-sunken)', color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)' };
     }
@@ -49,6 +51,8 @@ export const Funnel: React.FC<{
         const ghostPct = prev ? (Math.max(0, prev.count - s.count) / max) * 100 : 0;
         const short = FUNNEL_STAGES[i].shortLabel;
         const conv = i > 0 ? scorecard.conversions[i - 1] : null;
+        const isEnrolled = s.key === 'enrolled';
+        const barHeight = rowHeight ?? (compact ? 22 : 30);
 
         return (
           <React.Fragment key={s.key}>
@@ -89,15 +93,15 @@ export const Funnel: React.FC<{
                 </div>
               </div>
 
-              <div className="flex-1 flex items-center" style={{ height: compact ? 22 : 30 }}>
+              <div className="flex-1 flex items-center" style={{ height: barHeight }}>
                 <div
                   className="h-full rounded-l-[5px] transition-[width] duration-500 group-hover:brightness-110"
                   style={{
                     width: `${solidPct}%`,
                     minWidth: s.count > 0 ? 6 : 0,
-                    background: 'var(--accent)',
+                    background: isEnrolled ? 'var(--positive)' : 'var(--accent)',
                     borderRadius: ghostPct > 0 ? '5px 0 0 5px' : 5,
-                    boxShadow: 'var(--shadow-accent)',
+                    boxShadow: isEnrolled ? '0 2px 12px var(--positive-muted)' : 'var(--shadow-accent)',
                   }}
                 />
                 {ghostPct > 0 && (
@@ -107,15 +111,18 @@ export const Funnel: React.FC<{
                     style={{
                       width: `${ghostPct}%`,
                       background:
-                        'repeating-linear-gradient(135deg, var(--accent-muted) 0 6px, transparent 6px 12px)',
-                      border: '1px dashed var(--accent-ring)',
+                        'repeating-linear-gradient(135deg, var(--negative-muted) 0 6px, transparent 6px 12px)',
+                      border: '1px dashed var(--negative-border)',
                       borderLeft: 'none',
                     }}
                   />
                 )}
               </div>
 
-              <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: 'var(--text-primary)' }}>
+              <div
+                className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular"
+                style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}
+              >
                 {s.count}
               </div>
             </button>
@@ -128,11 +135,14 @@ export const Funnel: React.FC<{
           <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--accent)' }} /> at stage
         </span>
         <span className="inline-flex items-center gap-1.5">
+          <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--positive)' }} /> enrolled
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span
             className="w-3 h-2 rounded-[2px]"
             style={{
-              background: 'repeating-linear-gradient(135deg, var(--accent-muted) 0 3px, transparent 3px 6px)',
-              border: '1px dashed var(--accent-ring)',
+              background: 'repeating-linear-gradient(135deg, var(--negative-muted) 0 3px, transparent 3px 6px)',
+              border: '1px dashed var(--negative-border)',
             }}
           />{' '}
           dropped since previous stage

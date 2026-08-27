@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Users } from 'lucide-react';
+import Link from 'next/link';
+import { X, Users, ChevronRight } from 'lucide-react';
 import { Badge } from './Badge';
 import { Loader } from './Loader';
 import { EmptyState } from './PageHeader';
@@ -122,7 +123,12 @@ export const PeopleDrawer: React.FC<{
           {people && people.length > 0 && (
             <ul>
               {people.map((p) => (
-                <li key={p.id} className="px-5 py-3 flex items-start gap-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <li key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <Link
+                    href={`/clients/${p.id}`}
+                    className="px-5 py-3 flex items-start gap-3 transition-colors hover:bg-[var(--surface-hover)]"
+                    title={`Open ${p.name}'s profile`}
+                  >
                   <div
                     className="h-8 w-8 shrink-0 grid place-items-center rounded-full text-[12px] font-semibold"
                     style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}
@@ -155,6 +161,8 @@ export const PeopleDrawer: React.FC<{
                       {p.owner && <span>Owner: {p.owner}</span>}
                     </div>
                   </div>
+                  <ChevronRight size={14} className="shrink-0 mt-2" style={{ color: 'var(--text-quaternary)' }} />
+                  </Link>
                 </li>
               ))}
             </ul>

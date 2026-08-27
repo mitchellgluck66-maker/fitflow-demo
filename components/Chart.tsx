@@ -16,6 +16,8 @@ export const CHART_COLORS = {
   warning: 'var(--warning)',
   danger: 'var(--danger)',
   info: 'var(--info)',
+  positive: 'var(--positive)',
+  negative: 'var(--negative)',
 } as const;
 
 /** Categorical palette for pies and multi-series charts. Purple-led, then

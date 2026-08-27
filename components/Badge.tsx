@@ -12,7 +12,9 @@ export interface BadgeProps {
     | 'danger'
     | 'info'
     | 'neutral'
-    | 'outline';
+    | 'outline'
+    | 'positive'
+    | 'negative';
   size?: 'xs' | 'sm' | 'md';
   dot?: boolean;
   className?: string;
@@ -53,6 +55,17 @@ const TONES: Record<string, { bg: string; fg: string; border: string }> = {
     bg: 'transparent',
     fg: 'var(--text-secondary)',
     border: 'var(--border-default)',
+  },
+  // Outcome semantics: enrolled/converted vs drop-off/lost/failed.
+  positive: {
+    bg: 'var(--positive-muted)',
+    fg: 'var(--positive-text)',
+    border: 'var(--positive-border)',
+  },
+  negative: {
+    bg: 'var(--negative-muted)',
+    fg: 'var(--negative-text)',
+    border: 'var(--negative-border)',
   },
 };
 

@@ -3,13 +3,14 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck, Sparkles } from 'lucide-react';
+import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast } from '@/components';
+import { InsightsCard } from '@/components/InsightsCard';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
-import { Funnel } from '@/components/Funnel';
+import { FunnelStrip } from '@/components/FunnelStrip';
 import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
@@ -145,19 +146,8 @@ function CommandCenter() {
           />
         </div>
 
-        {/* ---- Funnel, full width ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="Funnel"
-            subtitle={`${range.presetLabel} · ${range.resolvedLabel}`}
-            action={
-              <Link href={`/funnel?${search.toString()}`} className="text-[12.5px] font-medium" style={{ color: 'var(--accent)' }}>
-                Funnel deep-dive →
-              </Link>
-            }
-          />
-          <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} />
-        </Card>
+        {/* ---- Funnel summary strip (the deep-dive lives on /funnel) ---- */}
+        <FunnelStrip scorecard={scorecard} href={`/funnel?${search.toString()}`} rangeLabel={`${range.presetLabel} · ${range.resolvedLabel}`} />
 
         {/* ---- Trend + insights ---- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -201,10 +191,7 @@ function CommandCenter() {
             </ResponsiveContainer>
           </Card>
 
-          <Card padding="lg">
-            <CardHeader title="Insights" subtitle="Max three specific findings" icon={Sparkles} />
-            <EmptyState icon={<Sparkles size={18} />} title="AI insights arrive in Phase D" description="This card stays quiet until there is something specific to say." />
-          </Card>
+          <InsightsCard rangeKey={`${range.start}:${range.end}:${comparison.mode}`} />
         </div>
       </PageBody>
 

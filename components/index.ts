@@ -11,6 +11,7 @@ export { Input, Select, Toggle } from './Input';
 // Phase B
 export { DateRangePicker } from './DateRangePicker';
 export { Funnel } from './Funnel';
+export { FunnelStrip } from './FunnelStrip';
 export { PeopleDrawer } from './PeopleDrawer';
 export { KpiDeltaTile } from './KpiDeltaTile';
 export { useScorecard } from './useScorecard';

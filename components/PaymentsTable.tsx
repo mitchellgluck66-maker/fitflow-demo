@@ -8,10 +8,10 @@ import { EmptyState } from './PageHeader';
 import { formatCents, type PaymentDetail } from '@/lib/metrics';
 import { addDays, formatRangeLabel } from '@/lib/dates';
 
-const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
-  succeeded: 'success',
-  failed: 'danger',
-  refunded: 'warning',
+const STATUS_VARIANT: Record<string, 'positive' | 'negative' | 'warning' | 'info' | 'neutral'> = {
+  succeeded: 'positive',
+  failed: 'negative',
+  refunded: 'negative',
   pending: 'info',
 };
 
@@ -26,7 +26,7 @@ function fmtDate(on: string | null): string {
 const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
   const failed = p.status === 'failed';
   return (
-    <tr style={{ borderTop: '1px solid var(--border-subtle)', background: failed ? 'var(--danger-muted)' : undefined }}>
+    <tr style={{ borderTop: '1px solid var(--border-subtle)', background: failed ? 'var(--negative-muted)' : undefined }}>
       <td className="px-3 py-2.5 whitespace-nowrap tabular" style={{ color: 'var(--text-secondary)' }}>
         {fmtDate(p.on)}
       </td>
@@ -69,7 +69,9 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
         {p.contactId ? (
           <>
             <div style={{ color: 'var(--text-primary)' }}>
-              {p.contactName ?? 'Matched contact'}
+              <Link href={`/clients/${p.contactId}`} className="font-medium hover:underline" style={{ color: 'var(--text-primary)' }}>
+                {p.contactName ?? 'Matched contact'}
+              </Link>
               {p.matchSource === 'manual' && (
                 <span className="ml-1.5">
                   <Badge variant="accent" size="xs">
@@ -127,7 +129,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
             {failed.length > 0 && (
               <>
                 <tr>
-                  <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--danger)', background: 'var(--danger-muted)' }}>
+                  <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
                     <span className="inline-flex items-center gap-1.5">
                       <AlertTriangle size={12} strokeWidth={2.4} /> Needs attention · {failed.length} failed
                     </span>

@@ -34,7 +34,8 @@ export const KpiDeltaTile: React.FC<{
   } as const;
   const color = ACCENTS[accent];
 
-  const trendColor = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--success)' : 'var(--danger)';
+  const trendColor = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--positive-text)' : 'var(--negative-text)';
+  const trendBg = delta.good === null ? 'var(--surface-sunken)' : delta.good ? 'var(--positive-muted)' : 'var(--negative-muted)';
   const TrendIcon = delta.direction === 'up' ? TrendingUp : delta.direction === 'down' ? TrendingDown : Minus;
 
   return (
@@ -61,7 +62,7 @@ export const KpiDeltaTile: React.FC<{
         {!empty && delta.direction !== 'none' && (
           <span
             className="inline-flex items-center gap-1 h-[20px] px-1.5 rounded-[5px] text-[11px] font-semibold tabular cursor-help shrink-0"
-            style={{ color: trendColor, background: `color-mix(in srgb, ${trendColor} 10%, transparent)` }}
+            style={{ color: trendColor, background: trendBg }}
             title={comparisonLabel ? `${formatDelta(delta, deltaKind)} · ${comparisonLabel}` : formatDelta(delta, deltaKind)}
           >
             <TrendIcon size={11} strokeWidth={2.4} />
