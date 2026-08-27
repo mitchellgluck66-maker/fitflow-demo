@@ -9,6 +9,13 @@ import * as schema from './schema';
 const migrationsFolder = path.join(__dirname, '..', 'migrations');
 
 export async function runMigrations(): Promise<void> {
+  if (!process.env.DATABASE_URL && typeof process.loadEnvFile === 'function') {
+    try {
+      process.loadEnvFile(path.join(process.cwd(), '.env.local'));
+    } catch {
+      /* embedded PGlite */
+    }
+  }
   const url = process.env.DATABASE_URL?.trim();
 
   if (url) {

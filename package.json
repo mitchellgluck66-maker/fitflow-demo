@@ -16,7 +16,9 @@
     "sync:now": "tsx scripts/sync-now.ts",
     "backfill": "tsx scripts/backfill.ts",
     "verify:readonly": "bash scripts/verify-readonly.sh",
-    "check": "npm run typecheck && npm run test && npm run verify:readonly && npm run build"
+    "check": "npm run typecheck && npm run test && npm run verify:readonly && npm run build",
+    "sync:meta": "tsx scripts/sync-meta.ts",
+    "sync:stripe": "tsx scripts/sync-stripe.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.7",

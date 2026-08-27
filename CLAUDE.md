@@ -115,6 +115,34 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   default mitchellgluck66@gmail.com until changed on /reports. Crons fire at
   11 and 12 UTC and the route only runs when it is 7am in the business tz.
 
+## Phase C status (done 2026-08-26 — built with NO keys; lights up when keys are pasted in /setup)
+
+- Meta (`lib/meta/`): GET-only Graph API insights (level=ad, daily), rows
+  `ad_spend` keyed `meta:{ad_id}:{date}`, origin='meta'. Delta = last 3 days;
+  backfill from `backfill_from`. Setup card verifies with one `/act_{id}` call.
+- Spend precedence (`lib/metrics#expandSpend`): API rows own their platform+date;
+  a manual weekly row is spread over its 7 days and used only for uncovered
+  dates. Tested in `tests/money.test.ts`.
+- Stripe (`lib/stripe/`): restricted key (rk_…) GET-only; charges/invoices,
+  subscriptions (monthly-normalised), refunds, failed → `payments` keyed by
+  stripe id, origin='stripe'. `/api/stripe/webhook` verifies the signature
+  (`stripe_webhook_secret`). Reconcile = last 7 days.
+- Matching (`lib/stripe/matching.ts` over `lib/metrics#matchPayments`): email
+  then phone via the normalisers in `lib/ghl/transitions.ts`; `match_source`
+  'manual' (Setup → Sync health → Unmatched payments) is never overwritten.
+- Tabs: Ads (KPIs, spend-vs-revenue, campaign table with platform-reported vs
+  FitFlow-tracked columns; manual weekly spend now lives here) and Revenue
+  (whole-tab "Connect Stripe" state until rows exist). Nav: Command Center ·
+  Funnel · Ads · Revenue · Reports · Setup.
+- Crons (Vercel Hobby = 2 jobs): `vercel.json` has only `/api/cron/sync-ghl`
+  (hourly) and `/api/cron/dispatch` (11 + 12 UTC). Dispatch runs GHL delta →
+  Meta delta → Stripe reconcile → daily/weekly/monthly digests behind their
+  own 7am-local / Monday / 1st guards; every step is idempotent.
+  **Pro plan:** add back per-job lines, e.g.
+  `{ "path": "/api/cron/daily-todo", "schedule": "0 11,12 * * *" }` (routes
+  still exist under `app/api/cron/*`) and, if desired, run dispatch hourly.
+- Read-only GHL guarantee untouched: `npm run verify:readonly` still passes.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,

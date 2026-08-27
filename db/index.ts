@@ -23,6 +23,16 @@ declare global {
   var __fitflowDb: Db | undefined;
 }
 
+// CLI scripts (tsx) do not load .env.local the way Next does. Load it here so
+// `npm run db:seed` and the app can never point at different databases.
+if (!process.env.NEXT_RUNTIME && !process.env.DATABASE_URL && typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile(path.join(process.cwd(), '.env.local'));
+  } catch {
+    /* no .env.local — embedded PGlite */
+  }
+}
+
 export const DATABASE_URL = process.env.DATABASE_URL?.trim() || null;
 export const isEmbeddedDb = !DATABASE_URL;
 
