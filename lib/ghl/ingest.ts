@@ -46,6 +46,7 @@ import {
   type DerivedTransition,
 } from './transitions';
 import type { GhlContact, GhlOpportunity } from './schemas';
+import { captureException } from '../sentry';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -735,6 +736,7 @@ export async function runGhlSync(options: {
     }
     return finish(true, since);
   } catch (err) {
+    captureException(err, { source: 'ghl' });
     const message = err instanceof Error ? err.message : String(err);
     await raise('error', 'critical', `Sync crashed: ${message}`);
     return finish(false, since, message);

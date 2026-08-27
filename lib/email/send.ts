@@ -13,7 +13,7 @@ import { getSetting, SETTING_KEYS } from '../settings';
 import { buildDigest, type DigestKind } from './digests';
 import { sendEmail, resendConfigured } from './resend';
 
-export type DigestStatus = 'sent' | 'stored' | 'skipped_empty' | 'failed' | 'already_sent';
+export type DigestStatus = 'sent' | 'stored' | 'skipped_empty' | 'failed' | 'already_sent' | 'disabled';
 
 export interface DigestRunResult {
   kind: DigestKind;
@@ -33,6 +33,16 @@ const RECIPIENT_KEY: Record<DigestKind, string> = {
   monthly: SETTING_KEYS.digestRecipientsMonthly,
 };
 
+const ENABLED_KEY: Record<DigestKind, string> = {
+  daily_todo: SETTING_KEYS.digestEnabledTodo,
+  weekly: SETTING_KEYS.digestEnabledWeekly,
+  monthly: SETTING_KEYS.digestEnabledMonthly,
+};
+
+export async function digestEnabled(kind: DigestKind): Promise<boolean> {
+  return (await getSetting(ENABLED_KEY[kind])) !== 'false';
+}
+
 export async function resolveRecipients(kind: DigestKind): Promise<string[]> {
   const raw = (await getSetting(RECIPIENT_KEY[kind])) ?? '';
   return Array.from(
@@ -47,6 +57,10 @@ export async function resolveRecipients(kind: DigestKind): Promise<string[]> {
 
 export async function runDigest(kind: DigestKind, options: { force?: boolean; today?: string } = {}): Promise<DigestRunResult> {
   const recipients = await resolveRecipients(kind);
+  // Disabled in Reports → nothing built, nothing stored (force = manual "Send now" still works).
+  if (!options.force && !(await digestEnabled(kind))) {
+    return { kind, status: 'disabled', periodStart: '', periodEnd: '', recipients, subject: '' };
+  }
   const digest = await buildDigest(kind, options.today);
   const base = { kind, periodStart: digest.periodStart, periodEnd: digest.periodEnd, recipients, subject: digest.subject };
 

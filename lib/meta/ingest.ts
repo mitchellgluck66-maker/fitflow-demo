@@ -13,6 +13,7 @@ import { todayInTimezone, addDays } from '../dates';
 import { getMetaConfig } from './config';
 import { fetchInsights } from './client';
 import { leadsFromActions } from './schemas';
+import { captureException } from '../sentry';
 
 export type MetaSyncMode = 'delta' | 'backfill';
 
@@ -120,6 +121,7 @@ export async function runMetaSync(options: { mode: MetaSyncMode; trigger: 'cron'
     }
     return finish(true, window);
   } catch (err) {
+    captureException(err, { source: 'meta' });
     const message = err instanceof Error ? err.message : String(err);
     await db.insert(syncIncidents).values({ syncRunId: runId, kind: 'error', severity: 'critical', message: `Meta sync crashed: ${message}` });
     return finish(false, window, message);

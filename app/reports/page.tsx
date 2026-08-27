@@ -14,6 +14,7 @@ import {
   SampleDataBanner,
   PageLoader,
   EmptyState,
+  Toggle,
 } from '@/components';
 
 type Kind = 'daily_todo' | 'weekly' | 'monthly';
@@ -42,6 +43,9 @@ interface SettingsData {
   digestRecipientsTodo: string;
   digestRecipientsWeekly: string;
   digestRecipientsMonthly: string;
+  digestEnabledTodo: boolean;
+  digestEnabledWeekly: boolean;
+  digestEnabledMonthly: boolean;
   email: { configured: boolean; from: string | null };
 }
 
@@ -50,6 +54,7 @@ const STATUS_VARIANT: Record<string, 'success' | 'info' | 'neutral' | 'danger' |
   stored: 'info',
   skipped_empty: 'neutral',
   failed: 'danger',
+  disabled: 'neutral',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -57,6 +62,7 @@ const STATUS_LABEL: Record<string, string> = {
   stored: 'Rendered (not sent)',
   skipped_empty: 'Skipped · empty',
   failed: 'Failed',
+  disabled: 'Disabled',
 };
 
 function fmt(iso: string | null): string {
@@ -74,6 +80,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [recipients, setRecipients] = useState({ todo: '', weekly: '', monthly: '' });
+  const [enabled, setEnabled] = useState({ todo: true, weekly: true, monthly: true });
   const [preview, setPreview] = useState<{ title: string; src?: string; html?: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -88,6 +95,11 @@ export default function ReportsPage() {
         todo: s.digestRecipientsTodo ?? '',
         weekly: s.digestRecipientsWeekly ?? '',
         monthly: s.digestRecipientsMonthly ?? '',
+      });
+      setEnabled({
+        todo: s.digestEnabledTodo !== false,
+        weekly: s.digestEnabledWeekly !== false,
+        monthly: s.digestEnabledMonthly !== false,
       });
       setDigests(Array.isArray(d.digests) ? d.digests : []);
     } catch {
@@ -115,10 +127,13 @@ export default function ReportsPage() {
           digestRecipientsTodo: recipients.todo,
           digestRecipientsWeekly: recipients.weekly,
           digestRecipientsMonthly: recipients.monthly,
+          digestEnabledTodo: enabled.todo,
+          digestEnabledWeekly: enabled.weekly,
+          digestEnabledMonthly: enabled.monthly,
         }),
       });
       const data = await res.json();
-      setToast({ message: data.ok ? 'Recipients saved' : 'Could not save', detail: data.error, type: data.ok ? 'success' : 'error' });
+      setToast({ message: data.ok ? 'Digest settings saved' : 'Could not save', detail: data.error, type: data.ok ? 'success' : 'error' });
     } finally {
       setBusy(null);
     }
@@ -242,9 +257,14 @@ export default function ReportsPage() {
               hint="1st of the month at 7am, covering the previous month."
             />
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+            <Toggle checked={enabled.todo} onChange={(v) => setEnabled((e) => ({ ...e, todo: v }))} label="Daily to-do enabled" description={enabled.todo ? 'Runs on schedule' : 'Skipped by the schedule; Send now still works'} />
+            <Toggle checked={enabled.weekly} onChange={(v) => setEnabled((e) => ({ ...e, weekly: v }))} label="Weekly scorecard enabled" description={enabled.weekly ? 'Runs on Mondays' : 'Skipped by the schedule'} />
+            <Toggle checked={enabled.monthly} onChange={(v) => setEnabled((e) => ({ ...e, monthly: v }))} label="Monthly scorecard enabled" description={enabled.monthly ? 'Runs on the 1st' : 'Skipped by the schedule'} />
+          </div>
           <div className="mt-3">
             <Button variant="primary" icon={Save} loading={busy === 'save'} onClick={saveRecipients}>
-              Save recipients
+              Save digest settings
             </Button>
           </div>
         </Card>

@@ -16,6 +16,9 @@ export const SETTING_KEYS = {
   digestRecipientsTodo: 'digest_recipients_todo',
   digestRecipientsWeekly: 'digest_recipients_weekly',
   digestRecipientsMonthly: 'digest_recipients_monthly',
+  digestEnabledTodo: 'digest_enabled_todo',
+  digestEnabledWeekly: 'digest_enabled_weekly',
+  digestEnabledMonthly: 'digest_enabled_monthly',
   summaryRecipientEmail: 'summary_recipient_email',
   summaryRecipientHistory: 'summary_recipient_history',
   /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
@@ -39,6 +42,9 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.digestRecipientsTodo]: 'mitchellgluck66@gmail.com',
   [SETTING_KEYS.digestRecipientsWeekly]: 'mitchellgluck66@gmail.com',
   [SETTING_KEYS.digestRecipientsMonthly]: 'mitchellgluck66@gmail.com',
+  [SETTING_KEYS.digestEnabledTodo]: 'true',
+  [SETTING_KEYS.digestEnabledWeekly]: 'true',
+  [SETTING_KEYS.digestEnabledMonthly]: 'true',
 };
 
 export async function getSetting(key: string): Promise<string | null> {

@@ -29,6 +29,7 @@ import {
   type StripeRefund,
   type StripeCustomer,
 } from './schemas';
+import { captureException } from '../sentry';
 
 export type StripeSyncMode = 'reconcile' | 'backfill';
 
@@ -250,6 +251,7 @@ export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'c
 
     return finish(true, since);
   } catch (err) {
+    captureException(err, { source: 'stripe' });
     return finish(false, since, err instanceof Error ? err.message : String(err));
   }
 }

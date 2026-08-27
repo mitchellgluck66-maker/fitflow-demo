@@ -10,6 +10,7 @@ import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { CampaignTable } from '@/components/CampaignTable';
 import { SpendEntry } from '@/components/SpendEntry';
+import { CsvSpendUpload } from '@/components/CsvSpendUpload';
 import { useScorecard } from '@/components/useScorecard';
 import { computeDelta, formatCents } from '@/lib/metrics';
 
@@ -193,6 +194,8 @@ function AdsTab() {
           />
           <SpendEntry />
         </Card>
+
+        <CsvSpendUpload onImported={() => window.location.reload()} />
       </PageBody>
 
       <Toast isVisible={Boolean(error)} message="Could not refresh the scorecard" detail={error ?? undefined} type="error" onClose={() => undefined} />

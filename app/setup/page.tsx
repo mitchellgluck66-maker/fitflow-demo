@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   History,
   AlertTriangle,
-  Activity,
 } from 'lucide-react';
 import {
   Card,
@@ -32,7 +31,9 @@ import {
 } from '@/components';
 import { MetaCard } from '@/components/setup/MetaCard';
 import { StripeCard } from '@/components/setup/StripeCard';
-import { UnmatchedPayments } from '@/components/setup/UnmatchedPayments';
+import { GoogleAdsCard } from '@/components/setup/GoogleAdsCard';
+import { AnthropicCard } from '@/components/setup/AnthropicCard';
+import { SyncHealth } from '@/components/setup/SyncHealth';
 
 interface Credentials {
   configured: boolean;
@@ -299,7 +300,6 @@ export default function SetupPage() {
 
   const connected = Boolean(creds?.configured && sync?.connection.ok);
   const unmapped = pipelines?.unmapped ?? [];
-  const incidents = sync?.incidents ?? [];
   const lastRun = sync?.runs[0];
 
   const stepBadge = (done: boolean, label?: string) => (
@@ -636,93 +636,11 @@ export default function SetupPage() {
         {/* ---- Money rails (Phase C) ---- */}
         <MetaCard />
         <StripeCard />
+        <GoogleAdsCard />
+        <AnthropicCard />
 
-        {/* ---- Sync health ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="Sync health"
-            subtitle="Recent runs and anything that needs a human"
-            icon={Activity}
-            action={
-              <Badge variant={incidents.length ? 'warning' : 'success'} dot>
-                {incidents.length ? `${incidents.length} open` : 'All clear'}
-              </Badge>
-            }
-          />
-
-          <UnmatchedPayments />
-
-          {incidents.length > 0 && (
-            <ul className="space-y-1.5 mb-4">
-              {incidents.map((i) => (
-                <li
-                  key={i.id}
-                  className="flex items-start gap-2 px-3 py-2 rounded-[8px] text-[12.5px]"
-                  style={{
-                    background: i.severity === 'critical' ? 'var(--danger-muted)' : 'var(--warning-muted)',
-                    border: `1px solid ${i.severity === 'critical' ? 'var(--danger-border)' : 'var(--warning-border)'}`,
-                    color: i.severity === 'critical' ? 'var(--danger)' : 'var(--warning)',
-                  }}
-                >
-                  <Badge variant="neutral" size="xs">
-                    {i.kind}
-                  </Badge>
-                  <span className="flex-1">{i.message}</span>
-                  <span className="text-[11px] opacity-70 whitespace-nowrap">{fmt(i.createdAt)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {(sync?.runs.length ?? 0) === 0 ? (
-            <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
-              No sync runs recorded yet.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
-              <table className="w-full text-[12.5px]">
-                <thead>
-                  <tr style={{ background: 'var(--surface-sunken)' }}>
-                    {['When', 'Kind', 'Trigger', 'Status', 'Requests', 'Result'].map((h) => (
-                      <th
-                        key={h}
-                        className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide"
-                        style={{ color: 'var(--text-quaternary)' }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sync!.runs.slice(0, 10).map((r) => (
-                    <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                      <td className="px-3 py-2 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                        {fmt(r.startedAt)}
-                      </td>
-                      <td className="px-3 py-2">{r.kind}</td>
-                      <td className="px-3 py-2">{r.trigger}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'warning'} size="xs">
-                          {r.status}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 tabular">{r.requestsUsed}</td>
-                      <td className="px-3 py-2" style={{ color: 'var(--text-tertiary)' }}>
-                        {r.error ??
-                          (Object.entries(r.stats)
-                            .filter(([, v]) => v)
-                            .map(([k, v]) => `${k} ${v}`)
-                            .join(' · ') ||
-                            '—')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+        {/* ---- Sync health (Phase D) ---- */}
+        <SyncHealth />
 
         {/* ---- Sample data ---- */}
         <Card padding="lg">
