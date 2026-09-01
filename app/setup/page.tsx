@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import {
   Card,
-  CardHeader,
+  AccordionCard,
   Button,
   Badge,
   Toast,
@@ -35,6 +35,7 @@ import { StripeCard } from '@/components/setup/StripeCard';
 import { GoogleAdsCard } from '@/components/setup/GoogleAdsCard';
 import { AnthropicCard } from '@/components/setup/AnthropicCard';
 import { SyncHealth } from '@/components/setup/SyncHealth';
+import { IncidentLog } from '@/components/setup/IncidentLog';
 
 interface Credentials {
   configured: boolean;
@@ -133,6 +134,15 @@ function fmt(iso: string | null | undefined): string {
   } catch {
     return iso;
   }
+}
+
+function ago(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
 }
 
 export default function SetupPage() {
@@ -309,7 +319,42 @@ export default function SetupPage() {
   const connected = Boolean(creds?.configured && sync?.connection.ok);
   const unmapped = pipelines?.unmapped ?? [];
   const followedPipelines = pipelines?.pipelines.filter((p) => p.isTracked) ?? [];
+  const unfollowedActive = pipelines?.pipelines.filter((p) => !p.isTracked && !p.isOff && !p.archived) ?? [];
+  const archivedPipelines = pipelines?.pipelines.filter((p) => !p.isTracked && (p.isOff || p.archived)) ?? [];
   const lastRun = sync?.runs[0];
+
+  /** One-line row for an unfollowed pipeline (muted; extra-muted for archived/retired). */
+  const pipelineRow = (p: PipelineRow) => (
+    <li
+      key={p.id}
+      className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-[8px]"
+      style={{ border: '1px solid var(--border-subtle)', opacity: p.isOff || p.archived ? 0.55 : 0.75 }}
+    >
+      <span className="text-[12.5px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
+        {p.name}
+      </span>
+      {p.isOff && (
+        <Badge variant="neutral" size="xs">
+          retired
+        </Badge>
+      )}
+      {p.origin === 'demo' && (
+        <Badge variant="warning" size="xs">
+          sample
+        </Badge>
+      )}
+      {p.archived && (
+        <Badge variant="neutral" size="xs">
+          archived in GHL
+        </Badge>
+      )}
+      <span className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
+        {p.stages.filter((s) => !s.archived).length} stages
+      </span>
+      <div className="flex-1" />
+      <Toggle checked={p.isTracked} onChange={(v) => setTracked(p.id, v)} label="Follow" />
+    </li>
+  );
 
   const stepBadge = (done: boolean, label?: string) => (
     <Badge variant={done ? 'success' : 'neutral'} dot>
@@ -343,14 +388,23 @@ export default function SetupPage() {
           </p>
         </div>
 
-        {/* ---- STEP 1: Credentials ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="1 · Private Integration Token"
-            subtitle="Created per sub-account in GoHighLevel → Settings → Private Integrations"
-            icon={KeyRound}
-            action={stepBadge(Boolean(creds?.configured), connected ? 'Connected' : creds?.configured ? 'Saved' : 'Pending')}
-          />
+        {/* ---- STEP 1: Credentials (open while the credential is unverified) ---- */}
+        <AccordionCard
+          title="1 · Private Integration Token"
+          summary={
+            !creds
+              ? 'Loading…'
+              : connected
+                ? `Connected — location ${creds.locationId}`
+                : creds.configured
+                  ? 'Saved — connection failing'
+                  : 'Not connected'
+          }
+          subtitle="Created per sub-account in GoHighLevel → Settings → Private Integrations"
+          icon={KeyRound}
+          defaultOpen={creds !== null && !connected}
+          action={stepBadge(Boolean(creds?.configured), connected ? 'Connected' : creds?.configured ? 'Saved' : 'Pending')}
+        >
 
           {creds?.configured && (
             <div
@@ -449,16 +503,16 @@ export default function SetupPage() {
               </div>
             </details>
           </div>
-        </Card>
+        </AccordionCard>
 
         {/* ---- STEP 2: Sync + backfill ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="2 · Sync"
-            subtitle="Hourly delta sync via Vercel cron, plus a one-off history backfill"
-            icon={Database}
-            action={stepBadge(Boolean(prov?.hasRealData), prov?.hasRealData ? 'Real data present' : 'No real data yet')}
-          />
+        <AccordionCard
+          title="2 · Sync"
+          summary={sync?.lastSyncAt ? `Last sync ${ago(sync.lastSyncAt)}` : 'Never run'}
+          subtitle="Hourly delta sync via Vercel cron, plus a one-off history backfill"
+          icon={Database}
+          action={stepBadge(Boolean(prov?.hasRealData), prov?.hasRealData ? 'Real data present' : 'No real data yet')}
+        >
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="px-3 py-3 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
@@ -514,76 +568,42 @@ export default function SetupPage() {
               )}
             </div>
           )}
-        </Card>
+        </AccordionCard>
 
-        {/* ---- STEP 3: Followed pipelines + stage → role mapping ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="3 · Followed pipelines & stage roles"
-            subtitle="Syncs mirror every pipeline; only followed ones drive dashboards, metrics and email digests."
-            icon={GitBranch}
-            action={stepBadge(
-              followedPipelines.length > 0 && unmapped.length === 0,
-              unmapped.length
-                ? `${unmapped.length} unmapped`
-                : followedPipelines.length === 0
-                  ? 'None followed'
-                  : `${followedPipelines.length} followed`,
-            )}
-          />
-
+        {/* ---- STEP 3: Followed pipelines + stage → role mapping.
+             Defaults open when a followed pipeline has unmapped stages, or when
+             real pipelines exist but none is followed (dashboards stay empty
+             until someone follows one — that IS attention-worthy). ---- */}
+        <AccordionCard
+          title="3 · Followed pipelines & stage roles"
+          summary={
+            !pipelines
+              ? 'Loading…'
+              : pipelines.pipelines.length === 0
+                ? 'No pipelines yet'
+                : `${followedPipelines.length} followed of ${pipelines.pipelines.length}${unmapped.length ? ` · ${unmapped.length} unmapped` : ''}`
+          }
+          subtitle="Syncs mirror every pipeline; only followed ones drive dashboards, metrics and email digests."
+          icon={GitBranch}
+          defaultOpen={unmapped.length > 0 || ((pipelines?.pipelines.length ?? 0) > 0 && followedPipelines.length === 0)}
+          action={stepBadge(
+            followedPipelines.length > 0 && unmapped.length === 0,
+            unmapped.length
+              ? `${unmapped.length} unmapped`
+              : followedPipelines.length === 0
+                ? 'None followed'
+                : `${followedPipelines.length} followed`,
+          )}
+        >
           {(pipelines?.pipelines.length ?? 0) === 0 ? (
             <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
               No pipelines yet — run a sync (or <code>npm run db:seed</code> for sample data).
             </p>
           ) : (
             <>
-              {/* Followed-pipelines selector: every pipeline one compact row;
-                  "{ Off }" retirees arrive pre-sorted last from the API. */}
-              <ul className="space-y-1.5 mb-3">
-                {pipelines!.pipelines.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-[8px]"
-                    style={{
-                      background: p.isTracked ? 'var(--surface-sunken)' : 'transparent',
-                      border: '1px solid var(--border-subtle)',
-                      opacity: p.isTracked ? 1 : p.isOff ? 0.55 : 0.75,
-                    }}
-                  >
-                    <span
-                      className="text-[12.5px] font-medium"
-                      style={{ color: p.isTracked ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
-                    >
-                      {p.name}
-                    </span>
-                    {p.isOff && (
-                      <Badge variant="neutral" size="xs">
-                        retired
-                      </Badge>
-                    )}
-                    {p.origin === 'demo' && (
-                      <Badge variant="warning" size="xs">
-                        sample
-                      </Badge>
-                    )}
-                    {p.archived && (
-                      <Badge variant="neutral" size="xs">
-                        archived in GHL
-                      </Badge>
-                    )}
-                    <span className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
-                      {p.stages.filter((s) => !s.archived).length} stages
-                    </span>
-                    <div className="flex-1" />
-                    <Toggle checked={p.isTracked} onChange={(v) => setTracked(p.id, v)} label={p.isTracked ? 'Followed' : 'Follow'} />
-                  </li>
-                ))}
-              </ul>
-
               {followedPipelines.length === 0 && (
                 <div
-                  className="px-3 py-2.5 rounded-[8px] mb-1 text-[12.5px]"
+                  className="px-3 py-2.5 rounded-[8px] mb-3 text-[12.5px]"
                   style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}
                 >
                   Nothing is followed yet. Dashboards, metrics and digests stay empty until you follow at least one
@@ -605,6 +625,7 @@ export default function SetupPage() {
                 </div>
               )}
 
+              {/* Followed pipelines: pinned on top, expanded with their stage mapping. */}
               <div className="space-y-4">
                 {followedPipelines.map((p) => (
                   <div key={p.id}>
@@ -612,6 +633,11 @@ export default function SetupPage() {
                       <span className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
                         {p.name}
                       </span>
+                      {p.isOff && (
+                        <Badge variant="neutral" size="xs">
+                          retired
+                        </Badge>
+                      )}
                       {p.origin === 'demo' && (
                         <Badge variant="warning" size="xs">
                           sample
@@ -622,6 +648,8 @@ export default function SetupPage() {
                           archived in GHL
                         </Badge>
                       )}
+                      <div className="flex-1" />
+                      <Toggle checked={p.isTracked} onChange={(v) => setTracked(p.id, v)} label="Followed" />
                     </div>
                     <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
                     <table className="w-full text-[12.5px]">
@@ -693,9 +721,26 @@ export default function SetupPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Unfollowed live pipelines: one line each. */}
+              {unfollowedActive.length > 0 && (
+                <ul className={`space-y-1.5 ${followedPipelines.length ? 'mt-4' : ''}`}>
+                  {unfollowedActive.map(pipelineRow)}
+                </ul>
+              )}
+
+              {/* "{ Off }" retirees and GHL-archived pipelines, out of the way. */}
+              {archivedPipelines.length > 0 && (
+                <details className="mt-3">
+                  <summary className="text-[12px] cursor-pointer select-none" style={{ color: 'var(--accent)' }}>
+                    Archived ({archivedPipelines.length})
+                  </summary>
+                  <ul className="space-y-1.5 mt-2">{archivedPipelines.map(pipelineRow)}</ul>
+                </details>
+              )}
             </>
           )}
-        </Card>
+        </AccordionCard>
 
         {/* ---- Ad spend (manual) ---- */}
         {/* ---- Money rails (Phase C) ---- */}
@@ -707,18 +752,21 @@ export default function SetupPage() {
         {/* ---- Sync health (Phase D) ---- */}
         <SyncHealth />
 
+        {/* ---- Incident log ---- */}
+        <IncidentLog />
+
         {/* ---- Sample data ---- */}
-        <Card padding="lg">
-          <CardHeader
-            title="Sample data"
-            subtitle="Fabricated rows are labelled origin=demo and shown with a banner until removed"
-            icon={FlaskConical}
-            action={
-              <Badge variant={prov?.hasDemoData ? 'warning' : 'success'} dot>
-                {prov?.hasDemoData ? `${prov.demoContacts} demo contacts` : 'Clean'}
-              </Badge>
-            }
-          />
+        <AccordionCard
+          title="Sample data"
+          summary={!prov ? 'Loading…' : prov.hasDemoData ? `${prov.demoContacts} demo contacts` : 'Clean — no fabricated rows'}
+          subtitle="Fabricated rows are labelled origin=demo and shown with a banner until removed"
+          icon={FlaskConical}
+          action={
+            <Badge variant={prov?.hasDemoData ? 'warning' : 'success'} dot>
+              {prov?.hasDemoData ? `${prov.demoContacts} demo contacts` : 'Clean'}
+            </Badge>
+          }
+        >
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-[12.5px] flex-1 min-w-[240px]" style={{ color: 'var(--text-tertiary)' }}>
               {prov?.hasDemoData
@@ -729,7 +777,7 @@ export default function SetupPage() {
               Remove sample data
             </Button>
           </div>
-        </Card>
+        </AccordionCard>
       </PageBody>
 
       <Toast

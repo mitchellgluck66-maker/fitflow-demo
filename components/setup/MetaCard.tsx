@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Megaphone, CheckCircle2, XCircle, Eye, EyeOff, Trash2, RefreshCw, History } from 'lucide-react';
-import { Card, CardHeader, Badge, Button, Input, Toast } from '@/components';
+import { AccordionCard, Badge, Button, Input, Toast } from '@/components';
 
 interface MetaCreds {
   configured: boolean;
@@ -98,17 +98,18 @@ export const MetaCard: React.FC = () => {
   const last = creds?.lastSync;
 
   return (
-    <Card padding="lg">
-      <CardHeader
-        title="Meta Ads"
-        subtitle="Marketing API insights — spend, impressions, clicks and leads per ad per day. Read-only."
-        icon={Megaphone}
-        action={
-          <Badge variant={connected ? 'success' : configured ? 'warning' : 'neutral'} dot>
-            {connected ? 'Connected' : configured ? 'Saved' : 'Not connected'}
-          </Badge>
-        }
-      />
+    <AccordionCard
+      title="Meta Ads"
+      summary={!creds ? 'Loading…' : configured ? `Account ${creds.adAccountId}${verified?.ok === false ? ' — verification failed' : ''}` : 'Not connected'}
+      subtitle="Marketing API insights — spend, impressions, clicks and leads per ad per day. Read-only."
+      icon={Megaphone}
+      defaultOpen={configured && verified?.ok === false}
+      action={
+        <Badge variant={connected ? 'success' : configured ? 'warning' : 'neutral'} dot>
+          {connected ? 'Connected' : configured ? 'Saved' : 'Not connected'}
+        </Badge>
+      }
+    >
 
       {configured ? (
         <div
@@ -211,6 +212,6 @@ export const MetaCard: React.FC = () => {
         type={toast?.type ?? 'info'}
         onClose={() => setToast(null)}
       />
-    </Card>
+    </AccordionCard>
   );
 };

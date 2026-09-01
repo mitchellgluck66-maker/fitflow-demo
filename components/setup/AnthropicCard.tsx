@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Sparkles, CheckCircle2, XCircle, Eye, EyeOff, Trash2, RefreshCw } from 'lucide-react';
-import { Card, CardHeader, Badge, Button, Select, Toast } from '@/components';
+import { AccordionCard, Badge, Button, Select, Toast } from '@/components';
 
 interface AnthropicState {
   configured: boolean;
@@ -92,17 +92,18 @@ export const AnthropicCard: React.FC = () => {
   const connected = Boolean(state?.configured && (verified ? verified.ok : true));
 
   return (
-    <Card padding="lg">
-      <CardHeader
-        title="Anthropic"
-        subtitle="Insight cards on the Command Center, the Monday narrative, and stage-role suggestions"
-        icon={Sparkles}
-        action={
-          <Badge variant={!state?.configured ? 'neutral' : connected ? 'success' : 'warning'} dot>
-            {!state?.configured ? 'Not connected' : verified && !verified.ok ? 'Saved · unverified' : 'Connected'}
-          </Badge>
-        }
-      />
+    <AccordionCard
+      title="Anthropic"
+      summary={!state ? 'Loading…' : !state.configured ? 'Not connected' : verified && !verified.ok ? 'Saved — verification failed' : 'Connected'}
+      subtitle="Insight cards on the Command Center, the Monday narrative, and stage-role suggestions"
+      icon={Sparkles}
+      defaultOpen={Boolean(state?.configured && verified && !verified.ok)}
+      action={
+        <Badge variant={!state?.configured ? 'neutral' : connected ? 'success' : 'warning'} dot>
+          {!state?.configured ? 'Not connected' : verified && !verified.ok ? 'Saved · unverified' : 'Connected'}
+        </Badge>
+      }
+    >
 
       {state?.configured ? (
         <div
@@ -188,6 +189,6 @@ export const AnthropicCard: React.FC = () => {
       </div>
 
       <Toast isVisible={toast !== null} message={toast?.message ?? ''} detail={toast?.detail} type={toast?.type ?? 'info'} onClose={() => setToast(null)} />
-    </Card>
+    </AccordionCard>
   );
 };

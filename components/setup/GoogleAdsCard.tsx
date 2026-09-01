@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { BarChart3, Eye, EyeOff, RefreshCw, History, Trash2 } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Toast, Input } from '@/components';
+import { AccordionCard, Button, Badge, Toast, Input } from '@/components';
 
 interface State {
   configured: boolean;
@@ -117,17 +117,17 @@ export const GoogleAdsCard: React.FC = () => {
   );
 
   return (
-    <Card padding="lg">
-      <CardHeader
-        title="Google Ads"
-        subtitle="Developer token + OAuth client — granted by Google after the token is approved"
-        icon={BarChart3}
-        action={
-          <Badge variant={status} dot>
-            {statusLabel}
-          </Badge>
-        }
-      />
+    <AccordionCard
+      title="Google Ads"
+      summary={statusLabel === '…' ? 'Loading…' : statusLabel}
+      subtitle="Developer token + OAuth client — granted by Google after the token is approved"
+      icon={BarChart3}
+      action={
+        <Badge variant={status} dot>
+          {statusLabel}
+        </Badge>
+      }
+    >
 
       <div
         className="px-3 py-2.5 rounded-[8px] mb-4 text-[12.5px]"
@@ -172,6 +172,6 @@ export const GoogleAdsCard: React.FC = () => {
       )}
 
       <Toast isVisible={toast !== null} message={toast?.message ?? ''} detail={toast?.detail} type={toast?.type ?? 'info'} onClose={() => setToast(null)} />
-    </Card>
+    </AccordionCard>
   );
 };

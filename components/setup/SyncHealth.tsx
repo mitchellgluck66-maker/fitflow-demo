@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, Sparkles, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Toast, Select } from '@/components';
+import { Activity, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AccordionCard, Button, Badge, Toast, Select } from '@/components';
 import { UnmatchedPayments } from './UnmatchedPayments';
 
 interface LastRun {
@@ -69,7 +69,6 @@ function ago(iso: string): string {
 
 export const SyncHealth: React.FC = () => {
   const [health, setHealth] = useState<Health | null>(null);
-  const [resolved, setResolved] = useState<Incident[] | null>(null);
   const [anthropic, setAnthropic] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [picks, setPicks] = useState<Record<string, string>>({});
@@ -121,53 +120,44 @@ export const SyncHealth: React.FC = () => {
     }
   };
 
-  const resolve = async (id: string, value = true) => {
-    setBusy(`resolve:${id}`);
-    try {
-      await fetch('/api/incidents', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, resolved: value }) });
-      await load();
-      if (resolved) await showResolved();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const showResolved = async () => {
-    const data = await fetch('/api/incidents?resolved=1').then((r) => r.json());
-    setResolved(data.incidents ?? []);
-  };
-
   if (!health) {
     return (
-      <Card padding="lg">
-        <CardHeader title="Sync health" subtitle="Loading…" icon={Activity} />
-      </Card>
+      <AccordionCard title="Sync health" summary="Loading…" icon={Activity}>
+        <span />
+      </AccordionCard>
     );
   }
 
-  const open = health.incidents;
-  const needsHuman = open.length + health.unmappedStages.length;
+  const needsHuman = health.unmappedStages.length;
+  const lastRunAt = health.recentRuns[0]?.startedAt ?? null;
+  const summary = [
+    lastRunAt ? `Last sync ${ago(lastRunAt)}` : 'No runs yet',
+    needsHuman ? `${needsHuman} unmapped stage${needsHuman === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <Card padding="lg">
-      <CardHeader
-        title="Sync health"
-        subtitle="Every source, every incident, everything that needs a human"
-        icon={Activity}
-        action={
-          <div className="flex items-center gap-2">
-            {health.sentry && (
-              <Badge variant="neutral" size="xs">
-                Sentry on
-              </Badge>
-            )}
-            <Badge variant={needsHuman ? 'warning' : 'success'} dot>
-              {needsHuman ? `${needsHuman} need attention` : 'All clear'}
+    <AccordionCard
+      title="Sync health"
+      summary={summary}
+      subtitle="Every source and everything that needs a human. Incidents have their own log below."
+      icon={Activity}
+      defaultOpen={needsHuman > 0}
+      action={
+        <div className="flex items-center gap-2">
+          {health.sentry && (
+            <Badge variant="neutral" size="xs">
+              Sentry on
             </Badge>
-            <Button variant="ghost" icon={RefreshCw} onClick={() => load()} />
-          </div>
-        }
-      />
+          )}
+          <Badge variant={needsHuman ? 'warning' : 'success'} dot>
+            {needsHuman ? `${needsHuman} need attention` : 'All clear'}
+          </Badge>
+          <Button variant="ghost" icon={RefreshCw} onClick={() => load()} />
+        </div>
+      }
+    >
 
       {/* ---- Per-source status ---- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-5">
@@ -281,60 +271,6 @@ export const SyncHealth: React.FC = () => {
       {/* ---- Unmatched payments ---- */}
       <UnmatchedPayments />
 
-      {/* ---- Incidents ---- */}
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Incidents
-        </span>
-        <Badge variant={open.length ? 'warning' : 'success'} size="xs">
-          {open.length} open
-        </Badge>
-        <div className="flex-1" />
-        <Button variant="ghost" onClick={() => (resolved ? setResolved(null) : showResolved())}>
-          {resolved ? 'Hide resolved' : 'Show resolved'}
-        </Button>
-      </div>
-      {open.length === 0 && !resolved && (
-        <p className="text-[12.5px] mb-4 flex items-center gap-1.5" style={{ color: 'var(--text-tertiary)' }}>
-          <CheckCircle2 size={13} style={{ color: 'var(--positive, var(--success))' }} /> No open incidents.
-        </p>
-      )}
-      {(open.length > 0 || resolved) && (
-        <ul className="space-y-1.5 mb-4">
-          {[...open, ...(resolved ?? [])].map((i) => {
-            const isResolved = i.resolvedAt !== null;
-            return (
-              <li
-                key={i.id}
-                className="flex items-start gap-2 px-3 py-2 rounded-[8px] text-[12.5px]"
-                style={{
-                  background: isResolved ? 'var(--surface-sunken)' : i.severity === 'critical' ? 'var(--danger-muted)' : 'var(--warning-muted)',
-                  border: `1px solid ${isResolved ? 'var(--border-subtle)' : i.severity === 'critical' ? 'var(--danger-border)' : 'var(--warning-border)'}`,
-                  color: isResolved ? 'var(--text-tertiary)' : i.severity === 'critical' ? 'var(--negative, var(--danger))' : 'var(--warning)',
-                }}
-              >
-                <Badge variant="neutral" size="xs">
-                  {i.kind}
-                </Badge>
-                <span className="flex-1">{i.message}</span>
-                <span className="text-[11px] opacity-70 whitespace-nowrap" title={fmt(i.createdAt)}>
-                  {ago(i.createdAt)}
-                </span>
-                {isResolved ? (
-                  <Badge variant="neutral" size="xs">
-                    resolved
-                  </Badge>
-                ) : (
-                  <Button variant="ghost" loading={busy === `resolve:${i.id}`} onClick={() => resolve(i.id)}>
-                    Resolve
-                  </Button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
       {/* ---- Recent runs ---- */}
       <details>
         <summary className="text-[12px] cursor-pointer select-none" style={{ color: 'var(--accent)' }}>
@@ -381,6 +317,6 @@ export const SyncHealth: React.FC = () => {
       </details>
 
       <Toast isVisible={toast !== null} message={toast?.message ?? ''} detail={toast?.detail} type={toast?.type ?? 'info'} onClose={() => setToast(null)} />
-    </Card>
+    </AccordionCard>
   );
 };

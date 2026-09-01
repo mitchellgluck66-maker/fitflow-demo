@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, XCircle, Eye, EyeOff, Trash2, RefreshCw, History, Copy } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Toast, Input } from '@/components';
+import { AccordionCard, Button, Badge, Toast, Input } from '@/components';
 
 interface StripeState {
   configured: boolean;
@@ -99,17 +99,18 @@ export const StripeCard: React.FC = () => {
   const connected = Boolean(state?.configured && (verification ? verification.ok : true));
 
   return (
-    <Card padding="lg">
-      <CardHeader
-        title="Stripe"
-        subtitle="Real cash collected, recurring, failed payments and refunds — read-only restricted key"
-        icon={CreditCard}
-        action={
-          <Badge variant={state?.configured ? (connected ? 'success' : 'warning') : 'neutral'} dot>
-            {state?.configured ? (connected ? 'Connected' : 'Saved') : 'Not connected'}
-          </Badge>
-        }
-      />
+    <AccordionCard
+      title="Stripe"
+      summary={!state ? 'Loading…' : state.configured ? (verification && !verification.ok ? 'Saved — verification failed' : 'Restricted key saved') : 'Not connected'}
+      subtitle="Real cash collected, recurring, failed payments and refunds — read-only restricted key"
+      icon={CreditCard}
+      defaultOpen={Boolean(state?.configured && verification && !verification.ok)}
+      action={
+        <Badge variant={state?.configured ? (connected ? 'success' : 'warning') : 'neutral'} dot>
+          {state?.configured ? (connected ? 'Connected' : 'Saved') : 'Not connected'}
+        </Badge>
+      }
+    >
 
       {state?.configured ? (
         <div
@@ -244,6 +245,6 @@ export const StripeCard: React.FC = () => {
       </div>
 
       <Toast isVisible={toast !== null} message={toast?.message ?? ''} detail={toast?.detail} type={toast?.type ?? 'info'} onClose={() => setToast(null)} />
-    </Card>
+    </AccordionCard>
   );
 };
