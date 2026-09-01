@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { eq, asc } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents } from '@/db';
+import { db, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
 import { runGhlSync } from '@/lib/ghl/ingest';
@@ -197,6 +197,48 @@ describe('runGhlSync', () => {
     const consult = (await db.select().from(stages).where(eq(stages.id, 'st-consult')))[0];
     expect(consult).toMatchObject({ name: 'Discovery Call Booked', semanticRole: 'consult_booked' });
     expect((await db.select().from(pipelines)).length).toBe(1);
+  });
+
+  it('re-matches unmatched Stripe payments as soon as a sync lands contacts', async () => {
+    // A payment synced before any contacts existed (first real run: 0/324
+    // matched). The next GHL sync must pick it up — not the next reconcile.
+    await db.insert(payments).values([
+      {
+        stripeId: 'ch_wait',
+        kind: 'charge',
+        status: 'succeeded',
+        amountCents: 50000,
+        email: 'jane@example.com',
+        emailNormalized: 'jane@example.com',
+        paidAt: new Date('2026-08-21T10:00:00Z'),
+        source: 'stripe',
+        origin: 'stripe',
+      },
+      {
+        stripeId: 'ch_manual_none',
+        kind: 'charge',
+        status: 'succeeded',
+        amountCents: 100,
+        emailNormalized: 'jane@example.com',
+        contactId: null,
+        matchSource: 'manual', // human said "no match" — never overwritten
+        paidAt: new Date('2026-08-21T10:00:00Z'),
+        source: 'stripe',
+        origin: 'stripe',
+      },
+    ]);
+
+    const result = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(result.ok).toBe(true);
+    expect(result.stats.paymentsMatched).toBe(1);
+
+    const [jane] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
+    const [matched] = await db.select().from(payments).where(eq(payments.stripeId, 'ch_wait'));
+    expect(matched.contactId).toBe(jane.id);
+    expect(matched.matchSource).toBe('auto');
+    const [manual] = await db.select().from(payments).where(eq(payments.stripeId, 'ch_manual_none'));
+    expect(manual.contactId).toBeNull();
+    expect(manual.matchSource).toBe('manual');
   });
 
   it('records a failed run without credentials', async () => {

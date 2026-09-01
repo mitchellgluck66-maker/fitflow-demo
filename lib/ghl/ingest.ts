@@ -48,6 +48,7 @@ import {
 import type { GhlContact, GhlOpportunity } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
+import { runPaymentMatching } from '../stripe/matching';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -63,6 +64,8 @@ export interface SyncStats {
   calendars: number;
   appointmentsUpserted: number;
   rejectedRows: number;
+  /** Stripe payments matched to contacts right after this sync (identity join). */
+  paymentsMatched: number;
 }
 
 export interface SyncResult {
@@ -93,6 +96,7 @@ function emptyStats(): SyncStats {
     calendars: 0,
     appointmentsUpserted: 0,
     rejectedRows: 0,
+    paymentsMatched: 0,
   };
 }
 
@@ -733,7 +737,21 @@ export async function runGhlSync(options: {
       await raise('silence', 'info', 'Sync window contained zero calendar events.');
     }
 
-    // ---- 8. Done ---------------------------------------------------------
+    // ---- 8. Re-match Stripe payments -----------------------------------
+    // Contacts that just arrived may be the identities 'unmatched' Stripe
+    // payments were waiting for (first real run: 0/324 matched because no
+    // contacts existed yet). Re-match now instead of waiting for the next
+    // Stripe reconcile. Manual matches are never overwritten.
+    if (stats.contactsUpserted > 0) {
+      try {
+        const matching = await runPaymentMatching();
+        stats.paymentsMatched = matching.matched;
+      } catch (err) {
+        warnings.push(`Payment re-match after sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // ---- 9. Done ---------------------------------------------------------
     if (!backfilled) {
       await setSetting(SETTING_KEYS.ghlLastSyncAt, startedAt.toISOString());
     }
