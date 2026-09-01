@@ -25,6 +25,12 @@ export const SETTING_KEYS = {
   ghlLastSyncAt: 'ghl_last_sync_at',
   /** ISO date the backfill starts from. */
   backfillFrom: 'backfill_from',
+  /**
+   * First day the Meta backfill has NOT yet covered — written after every
+   * completed ≤7-day chunk, cleared ('') when a backfill finishes. Lets a
+   * re-run resume a partial backfill instead of restarting.
+   */
+  metaBackfillCursor: 'meta_backfill_cursor',
   // Legacy keys kept so the dormant write-back code still resolves them.
   ghlPipelineId: 'ghl_pipeline_id',
   ghlStageMap: 'ghl_stage_map',
