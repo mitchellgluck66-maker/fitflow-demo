@@ -11,6 +11,7 @@ import { db, adSpend, syncRuns, syncIncidents } from '@/db';
 import { getSetting, getTimezone, SETTING_KEYS } from '../settings';
 import { todayInTimezone, addDays } from '../dates';
 import { captureException } from '../sentry';
+import { sweepStaleRuns } from '../staleRuns';
 import { getGoogleAdsConfig } from './config';
 import { fetchSpendReport } from './client';
 import { getGoogleAdsRequestCount } from './client';
@@ -50,6 +51,8 @@ export async function runGoogleAdsSync(options: { mode: 'delta' | 'backfill'; tr
       durationMs: 0,
     };
   }
+
+  await sweepStaleRuns(startedAt);
 
   const [run] = await db
     .insert(syncRuns)

@@ -30,6 +30,7 @@ import {
   type StripeCustomer,
 } from './schemas';
 import { captureException } from '../sentry';
+import { sweepStaleRuns } from '../staleRuns';
 
 export type StripeSyncMode = 'reconcile' | 'backfill';
 
@@ -182,6 +183,8 @@ export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'c
   if (!config.configured) {
     return { ok: false, notConfigured: true, runId: null, mode: options.mode, since: null, stats, warnings, requestsUsed: 0, error: 'Stripe is not connected.', durationMs: 0 };
   }
+
+  await sweepStaleRuns(startedAt);
 
   const [run] = await db
     .insert(syncRuns)

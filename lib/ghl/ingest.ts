@@ -47,6 +47,7 @@ import {
 } from './transitions';
 import type { GhlContact, GhlOpportunity } from './schemas';
 import { captureException } from '../sentry';
+import { sweepStaleRuns } from '../staleRuns';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -308,6 +309,8 @@ export async function runGhlSync(options: {
   const stats = emptyStats();
   const warnings: string[] = [];
   let incidents = 0;
+
+  await sweepStaleRuns(startedAt);
 
   const [run] = await db
     .insert(syncRuns)

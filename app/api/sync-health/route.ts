@@ -7,6 +7,7 @@ import { getStripeConfig } from '@/lib/stripe/config';
 import { getGoogleAdsConfig } from '@/lib/googleads/config';
 import { ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
 import { sentryConfigured } from '@/lib/sentry';
+import { isStaleRun, STALE_RUN_ERROR } from '@/lib/staleRuns';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +45,13 @@ export async function GET() {
     const [ghl, meta, stripe, google] = await Promise.all([getGhlConfig(), getMetaConfig(), getStripeConfig(), getGoogleAdsConfig()]);
     const configuredBy: Record<SourceHealth['key'], boolean> = { ghl: ghl.configured, meta: meta.configured, stripe: stripe.configured, google: google.configured };
 
-    const runs = await db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)).limit(300);
+    // A 'running' row whose function died stays 'running' until the next sync
+    // sweeps it (lib/staleRuns). Present it as what it is — failed — rather
+    // than pretending a sync is alive.
+    const now = new Date();
+    const runs = (await db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)).limit(300)).map((r) =>
+      isStaleRun(r.status, r.startedAt, now) ? { ...r, status: 'failed', error: r.error ?? STALE_RUN_ERROR } : r,
+    );
     const sources: SourceHealth[] = SOURCES.map((s) => {
       const r = runs.find((run) => s.kinds.includes(run.kind));
       const stats = (r?.stats ?? {}) as Record<string, number>;

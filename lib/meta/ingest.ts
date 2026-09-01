@@ -20,6 +20,7 @@ import { getMetaConfig } from './config';
 import { fetchInsights } from './client';
 import { leadsFromActions } from './schemas';
 import { captureException } from '../sentry';
+import { sweepStaleRuns } from '../staleRuns';
 
 export type MetaSyncMode = 'delta' | 'backfill';
 
@@ -64,6 +65,8 @@ export async function runMetaSync(options: { mode: MetaSyncMode; trigger: 'cron'
   const warnings: string[] = [];
   let requestsUsed = 0;
   const backfilled = options.mode === 'backfill';
+
+  await sweepStaleRuns(startedAt);
 
   const [run] = await db
     .insert(syncRuns)
