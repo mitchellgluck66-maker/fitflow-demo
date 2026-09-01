@@ -1,5 +1,6 @@
 // Core primitives
 export { Card, CardHeader } from './Card';
+export { AccordionCard } from './AccordionCard';
 export { Button } from './Button';
 export { Badge } from './Badge';
 export { KPITile } from './KPITile';

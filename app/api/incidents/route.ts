@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { desc, eq, isNull } from 'drizzle-orm';
+import { desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db, syncIncidents } from '@/db';
 
 export const dynamic = 'force-dynamic';
@@ -24,12 +24,30 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** PATCH {id, resolved?: boolean} — mark an incident resolved (or reopen). */
+/**
+ * PATCH {id, resolved?} — mark one incident resolved (or reopen).
+ * PATCH {ids: string[], resolved?} — same for a whole group ("Resolve all").
+ */
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
+    const resolvedFlag = body.resolved !== false;
+
+    if (Array.isArray(body.ids)) {
+      const ids = (body.ids as unknown[]).filter((x): x is string => typeof x === 'string');
+      if (ids.length === 0 || ids.length > 500) {
+        return NextResponse.json({ error: 'ids must contain 1–500 incident ids' }, { status: 400 });
+      }
+      const rows = await db
+        .update(syncIncidents)
+        .set({ resolvedAt: resolvedFlag ? new Date() : null })
+        .where(inArray(syncIncidents.id, ids))
+        .returning({ id: syncIncidents.id });
+      return NextResponse.json({ ok: true, updated: rows.length });
+    }
+
     if (typeof body.id !== 'string') return NextResponse.json({ error: 'id required' }, { status: 400 });
-    const resolved = body.resolved !== false;
+    const resolved = resolvedFlag;
     const [row] = await db
       .update(syncIncidents)
       .set({ resolvedAt: resolved ? new Date() : null })

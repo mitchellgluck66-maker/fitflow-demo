@@ -90,4 +90,68 @@ describe('incident lifecycle', () => {
     const missing = await incidentsPatch(patch('/api/incidents', { id: 'nope' }));
     expect(missing.status).toBe(404);
   });
+
+  it('resolves a whole group at once via PATCH {ids} ("Resolve all")', async () => {
+    const rows = await db
+      .insert(syncIncidents)
+      .values([
+        { kind: 'error', severity: 'critical', message: 'Meta 500 unknown error' },
+        { kind: 'error', severity: 'critical', message: 'Meta 500 unknown error' },
+        { kind: 'error', severity: 'critical', message: 'Meta 500 unknown error' },
+      ])
+      .returning({ id: syncIncidents.id });
+
+    const res = await incidentsPatch(patch('/api/incidents', { ids: rows.map((r) => r.id) }));
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.updated).toBe(3);
+    const open = await (await incidentsGet(new NextRequest('http://localhost/api/incidents'))).json();
+    for (const r of rows) expect(open.incidents.some((i: { id: string }) => i.id === r.id)).toBe(false);
+
+    const empty = await incidentsPatch(patch('/api/incidents', { ids: [] }));
+    expect(empty.status).toBe(400);
+  });
+});
+
+describe('incident grouping (Setup log)', () => {
+  const row = (id: string, message: string, createdAt: string, kind = 'error', resolvedAt: string | null = null) => ({
+    id,
+    kind,
+    severity: 'critical',
+    message,
+    createdAt,
+    resolvedAt,
+  });
+
+  it('collapses consecutive identical errors with ×N and first/last timestamps', async () => {
+    const { groupIncidents } = await import('@/components/setup/incidentGrouping');
+    const groups = groupIncidents([
+      row('e', 'Meta 500', '2026-09-01T12:04:00Z'),
+      row('d', 'Meta 500', '2026-09-01T12:03:00Z'),
+      row('c', 'zero leads', '2026-09-01T12:02:00Z', 'silence'),
+      row('b', 'Meta 500', '2026-09-01T12:01:00Z'),
+      row('a', 'Meta 500', '2026-09-01T12:00:00Z'),
+    ]);
+    // The interrupting 'zero leads' splits Meta 500 into two episodes.
+    expect(groups.map((g) => [g.message, g.count])).toEqual([
+      ['Meta 500', 2],
+      ['zero leads', 1],
+      ['Meta 500', 2],
+    ]);
+    expect(groups[0].firstAt).toBe('2026-09-01T12:03:00Z');
+    expect(groups[0].lastAt).toBe('2026-09-01T12:04:00Z');
+    expect(groups[0].ids).toEqual(['e', 'd']);
+  });
+
+  it('never merges an open incident with a resolved twin, and sorts newest-first itself', async () => {
+    const { groupIncidents } = await import('@/components/setup/incidentGrouping');
+    const groups = groupIncidents([
+      row('a', 'Meta 500', '2026-09-01T12:00:00Z'),
+      row('b', 'Meta 500', '2026-09-01T12:01:00Z', 'error', '2026-09-01T13:00:00Z'),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].id).toBe('b'); // newest first even though input was oldest-first
+    expect(groups[0].resolved).toBe(true);
+    expect(groups[1].resolved).toBe(false);
+  });
 });
