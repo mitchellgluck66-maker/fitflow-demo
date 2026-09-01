@@ -63,6 +63,8 @@ interface PipelineRow {
   id: string;
   name: string;
   isTracked: boolean;
+  /** Named "{ Off }..." in GHL — retired; sorted last, never suggested. */
+  isOff: boolean;
   archived: boolean;
   origin: string;
   syncedAt: string;
@@ -306,6 +308,7 @@ export default function SetupPage() {
 
   const connected = Boolean(creds?.configured && sync?.connection.ok);
   const unmapped = pipelines?.unmapped ?? [];
+  const followedPipelines = pipelines?.pipelines.filter((p) => p.isTracked) ?? [];
   const lastRun = sync?.runs[0];
 
   const stepBadge = (done: boolean, label?: string) => (
@@ -513,41 +516,52 @@ export default function SetupPage() {
           )}
         </Card>
 
-        {/* ---- STEP 3: Stage → role mapping ---- */}
+        {/* ---- STEP 3: Followed pipelines + stage → role mapping ---- */}
         <Card padding="lg">
           <CardHeader
-            title="3 · Stage roles"
-            subtitle="Stages are read live from GoHighLevel. Each needs a funnel role so renamed stages never break the numbers."
+            title="3 · Followed pipelines & stage roles"
+            subtitle="Syncs mirror every pipeline; only followed ones drive dashboards, metrics and email digests."
             icon={GitBranch}
-            action={stepBadge(unmapped.length === 0 && (pipelines?.pipelines.length ?? 0) > 0, unmapped.length ? `${unmapped.length} unmapped` : undefined)}
+            action={stepBadge(
+              followedPipelines.length > 0 && unmapped.length === 0,
+              unmapped.length
+                ? `${unmapped.length} unmapped`
+                : followedPipelines.length === 0
+                  ? 'None followed'
+                  : `${followedPipelines.length} followed`,
+            )}
           />
-
-          {unmapped.length > 0 && (
-            <div
-              className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px] mb-4"
-              style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)' }}
-            >
-              <AlertTriangle size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--warning)' }} />
-              <p className="text-[12.5px]" style={{ color: 'var(--warning)' }}>
-                {unmapped.length} stage{unmapped.length === 1 ? '' : 's'} could not be mapped confidently and{' '}
-                {unmapped.length === 1 ? 'is' : 'are'} excluded from the funnel until you pick a role below. FitFlow
-                never guesses.
-              </p>
-            </div>
-          )}
 
           {(pipelines?.pipelines.length ?? 0) === 0 ? (
             <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
               No pipelines yet — run a sync (or <code>npm run db:seed</code> for sample data).
             </p>
           ) : (
-            <div className="space-y-4">
-              {pipelines!.pipelines.map((p) => (
-                <div key={p.id}>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <>
+              {/* Followed-pipelines selector: every pipeline one compact row;
+                  "{ Off }" retirees arrive pre-sorted last from the API. */}
+              <ul className="space-y-1.5 mb-3">
+                {pipelines!.pipelines.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-[8px]"
+                    style={{
+                      background: p.isTracked ? 'var(--surface-sunken)' : 'transparent',
+                      border: '1px solid var(--border-subtle)',
+                      opacity: p.isTracked ? 1 : p.isOff ? 0.55 : 0.75,
+                    }}
+                  >
+                    <span
+                      className="text-[12.5px] font-medium"
+                      style={{ color: p.isTracked ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
+                    >
                       {p.name}
                     </span>
+                    {p.isOff && (
+                      <Badge variant="neutral" size="xs">
+                        retired
+                      </Badge>
+                    )}
                     {p.origin === 'demo' && (
                       <Badge variant="warning" size="xs">
                         sample
@@ -558,14 +572,58 @@ export default function SetupPage() {
                         archived in GHL
                       </Badge>
                     )}
+                    <span className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
+                      {p.stages.filter((s) => !s.archived).length} stages
+                    </span>
                     <div className="flex-1" />
-                    <Toggle
-                      checked={p.isTracked}
-                      onChange={(v) => setTracked(p.id, v)}
-                      label="Include in funnel"
-                    />
-                  </div>
-                  <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
+                    <Toggle checked={p.isTracked} onChange={(v) => setTracked(p.id, v)} label={p.isTracked ? 'Followed' : 'Follow'} />
+                  </li>
+                ))}
+              </ul>
+
+              {followedPipelines.length === 0 && (
+                <div
+                  className="px-3 py-2.5 rounded-[8px] mb-1 text-[12.5px]"
+                  style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}
+                >
+                  Nothing is followed yet. Dashboards, metrics and digests stay empty until you follow at least one
+                  pipeline — stage-role mapping appears here once you do.
+                </div>
+              )}
+
+              {unmapped.length > 0 && (
+                <div
+                  className="flex items-start gap-2.5 px-3 py-2.5 rounded-[8px] mb-4"
+                  style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)' }}
+                >
+                  <AlertTriangle size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--warning)' }} />
+                  <p className="text-[12.5px]" style={{ color: 'var(--warning)' }}>
+                    {unmapped.length} stage{unmapped.length === 1 ? '' : 's'} in followed pipelines could not be mapped
+                    confidently and {unmapped.length === 1 ? 'is' : 'are'} excluded from the funnel until you pick a
+                    role below. FitFlow never guesses.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {followedPipelines.map((p) => (
+                  <div key={p.id}>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {p.name}
+                      </span>
+                      {p.origin === 'demo' && (
+                        <Badge variant="warning" size="xs">
+                          sample
+                        </Badge>
+                      )}
+                      {p.archived && (
+                        <Badge variant="neutral" size="xs">
+                          archived in GHL
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
                     <table className="w-full text-[12.5px]">
                       <thead>
                         <tr style={{ background: 'var(--surface-sunken)' }}>
@@ -631,10 +689,11 @@ export default function SetupPage() {
                           ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </Card>
 

@@ -40,6 +40,13 @@ const patch = (url: string, body: unknown) => new NextRequest(`http://localhost$
 
 describe('incident lifecycle', () => {
   it('a sync raises one unmapped_stage incident for the mystery stage (and no duplicate on re-run)', async () => {
+    // New pipelines arrive unfollowed — no unmapped noise until a human follows.
+    const r0 = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(r0.ok).toBe(true);
+    expect(r0.stats.stagesUnmapped).toBe(0);
+    expect(await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'))).toHaveLength(0);
+
+    await pipelinesPatch(patch('/api/ghl/pipelines', { pipelineId: 'pipe-1', isTracked: true }));
     const r1 = await runGhlSync({ mode: 'delta', trigger: 'cron' });
     expect(r1.ok).toBe(true);
     expect(r1.stats.stagesUnmapped).toBe(1);

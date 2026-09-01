@@ -18,7 +18,8 @@ beforeAll(async () => {
   delete process.env.RESEND_FROM_EMAIL;
   await runMigrations();
   const prov = { source: 'demo', origin: 'demo', backfilled: false } as const;
-  await db.insert(pipelines).values({ id: 'p1', name: 'Pipeline', ...prov });
+  // Followed: only followed pipelines drive digests (isTracked defaults false).
+  await db.insert(pipelines).values({ id: 'p1', name: 'Pipeline', isTracked: true, ...prov });
   await db.insert(stages).values({ id: 's-applied', pipelineId: 'p1', name: 'Applied', position: 0, semanticRole: 'applied', roleSource: 'auto', ...prov });
   await db.insert(contacts).values({
     ghlContactId: 'ct-1',

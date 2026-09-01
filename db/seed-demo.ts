@@ -428,7 +428,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
   const prov = { source: 'demo', origin: 'demo', syncedAt: now, backfilled: false } as const;
 
   // ---- Pipeline + stages ---------------------------------------------------
-  await db.insert(pipelines).values({ ...PIPELINE, position: 0, ...prov });
+  await db.insert(pipelines).values({ ...PIPELINE, position: 0, isTracked: true, ...prov });
   const roleOf = new Map<string, SemanticRole | null>();
   const stageRows = Object.values(STAGE).map((id, i) => {
     const suggestion = suggestRole(STAGE_NAMES[id]);

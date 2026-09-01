@@ -90,7 +90,9 @@ export async function GET() {
       })
       .from(stages)
       .innerJoin(pipelines, eq(stages.pipelineId, pipelines.id))
-      .where(and(isNull(stages.semanticRole), isNull(stages.archivedAt)));
+      // Followed pipelines only: unmapped stages in the dozens of pipelines
+      // nobody follows are not a human's problem (Jake's account: 107 stages).
+      .where(and(isNull(stages.semanticRole), isNull(stages.archivedAt), eq(pipelines.isTracked, true), isNull(pipelines.archivedAt)));
 
     const open = await db.select().from(syncIncidents).where(isNull(syncIncidents.resolvedAt)).orderBy(desc(syncIncidents.createdAt)).limit(100);
 

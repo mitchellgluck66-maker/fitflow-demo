@@ -3,6 +3,7 @@ import { db, stages, pipelines, syncIncidents } from '@/db';
 import { eq, isNull, and, desc } from 'drizzle-orm';
 import { listStages } from '@/lib/queries/contacts';
 import { isSemanticRole, ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
+import { isOffPipeline } from '@/lib/ghl/followed';
 import { resolveStageIncidents } from '@/lib/ghl/ingest';
 
 export const dynamic = 'force-dynamic';
@@ -25,17 +26,27 @@ export async function GET() {
         .limit(50),
     ]);
 
+    // "{ Off }..." pipelines are retired: sorted to the bottom, never
+    // suggested for following. Only followed pipelines surface unmapped-stage
+    // warnings — the rest are collapsed noise.
+    const sorted = [...pipelineRows].sort((a, b) => {
+      const off = Number(isOffPipeline(a.name)) - Number(isOffPipeline(b.name));
+      return off !== 0 ? off : (a.position ?? 0) - (b.position ?? 0);
+    });
+    const followedIds = new Set(pipelineRows.filter((p) => p.isTracked && p.archivedAt === null).map((p) => p.id));
+
     return NextResponse.json({
-      pipelines: pipelineRows.map((p) => ({
+      pipelines: sorted.map((p) => ({
         id: p.id,
         name: p.name,
         isTracked: p.isTracked,
+        isOff: isOffPipeline(p.name),
         archived: p.archivedAt !== null,
         origin: p.origin,
         syncedAt: p.syncedAt.toISOString(),
         stages: stageRows.filter((s) => s.pipelineId === p.id),
       })),
-      unmapped: stageRows.filter((s) => !s.archived && s.semanticRole === null),
+      unmapped: stageRows.filter((s) => !s.archived && s.semanticRole === null && followedIds.has(s.pipelineId)),
       roles: SEMANTIC_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })),
       incidents: incidents.map((i) => ({ ...i, createdAt: i.createdAt.toISOString(), resolvedAt: null })),
     });

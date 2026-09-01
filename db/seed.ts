@@ -75,7 +75,7 @@ async function seed() {
   const prov = { source: 'demo', origin: 'demo', syncedAt: now, backfilled: false } as const;
 
   // Pipeline + stages, mapped through the same role mapper the real sync uses.
-  await db.insert(pipelines).values({ ...DEMO_PIPELINE, position: 0, ...prov });
+  await db.insert(pipelines).values({ ...DEMO_PIPELINE, position: 0, isTracked: true, ...prov });
   const roleOf = new Map<string, SemanticRole | null>();
   for (const [i, s] of DEMO_STAGES.entries()) {
     const suggestion = suggestRole(s.name);

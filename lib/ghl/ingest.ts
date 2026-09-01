@@ -131,18 +131,22 @@ function splitName(contact: GhlContact | null, fallback: string): { first: strin
 export interface PipelineSyncOutcome {
   pipelines: number;
   stages: number;
-  unmapped: Array<{ stageId: string; stageName: string; pipelineName: string; suggested: SemanticRole; confidence: number }>;
+  /** Unmapped stages in FOLLOWED pipelines only — the ones worth a human's attention. */
+  unmapped: Array<{ stageId: string; stageName: string; pipelineId: string; pipelineName: string; suggested: SemanticRole; confidence: number }>;
   roleOf: Map<string, SemanticRole | null>;
+  /** Followed (`is_tracked`) live GHL pipelines — the ones that drive metrics. */
   trackedPipelineIds: string[];
   warnings: string[];
   error?: string;
 }
 
 /**
- * Mirror pipelines + stages from GHL. New stages get a role from the
- * similarity mapper only when it is confident; otherwise they are left
- * `unmapped` and returned so the caller can raise an incident. A role set by a
- * human (`role_source = 'manual'`) is never overwritten.
+ * Mirror pipelines + stages from GHL — ALL of them, followed or not (cheap,
+ * keeps history). New stages get a role from the similarity mapper only when
+ * it is confident; otherwise they are left `unmapped`. Only unmapped stages in
+ * followed pipelines are returned for incidents — 107 stages of warnings for
+ * pipelines nobody follows is noise. A role set by a human
+ * (`role_source = 'manual'`) is never overwritten.
  */
 export async function syncPipelines(options: { backfilled: boolean; now: Date }): Promise<PipelineSyncOutcome> {
   const out: PipelineSyncOutcome = {
@@ -260,6 +264,7 @@ export async function syncPipelines(options: { backfilled: boolean; now: Date })
         out.unmapped.push({
           stageId: s.id,
           stageName: s.name,
+          pipelineId: p.id,
           pipelineName: p.name,
           suggested: suggestion.role,
           confidence: suggestion.confidence,
@@ -295,6 +300,9 @@ export async function syncPipelines(options: { backfilled: boolean; now: Date })
     .from(pipelines)
     .where(and(eq(pipelines.isTracked, true), eq(pipelines.origin, 'ghl'), isNull(pipelines.archivedAt)));
   out.trackedPipelineIds = tracked.map((t) => t.id);
+
+  const followed = new Set(out.trackedPipelineIds);
+  out.unmapped = out.unmapped.filter((u) => followed.has(u.pipelineId));
 
   return out;
 }
@@ -433,32 +441,36 @@ export async function runGhlSync(options: {
       warnings.push(`Users: ${usersRes.error}`);
     }
 
-    // ---- 3. Opportunities (bulk per tracked pipeline) -----------------
-    const opportunities: GhlOpportunity[] = [];
-    for (const pipelineId of pipelineSync.trackedPipelineIds) {
-      const page = await listAllOpportunities({ pipelineId });
-      requestsUsed += page.requests;
-      stats.rejectedRows += page.rejected;
-      warnings.push(...page.warnings);
-      if (page.error) {
-        await raise('error', 'critical', `Opportunity read failed for pipeline ${pipelineId}: ${page.error}`);
-        return finish(false, since, page.error);
-      }
-      opportunities.push(...page.opportunities);
+    // ---- 3. Opportunities (bulk, location-wide) -----------------------
+    // One paged search across the whole location: every pipeline is mirrored
+    // (cheap, keeps history for pipelines followed later); only followed ones
+    // drive dashboards, metrics and digests downstream.
+    const page = await listAllOpportunities({});
+    requestsUsed += page.requests;
+    stats.rejectedRows += page.rejected;
+    warnings.push(...page.warnings);
+    if (page.error) {
+      await raise('error', 'critical', `Opportunity read failed: ${page.error}`);
+      return finish(false, since, page.error);
     }
+    const opportunities: GhlOpportunity[] = page.opportunities;
     stats.opportunities = opportunities.length;
 
-    if (opportunities.length === 0 && pipelineSync.trackedPipelineIds.length > 0) {
-      await raise('silence', 'warning', 'Sync returned zero opportunities across tracked pipelines.');
+    if (opportunities.length === 0 && stats.pipelines > 0) {
+      await raise('silence', 'warning', 'Sync returned zero opportunities across all pipelines.');
     }
 
-    // One opportunity per contact for the contact's current position: prefer
-    // the most recently updated one. Every opportunity still gets its
+    // One opportunity per contact for the contact's current position: an
+    // opportunity in a FOLLOWED pipeline beats any in an unfollowed one, then
+    // the most recently updated wins. Every opportunity still gets its
     // transition history recorded.
+    const followedPipelines = new Set(pipelineSync.trackedPipelineIds);
+    const oppRank = (o: GhlOpportunity) => (followedPipelines.has(o.pipelineId) ? 1 : 0);
     const oppByContact = new Map<string, GhlOpportunity>();
     for (const opp of opportunities) {
       const prev = oppByContact.get(opp.contactId);
-      if (!prev || (toDate(opp.updatedAt)?.getTime() ?? 0) > (toDate(prev.updatedAt)?.getTime() ?? 0)) {
+      const newer = (toDate(opp.updatedAt)?.getTime() ?? 0) > (toDate(prev?.updatedAt)?.getTime() ?? 0);
+      if (!prev || oppRank(opp) > oppRank(prev) || (oppRank(opp) === oppRank(prev) && newer)) {
         oppByContact.set(opp.contactId, opp);
       }
     }

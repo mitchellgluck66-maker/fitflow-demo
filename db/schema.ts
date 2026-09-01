@@ -71,8 +71,13 @@ export const pipelines = pgTable('pipelines', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   locationId: text('location_id'),
-  /** Only tracked pipelines feed the funnel. Multi-pipeline from day one. */
-  isTracked: boolean('is_tracked').notNull().default(true),
+  /**
+   * "Followed" — only followed pipelines drive dashboards, metrics and
+   * digests. Syncs still mirror every pipeline (cheap, keeps history).
+   * Default FALSE: a real account can carry dozens of pipelines (Jake's has
+   * 15 / 107 stages); a human follows the ones that matter in Setup.
+   */
+  isTracked: boolean('is_tracked').notNull().default(false),
   position: integer('position'),
   /** Set when a pipeline disappears from GHL; rows are never deleted. */
   archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),

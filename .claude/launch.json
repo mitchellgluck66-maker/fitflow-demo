@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fitflow",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["DATABASE_URL=", "npm", "run", "dev", "--", "-p", "3111"],
+      "port": 3111
+    }
+  ]
+}

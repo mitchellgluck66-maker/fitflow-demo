@@ -101,9 +101,19 @@ afterAll(() => vi.unstubAllGlobals());
 
 describe('runGhlSync', () => {
   it('backfill mirrors pipelines/stages, maps roles, surfaces unmapped stages, imports rows flagged backfilled', async () => {
+    // New pipelines arrive UNFOLLOWED: rows are still mirrored and imported,
+    // but unmapped-stage warnings stay quiet until a human follows.
+    const first = await runGhlSync({ mode: 'backfill', trigger: 'cli', since: '2026-06-16' });
+    expect(first.ok).toBe(true);
+    expect(first.stats).toMatchObject({ pipelines: 1, stages: 4, stagesUnmapped: 0, opportunities: 1 });
+    expect((await db.select().from(pipelines))[0].isTracked).toBe(false);
+    expect((await db.select().from(syncIncidents)).some((i) => i.kind === 'unmapped_stage')).toBe(false);
+
+    // Follow it (what Setup's toggle does) and sync again.
+    await db.update(pipelines).set({ isTracked: true }).where(eq(pipelines.id, 'pipe-1'));
     const result = await runGhlSync({ mode: 'backfill', trigger: 'cli', since: '2026-06-16' });
     expect(result.ok).toBe(true);
-    expect(result.stats).toMatchObject({ pipelines: 1, stages: 4, stagesUnmapped: 1, opportunities: 1, appointmentsUpserted: 1, transitions: 1 });
+    expect(result.stats).toMatchObject({ pipelines: 1, stages: 4, stagesUnmapped: 1, opportunities: 1, appointmentsUpserted: 1 });
 
     const stageRows = await db.select().from(stages).orderBy(asc(stages.position));
     expect(stageRows.map((s) => [s.name, s.semanticRole, s.roleSource])).toEqual([
@@ -197,6 +207,39 @@ describe('runGhlSync', () => {
     const consult = (await db.select().from(stages).where(eq(stages.id, 'st-consult')))[0];
     expect(consult).toMatchObject({ name: 'Discovery Call Booked', semanticRole: 'consult_booked' });
     expect((await db.select().from(pipelines)).length).toBe(1);
+  });
+
+  it('mirrors unfollowed/{ Off } pipelines without letting them drive position or warnings', async () => {
+    account.pipelines.push({
+      id: 'pipe-off',
+      name: '{ Off } Old Funnel',
+      stages: [{ id: 'st-off-1', name: 'Some Random Bucket', position: 0 }],
+    });
+    // A NEWER opportunity for Jane in the retired pipeline must not win her
+    // position away from the followed pipeline.
+    account.opportunities.push({
+      id: 'opp-off',
+      name: 'Jane Doe',
+      pipelineId: 'pipe-off',
+      pipelineStageId: 'st-off-1',
+      status: 'open',
+      contactId: 'ct-1',
+      createdAt: '2026-08-28T09:00:00Z',
+      updatedAt: '2026-08-28T09:00:00Z',
+    });
+
+    const result = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(result.ok).toBe(true);
+    expect(result.stats.opportunities).toBe(2);
+    expect(result.stats.stagesUnmapped).toBe(0); // 'Some Random Bucket' is unfollowed noise
+
+    const [offPipe] = await db.select().from(pipelines).where(eq(pipelines.id, 'pipe-off'));
+    expect(offPipe.isTracked).toBe(false); // mirrored, never auto-followed
+    expect((await db.select().from(stages).where(eq(stages.id, 'st-off-1')))).toHaveLength(1);
+    expect((await db.select().from(syncIncidents)).some((i) => i.details?.stageId === 'st-off-1')).toBe(false);
+
+    const [jane] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
+    expect(jane.pipelineId).toBe('pipe-1');
   });
 
   it('re-matches unmatched Stripe payments as soon as a sync lands contacts', async () => {
