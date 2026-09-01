@@ -199,6 +199,34 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   history) and `npm run db:wipe:demo`. Works on PGlite and DATABASE_URL. The
   sample-data banner shows whenever any demo row exists.
 
+## Production hardening (2026-09-01 — first real GHL/Meta/Stripe run)
+
+The first import against Jake's real accounts surfaced five issues; all fixed:
+
+- **GHL numbers arrive as strings** (`meta.nextPage: "2"` broke pagination →
+  0 contacts imported). Every numeric field in `lib/ghl/schemas.ts` uses the
+  coercive `ghlNumber` helper — see rule 7.
+- **Meta 500s on long insight windows.** All Meta windows are fetched in
+  sequential ≤7-day chunks, 2 attempts each with backoff; a backfill records
+  `settings.meta_backfill_cursor` per completed chunk and resumes there on
+  re-run (`lib/meta/ingest.ts#chunkWindows`).
+- **Stale runs**: a killed serverless function left sync_runs at 'running'
+  forever. Every sync start sweeps 'running' rows older than 10 min to
+  failed / `timed out (stale)` (`lib/staleRuns.ts`); sync-health presents
+  not-yet-swept ones the same way.
+- **Followed pipelines**: `pipelines.is_tracked` = "followed", default FALSE
+  (migration 0002 unfollowed existing GHL rows). Syncs mirror EVERY pipeline
+  via one location-wide opportunity search (keeps history), but only followed
+  ones drive dashboards, metrics, digests and unmapped-stage warnings
+  (`lib/metrics/load.ts` scopes by it). A contact's position prefers a
+  followed-pipeline opportunity. Setup has a followed selector; `{ Off }...`
+  pipelines (Jake's retirees, `lib/ghl/followed.ts#isOffPipeline`) sort last
+  and are never suggested. After deploying, a human must follow at least one
+  pipeline in Setup or every dashboard stays deliberately empty.
+- **Payment re-match**: a GHL sync that upserts contacts immediately re-runs
+  Stripe payment matching (first run matched 0/324 because contacts arrived
+  after payments). Manual matches never overwritten.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
