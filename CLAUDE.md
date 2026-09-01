@@ -227,6 +227,23 @@ The first import against Jake's real accounts surfaced five issues; all fixed:
   Stripe payment matching (first run matched 0/324 because contacts arrived
   after payments). Manual matches never overwritten.
 
+## Setup page layout (2026-09-01 — condensed for real-data scale)
+
+Every Setup section is an `AccordionCard` (`components/AccordionCard.tsx`):
+header = section name + live summary ("2 followed of 15", "Last sync 12 min
+ago", "3 open"). Default open ONLY while a section needs attention —
+unverified credential, unmapped stages in followed pipelines, open incidents,
+or real pipelines with none followed. No persistence: the default recomputes
+from live data each load until the user toggles (deliberate — default logic
+over stored state). Incidents have their own section
+(`components/setup/IncidentLog.tsx`): consecutive identical errors collapse
+into ×N rows with first/last timestamps (`incidentGrouping.ts`, pure +
+tested), 5 most recent by default, "Show all" paginates 25/page, resolved
+rows behind a toggle, "Resolve all" per group via `PATCH /api/incidents
+{ids}`. Pipelines: followed pinned on top expanded with stage mapping (only
+followed pipelines ever render mapping UI), unfollowed as one-line rows,
+"{ Off }" retirees and GHL-archived under a collapsed Archived group.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
