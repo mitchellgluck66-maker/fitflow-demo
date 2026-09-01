@@ -31,10 +31,22 @@ export type GhlOpportunityStatus = z.infer<typeof GhlOpportunityStatusSchema>;
 const dateString = z.string().min(1);
 const optionalString = z.string().nullish();
 
+/**
+ * GHL returns some documented-as-number fields as strings. Runtime evidence
+ * (2026-09-01, first real import): /opportunities/search `meta.nextPage` came
+ * back as "2", failed validation, and zero opportunities were imported.
+ * Accept number or numeric string everywhere we expect a number; anything
+ * non-numeric still fails.
+ */
+const ghlNumber = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)) ? Number(v) : v),
+  z.number(),
+);
+
 export const GhlPipelineStageSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(''),
-  position: z.number().nullish(),
+  position: ghlNumber.nullish(),
 });
 
 export const GhlPipelineSchema = z.object({
@@ -65,7 +77,7 @@ export const GhlOpportunitySchema = z.object({
   pipelineId: z.string().min(1),
   pipelineStageId: z.string().min(1),
   status: z.string().default('open'),
-  monetaryValue: z.number().nullish(),
+  monetaryValue: ghlNumber.nullish(),
   assignedTo: optionalString,
   contactId: z.string().min(1),
   source: optionalString,
@@ -81,11 +93,11 @@ export const GhlOpportunitySearchResponseSchema = z.object({
   opportunities: z.array(z.unknown()).default([]),
   meta: z
     .object({
-      total: z.number().nullish(),
-      nextPage: z.number().nullish(),
+      total: ghlNumber.nullish(),
+      nextPage: ghlNumber.nullish(),
       nextPageUrl: optionalString,
       startAfterId: optionalString,
-      startAfter: z.number().nullish(),
+      startAfter: ghlNumber.nullish(),
     })
     .nullish(),
 });

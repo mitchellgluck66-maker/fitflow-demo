@@ -34,6 +34,11 @@ large changes. This file is the standing contract.
    `GET /opportunities/search` documents its filters in snake_case
    (`location_id`, `pipeline_id`) unlike every other endpoint — the client sends
    those; confirm against the first real response (runtime evidence wins).
+   The same endpoint returns pagination meta numbers as STRINGS
+   (`meta.nextPage: "2"`) despite the docs — the 2026-09-01 first real import
+   parsed 0 opportunities because of it. Every numeric field in
+   `lib/ghl/schemas.ts` is therefore coercive (`ghlNumber`: number or numeric
+   string); put any new numeric field on that helper.
 
 ## Architecture (target)
 
