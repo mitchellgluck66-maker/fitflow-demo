@@ -61,15 +61,25 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
 
   const family = periodFamily(range);
   const forwardOk = canStepForward(range, today);
+  // Step from the LIVE URL, not the rendered closure: router.replace resolves
+  // asynchronously, so two quick clicks (or a held arrow key) must each
+  // advance one period instead of recomputing the same one.
   const step = useCallback(
     (direction: -1 | 1) => {
-      const next = stepPeriod(range, direction, today);
-      if (next === range) return;
-      push(paramsForRange(next));
+      const live = new URLSearchParams(window.location.search);
+      const current = rangeFromParams({ range: live.get('range'), start: live.get('start'), end: live.get('end') }, today);
+      const next = stepPeriod(current, direction, today);
+      if (next === current) return;
+      const q = new URLSearchParams(live.toString());
+      for (const [k, v] of Object.entries(paramsForRange(next))) {
+        if (v === null) q.delete(k);
+        else q.set(k, v);
+      }
+      // Keep the history entry count sane while cycling: replace, not push.
+      window.history.replaceState(window.history.state, '', `${pathname}?${q.toString()}`);
+      router.replace(`${pathname}?${q.toString()}`);
     },
-    // push closes over params/pathname; range/today are derived from them.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [range, today, params, pathname],
+    [today, pathname, router],
   );
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!family) return;

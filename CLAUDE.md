@@ -93,10 +93,14 @@ External APIs → ingest crons → Supabase Postgres → pure metrics engine →
 
 ## Product spec highlights
 
-- Nav: Command Center · Funnel · Ads · Revenue · Reports · Setup.
+- Nav: Command Center · Scorecard · Funnel · Ads · Revenue · Reports · Setup.
 - One global date picker per page (presets incl. This/Last week Sun–Sat with resolved
   dates shown) + comparison dropdown (prev period / last year / off). Delta chips
   everywhere; cost metrics invert green/red; tooltips name exact comparison dates.
+  On a week/month preset the picker grows ◀ ▶ (and ← → with focus) that step one
+  whole Sun–Sat week / calendar month; ▶ stops at the current period.
+- Every KPI tile is clickable: a trend popover of that metric (daily 30d for
+  volume/cash, weekly 12w for rates/CAC) with the prior span faint.
 - Command Center above the fold: KPI row 1 (Initial cash collected, Enrollments,
   Paid CAC, Blended CAC, ROAS) + row 2 (LTV:CAC, Consults booked, Cost per roadmap
   booked) → data-health notice → funnel strip → trend + AI insight card + Ask card.
@@ -345,6 +349,37 @@ cash", read as a slip); a subscription-only client's first invoice counts as
 initial cash (otherwise such clients would never reach ROAS); LTV:CAC is
 computed as Σ contract value ÷ spend, which equals the brief's "contract value
 ÷ blended CAC" once you divide by the client count. `vercel.json` untouched.
+
+## Phase H status (done 2026-09-17 — week-to-week review habit)
+
+- **Period cycler** (`lib/dates`): anchored presets `week` / `month`
+  (`?range=week&start=<any day inside>`; `paramsForRange` writes them,
+  `rangeFromParams` normalises an anchored period back to `this_week` /
+  `last_week` / `this_month` / `last_month` when it coincides). `stepPeriod`,
+  `canStepForward`, `periodFamily`, `periodTitle` ("Week of Sep 6–12",
+  "September 2026"). `previousPeriod` / `samePeriodLastYear` treat anchored
+  periods like their named siblings, so the comparison follows the step.
+  `DateRangePicker` renders the arrows on week/month families and handles
+  ← → (selects/inputs keep their own keys). Tests cover month, year, short
+  and leap-month boundaries and the URL round trip.
+- **Scorecard view** (`/scorecard`, `GET /api/scorecard/view`):
+  `lib/scorecard/assemble.ts#assembleScorecard(result, narrative)` is THE
+  scorecard — Money → Pipeline → Ads stats (formatted value + engine Delta +
+  trend key), best/worst campaign by cost per client, funnel / show / source
+  tables, CAC line, notes, narrative, subject. `lib/email/digests` renders that
+  model (`renderScorecardDigest`); the page renders the same object. Never
+  compute a number in either renderer. `Scorecard.previousShowRates` exists
+  for the show-rate deltas. `FunnelStrip` now takes `{ funnel, conversions }`
+  (any mode). Default range on the page is last_week; the Weekly | Monthly
+  toggle writes last_week / last_month and the cycler steps from there.
+- **KPI trend popover**: `lib/metrics/trendMetrics.ts` registers each tile
+  metric with its honest grain (day/30d for volume & cash, week/12w for rates &
+  CAC) and an engine `compute(input, range)`; `service#getMetricTrend` +
+  `GET /api/metrics/trend?metric=`; `KpiTrendPopover` is the one component,
+  opened by `KpiDeltaTile` when given `trendMetric` (Command Center, Scorecard,
+  Ads, Revenue). "Open in Metrics →" lands on `/metrics?metric=<key>` where
+  `MetricFocusCard` shows the same series full width. No maturing-data badge
+  system exists in the app, so the popover carries none.
 
 ## Working agreements
 

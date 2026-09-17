@@ -55,6 +55,9 @@ export const KpiDeltaTile: React.FC<{
       className={clsx(
         'surface-raised rounded-[12px] p-4 group transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
         clickable && 'relative cursor-pointer focus-ring',
+        // The open tile must sit above its siblings (each is its own stacking
+        // context via the hover transform / stagger animation).
+        open && 'z-[80]',
         className,
       )}
       role={clickable ? 'button' : undefined}
