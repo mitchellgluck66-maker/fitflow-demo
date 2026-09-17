@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import clsx from 'clsx';
 import { TrendingUp, TrendingDown, Minus, LineChart, type LucideIcon } from 'lucide-react';
 import type { Delta } from '@/lib/metrics';
@@ -41,6 +41,7 @@ export const KpiDeltaTile: React.FC<{
   className?: string;
 }> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, maturity, maturing, className }) => {
   const [open, setOpen] = useState(false);
+  const tileRef = useRef<HTMLDivElement>(null);
   const clickable = Boolean(trendMetric);
   const ACCENTS = {
     accent: 'var(--accent)',
@@ -57,12 +58,10 @@ export const KpiDeltaTile: React.FC<{
 
   return (
     <div
+      ref={tileRef}
       className={clsx(
         'surface-raised rounded-[12px] p-4 group transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
         clickable && 'relative cursor-pointer focus-ring',
-        // The open tile must sit above its siblings (each is its own stacking
-        // context via the hover transform / stagger animation).
-        open && 'z-[80]',
         className,
       )}
       role={clickable ? 'button' : undefined}
@@ -143,7 +142,7 @@ export const KpiDeltaTile: React.FC<{
           {ring !== undefined ? <RadialRing value={ring} size={44} stroke={5} /> : sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
         </div>
       )}
-      {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} onClose={() => setOpen(false)} />}
+      {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} anchorRef={tileRef} onClose={() => setOpen(false)} />}
     </div>
   );
 };

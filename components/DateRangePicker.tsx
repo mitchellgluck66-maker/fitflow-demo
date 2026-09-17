@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
@@ -21,6 +21,7 @@ import {
   type ComparisonMode,
 } from '@/lib/dates';
 import { Select } from './Input';
+import { Popover } from './Popover';
 
 /**
  * The one global date-range picker. State lives in the URL (?range, ?start,
@@ -47,6 +48,7 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
   const comparison = resolveComparison(range, compareMode, today);
 
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const [customStart, setCustomStart] = useState(range.start);
   const [customEnd, setCustomEnd] = useState(range.end);
 
@@ -134,7 +136,10 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
       {family && arrow(-1)}
       <div className="relative">
         <button
+          ref={anchorRef}
           type="button"
+          aria-haspopup="dialog"
+          aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
           className="flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-[7px] text-[13px] font-medium transition-colors hover:bg-[var(--surface-hover)]"
           style={{
@@ -160,17 +165,12 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
           <ChevronDown size={13} style={{ color: 'var(--text-quaternary)' }} />
         </button>
 
-        {open && (
+        <Popover open={open} anchorRef={anchorRef} onClose={() => setOpen(false)} width={300} className="p-1.5" role="dialog" aria-labelledby="date-range-presets">
+          <span id="date-range-presets" className="sr-only">
+            Date range presets
+          </span>
           <>
-            <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
-            <div
-              className="absolute left-0 mt-1.5 z-[70] w-[300px] rounded-[10px] p-1.5 animate-scale"
-              style={{
-                background: 'var(--surface-raised)',
-                border: '1px solid var(--border-default)',
-                boxShadow: 'var(--shadow-lg)',
-              }}
-            >
+            <div>
               {PRESETS.filter((p) => p.value !== 'custom').map((p) => {
                 const r = resolvePreset(p.value, today);
                 const active = range.preset === p.value;
@@ -227,7 +227,7 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
               </div>
             </div>
           </>
-        )}
+        </Popover>
       </div>
 
       {family && arrow(1)}

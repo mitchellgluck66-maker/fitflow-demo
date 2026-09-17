@@ -163,7 +163,7 @@ export const SyncHealth: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-5">
         {health.sources.map((s) => {
           const r = s.lastRun;
-          const tone = !s.configured ? 'neutral' : !r ? 'warning' : r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'warning';
+          const tone = !s.configured ? 'neutral' : !r ? 'warning' : r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : r.status === 'partial' ? 'info' : 'warning';
           return (
             <div key={s.key} className="px-3 py-2.5 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -296,7 +296,7 @@ export const SyncHealth: React.FC = () => {
                   <td className="px-3 py-2">{r.kind}</td>
                   <td className="px-3 py-2">{r.trigger}</td>
                   <td className="px-3 py-2">
-                    <Badge variant={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'warning'} size="xs">
+                    <Badge variant={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : r.status === 'partial' ? 'info' : 'warning'} size="xs">
                       {r.status}
                     </Badge>
                   </td>

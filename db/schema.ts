@@ -38,6 +38,7 @@ export const SEMANTIC_ROLES = [
   'consult_noshow',
   'consult_rescheduled',
   'roadmap_booked',
+  'roadmap_noshow',
   'roadmap_showed',
   'roadmap_rescheduled',
   'enrolled',
@@ -104,7 +105,7 @@ export const stages = pgTable(
       .references(() => pipelines.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     position: integer('position'),
-    /** applied | consult_booked | consult_noshow | consult_rescheduled | roadmap_booked | roadmap_showed | roadmap_rescheduled | enrolled | previous_lead | other */
+    /** applied | consult_booked | consult_noshow | consult_rescheduled | roadmap_booked | roadmap_noshow | roadmap_showed | roadmap_rescheduled | enrolled | previous_lead | other */
     semanticRole: text('semantic_role').$type<SemanticRole>(),
     /**
      * How the role was decided:

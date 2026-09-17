@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, TrendingUp, TrendingDown, Minus, X } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartTooltip } from './Chart';
 import { Skeleton } from './Skeleton';
 import { MaturingBadge } from './MaturingBadge';
+import { Popover } from './Popover';
 import { computeDelta, formatCents, formatDelta, formatPct } from '@/lib/metrics';
 import type { MetricTrend } from '@/lib/metrics/trendMetrics';
 
@@ -29,11 +30,12 @@ export const KpiTrendPopover: React.FC<{
   metric: string;
   /** The tile's own label, shown until the trend's label arrives. */
   label: string;
+  /** The tile element the panel anchors under. */
+  anchorRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
-}> = ({ metric, label, onClose }) => {
+}> = ({ metric, label, anchorRef, onClose }) => {
   const [trend, setTrend] = useState<MetricTrend | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   useEffect(() => {
@@ -55,32 +57,6 @@ export const KpiTrendPopover: React.FC<{
     };
   }, [metric]);
 
-  // Esc and click-away. A document listener rather than an overlay element:
-  // the tile animates with a transform, which would trap a fixed overlay
-  // inside it.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    const onDown = (e: MouseEvent) => {
-      const panel = panelRef.current;
-      if (!panel) return;
-      const target = e.target as Node;
-      if (panel.contains(target) || panel.parentElement?.contains(target)) return;
-      onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
-    };
-  }, [onClose]);
-
   const rows =
     trend?.current.map((p, i) => ({
       label: p.label,
@@ -97,16 +73,8 @@ export const KpiTrendPopover: React.FC<{
   const suffix = trend?.kind === 'pct' ? '%' : '';
 
   return (
-    <>
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-        className="absolute left-0 top-[calc(100%+6px)] z-[70] w-[min(420px,calc(100vw-32px))] rounded-[12px] p-4 animate-scale focus:outline-none"
-        style={{ background: 'var(--surface-raised)', border: '1px solid var(--border-default)', boxShadow: 'var(--shadow-lg)' }}
-      >
+    <Popover open anchorRef={anchorRef} onClose={onClose} width={420} className="p-4" role="dialog" aria-labelledby={titleId}>
+      <div onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="min-w-0">
             <div id={titleId} className="flex items-center gap-2 text-[11.5px] font-medium uppercase tracking-[0.045em]" style={{ color: 'var(--text-tertiary)' }}>
@@ -171,6 +139,6 @@ export const KpiTrendPopover: React.FC<{
           </Link>
         </div>
       </div>
-    </>
+    </Popover>
   );
 };

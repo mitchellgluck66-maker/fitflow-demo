@@ -51,8 +51,9 @@ export const Toast: React.FC<ToastProps> = ({
 
   return (
     <div
-      className="fixed bottom-5 right-5 z-[100] max-w-sm"
+      className="fixed bottom-5 right-5 max-w-sm"
       style={{
+        zIndex: 'var(--z-toast)' as unknown as number,
         animation: leaving
           ? 'fadeIn 200ms ease reverse both'
           : 'riseIn 260ms cubic-bezier(0.16,1,0.3,1) both',

@@ -15,7 +15,7 @@ const FACETS = ['stage', 'source', 'status', 'appt', 'attribution', 'from', 'to'
 
 function roleVariant(role: string | null): 'positive' | 'negative' | 'neutral' | 'accent' {
   if (role === 'enrolled') return 'positive';
-  if (role === 'consult_noshow' || role === 'consult_rescheduled' || role === 'roadmap_rescheduled') return 'negative';
+  if (role === 'consult_noshow' || role === 'roadmap_noshow' || role === 'consult_rescheduled' || role === 'roadmap_rescheduled') return 'negative';
   if (role === 'consult_booked' || role === 'roadmap_booked' || role === 'roadmap_showed') return 'accent';
   return 'neutral';
 }

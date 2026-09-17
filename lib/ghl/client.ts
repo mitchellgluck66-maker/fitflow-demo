@@ -242,6 +242,55 @@ export interface OpportunityPage {
  * (unlike the rest of the API). Cursor pagination via `startAfterId` +
  * `startAfter` is preferred when the response provides it; `page` otherwise.
  */
+export interface OpportunityPageResult {
+  opportunities: GhlOpportunity[];
+  rejected: number;
+  warnings: string[];
+  /** True when this was the last page. */
+  done: boolean;
+  next: { page: number; startAfterId: string | null; startAfter: number | null };
+  error?: string;
+}
+
+/**
+ * ONE page of the opportunity search — the unit the resumable sync persists
+ * its cursor at. `limit` is kept small (50) so a page's contact fetches fit
+ * inside a serverless time budget.
+ */
+export async function listOpportunitiesPage(params: {
+  pipelineId?: string;
+  page: number;
+  startAfterId?: string | null;
+  startAfter?: number | null;
+  limit?: number;
+}): Promise<OpportunityPageResult> {
+  const config = await getGhlConfig();
+  const limit = params.limit ?? 50;
+  const result: GhlResult<z.infer<typeof GhlOpportunitySearchResponseSchema>> = await ghlRequest(
+    {
+      method: 'GET',
+      endpoint: '/opportunities/search',
+      family: 'opportunities',
+      query: {
+        location_id: config.locationId,
+        pipeline_id: params.pipelineId,
+        limit,
+        ...(params.startAfterId ? { startAfterId: params.startAfterId, startAfter: params.startAfter ?? undefined } : { page: params.page }),
+      },
+    },
+    GhlOpportunitySearchResponseSchema,
+  );
+  const next = { page: params.page + 1, startAfterId: null as string | null, startAfter: null as number | null };
+  if (!result.ok || !result.data) return { opportunities: [], rejected: 0, warnings: [], done: true, next, error: result.error };
+  const parsed = parseMany(GhlOpportunitySchema, result.data.opportunities, 'opportunity');
+  const meta = result.data.meta;
+  if (meta?.startAfterId) {
+    next.startAfterId = meta.startAfterId;
+    next.startAfter = meta.startAfter ?? null;
+  }
+  return { opportunities: parsed.valid, rejected: parsed.rejected, warnings: parsed.warnings, done: result.data.opportunities.length < limit, next };
+}
+
 export async function listAllOpportunities(params: {
   pipelineId?: string;
   maxPages?: number;

@@ -51,8 +51,9 @@ export const NavBar: React.FC = () => {
 
   return (
     <header
-      className="sticky top-0 z-50"
+      className="sticky top-0"
       style={{
+        zIndex: 'var(--z-nav)' as unknown as number,
         background: 'var(--surface-overlay)',
         backdropFilter: 'blur(20px) saturate(180%)',
         WebkitBackdropFilter: 'blur(20px) saturate(180%)',

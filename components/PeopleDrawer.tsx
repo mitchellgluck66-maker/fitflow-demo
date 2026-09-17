@@ -69,7 +69,7 @@ export const PeopleDrawer: React.FC<{
     iso ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso)) : '—';
 
   return (
-    <div className="fixed inset-0 z-[90]">
+    <div className="fixed inset-0" style={{ zIndex: 'var(--z-overlay)' as unknown as number }}>
       <div
         onClick={onClose}
         className="absolute inset-0 animate-fade"

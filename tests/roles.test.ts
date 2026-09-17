@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { suggestRole, similarity, AUTO_THRESHOLD } from '@/lib/ghl/roles';
+import { suggestRole, similarity, AUTO_THRESHOLD, SEMANTIC_ROLES, ROLE_LABELS, NOSHOW_ROLES } from '@/lib/ghl/roles';
 
 describe('semantic role mapper', () => {
   it('maps exact stage names confidently', () => {
@@ -16,10 +16,24 @@ describe('semantic role mapper', () => {
     expect(suggestRole('ENROLLED')).toMatchObject({ role: 'enrolled', confident: true });
   });
 
-  it('never auto-maps a no-show stage to a booked/showed role', () => {
-    const s = suggestRole('Roadmap No Show');
-    expect(s.confident).toBe(false);
-    expect(s.confidence).toBeLessThan(AUTO_THRESHOLD);
+  it('maps no-show stages to their own roles, never to booked/showed', () => {
+    expect(suggestRole('Roadmap No Show')).toMatchObject({ role: 'roadmap_noshow', confident: true });
+    expect(suggestRole('Pre-Roadmap No-Show')).toMatchObject({ role: 'roadmap_noshow', confident: true });
+    expect(suggestRole('Strategy Session No Show')).toMatchObject({ role: 'roadmap_noshow', confident: true });
+    expect(suggestRole('Consult No Show')).toMatchObject({ role: 'consult_noshow', confident: true });
+    const odd = suggestRole('Webinar No Show');
+    expect(odd.confident).toBe(false);
+    expect(odd.confidence).toBeLessThan(AUTO_THRESHOLD);
+    expect(['consult_booked', 'roadmap_booked', 'roadmap_showed']).not.toContain(odd.role);
+    // A no-show role never wins a plain booking.
+    expect(suggestRole('Roadmap Booked').role).toBe('roadmap_booked');
+  });
+
+  it('roadmap_noshow is enumerated after roadmap_booked everywhere roles are listed', () => {
+    const i = SEMANTIC_ROLES.indexOf('roadmap_noshow');
+    expect(i).toBe(SEMANTIC_ROLES.indexOf('roadmap_booked') + 1);
+    expect(ROLE_LABELS.roadmap_noshow).toBe('Roadmap no-show');
+    expect(NOSHOW_ROLES).toEqual(['consult_noshow', 'roadmap_noshow']);
   });
 
   it('Phase G roles: rescheduled and previous-lead stages map to their own roles', () => {

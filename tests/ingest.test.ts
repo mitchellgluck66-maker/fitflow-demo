@@ -5,12 +5,12 @@
  * derivation across two syncs, provenance flags, and the backfill flag.
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, isNull } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments } from '@/db';
+import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
-import { runGhlSync } from '@/lib/ghl/ingest';
+import { runGhlSync, readSyncCursor } from '@/lib/ghl/ingest';
 import { DEFAULT_FOLLOWED_PIPELINE_ID } from '@/lib/ghl/followed';
 
 type Json = Record<string, unknown>;
@@ -82,7 +82,14 @@ const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
   if (init?.method && init.method !== 'GET') throw new Error(`non-GET reached the network: ${init.method}`);
 
   if (url.pathname === '/opportunities/pipelines') return json({ pipelines: account.pipelines });
-  if (url.pathname === '/opportunities/search') return json({ opportunities: account.opportunities, meta: {} });
+  if (url.pathname === '/opportunities/search') {
+    // The real endpoint filters by pipeline_id and pages by `page`/`limit`.
+    const pipelineId = url.searchParams.get('pipeline_id');
+    const limit = Number(url.searchParams.get('limit') ?? 100);
+    const page = Number(url.searchParams.get('page') ?? 1);
+    const all = account.opportunities.filter((o) => !pipelineId || o.pipelineId === pipelineId);
+    return json({ opportunities: all.slice((page - 1) * limit, page * limit), meta: { total: all.length } });
+  }
   if (url.pathname === '/calendars/') return json({ calendars: account.calendars });
   if (url.pathname === '/calendars/events') return json({ events: account.events });
   if (url.pathname === '/users/') return json({ users: account.users });
@@ -329,5 +336,92 @@ describe('runGhlSync', () => {
     const result = await runGhlSync({ mode: 'delta', trigger: 'manual' });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/credentials/i);
+  });
+});
+
+describe('resumable cycle (Hobby time limit)', () => {
+  beforeAll(async () => {
+    // An earlier test forgets the token; this suite needs a connected client.
+    await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
+    await setSetting(CREDENTIAL_KEYS.locationId, 'loc-1');
+  });
+
+  it('a budget-limited run pauses at a page cursor as status partial; later runs resume and the last records succeeded with cycle totals', async () => {
+    // Three pipelines: pipe-1 is followed; two unfollowed mirrors with one
+    // opportunity each. PAGE_LIMIT is 50, so each pipeline is one page.
+    account.pipelines.push(
+      { id: 'pipe-b', name: 'Nurture', stages: [{ id: 'st-b', name: 'Nurturing', position: 0 }] },
+      { id: 'pipe-c', name: 'Alumni', stages: [{ id: 'st-c', name: 'Alumni Applied', position: 0 }] },
+    );
+    account.opportunities.push(
+      { id: 'opp-b', name: 'Bea', pipelineId: 'pipe-b', pipelineStageId: 'st-b', status: 'open', contactId: 'ct-b', createdAt: '2026-08-29T09:00:00Z', updatedAt: '2026-08-29T09:00:00Z' },
+      { id: 'opp-c', name: 'Cal', pipelineId: 'pipe-c', pipelineStageId: 'st-c', status: 'open', contactId: 'ct-c', createdAt: '2026-08-29T09:00:00Z', updatedAt: '2026-08-29T09:00:00Z' },
+    );
+    account.contacts['ct-b'] = { id: 'ct-b', firstName: 'Bea', email: 'bea@example.com' };
+    account.contacts['ct-c'] = { id: 'ct-c', firstName: 'Cal', email: 'cal@example.com' };
+    await db.update(settings).set({ value: '' }).where(eq(settings.key, 'ghl_sync_cursor'));
+    const lastSyncBefore = (await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value ?? null;
+    requests.length = 0;
+
+    // Run 1: one page, then pause.
+    const r1 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
+    expect(r1.error, JSON.stringify(r1.warnings)).toBeUndefined();
+    expect(r1.ok).toBe(true);
+    expect(r1.partial).toBe(true);
+    expect(r1.progress).toMatch(/paused at pipeline 2\//);
+    const c1 = await readSyncCursor();
+    expect(c1).toMatchObject({ mode: 'delta', index: 1, page: 1, runs: 1 });
+    // Followed pipeline first, then the mirrors in position order.
+    expect(c1!.order[0]).toBe('pipe-1');
+    const live = (await db.select({ id: pipelines.id, isTracked: pipelines.isTracked }).from(pipelines).where(isNull(pipelines.archivedAt)));
+    expect(c1!.order).toHaveLength(live.length);
+    expect(c1!.order.slice(1)).toEqual(expect.arrayContaining(['pipe-b', 'pipe-c']));
+    expect(live.filter((p) => p.isTracked).every((p) => c1!.order.indexOf(p.id) < c1!.order.findIndex((id) => !live.find((l) => l.id === id)!.isTracked))).toBe(true);
+    const searches = requests.filter((r) => r.url === '/opportunities/search');
+    expect(searches).toHaveLength(1);
+    const [run1] = await db.select().from(syncRuns).where(eq(syncRuns.id, r1.runId));
+    expect(run1.status).toBe('partial');
+    expect(run1.finishedAt).not.toBeNull();
+    // Not "done" yet: last-sync marker untouched, cursor present.
+    expect((await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value ?? null).toBe(lastSyncBefore);
+
+    // Run 2: resumes at pipeline 2 (no phase 0 again — pipelines endpoint not re-read).
+    requests.length = 0;
+    const r2 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
+    expect(r2.partial).toBe(true);
+    expect(requests.some((r) => r.url === '/opportunities/pipelines')).toBe(false);
+    expect((await readSyncCursor())!.index).toBe(2);
+    expect(r2.warnings.some((w) => w.startsWith('Resuming delta cycle'))).toBe(true);
+
+    // Remaining runs finish the cycle.
+    let final = r2;
+    for (let i = 0; i < 5 && final.partial; i += 1) final = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
+    expect(final.partial).toBe(false);
+    expect(final.ok).toBe(true);
+    expect(final.progress).toMatch(/completed 4 pipelines in \d+ runs/);
+    expect(final.stats.cycleRuns).toBeGreaterThanOrEqual(4);
+    expect(final.stats.opportunities).toBe(4); // opp-1, opp-off, opp-b, opp-c across the whole cycle
+    expect(await readSyncCursor()).toBeNull();
+    const [runF] = await db.select().from(syncRuns).where(eq(syncRuns.id, final.runId));
+    expect(runF.status).toBe('succeeded');
+    expect((await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value).not.toBe(lastSyncBefore);
+    // Nothing is ever left 'running'.
+    expect((await db.select().from(syncRuns)).some((r) => r.status === 'running')).toBe(false);
+    // Contacts from the mirrors were imported; Jane's position still belongs to the followed pipeline.
+    const rows = await db.select().from(contacts);
+    expect(rows.map((r) => r.ghlContactId).sort()).toEqual(expect.arrayContaining(['ct-1', 'ct-b', 'ct-c']));
+    expect(rows.find((r) => r.ghlContactId === 'ct-1')!.pipelineId).toBe('pipe-1');
+    expect(rows.find((r) => r.ghlContactId === 'ct-b')!.pipelineId).toBe('pipe-b');
+  });
+
+  it('an explicit --since starts a fresh cycle even when a cursor exists; a full-budget run completes in one go', async () => {
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cli', since: '2026-06-16', maxPages: 1 });
+    expect(r.error, JSON.stringify(r.warnings)).toBeUndefined();
+    expect(r.partial).toBe(true);
+    expect((await readSyncCursor())!.since).toBe(new Date('2026-06-16').toISOString());
+    const done = await runGhlSync({ mode: 'delta', trigger: 'cli', since: '2026-06-16' });
+    expect(done.partial).toBe(false);
+    expect(done.stats.cycleRuns).toBe(1);
+    expect(await readSyncCursor()).toBeNull();
   });
 });

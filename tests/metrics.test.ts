@@ -276,6 +276,31 @@ describe('daily to-do buckets', () => {
     expect(computeTodoBuckets(FIXTURE, '2026-09-30').total).toBe(0);
   });
 
+  it('the roadmap_noshow / consult_noshow stage roles feed the no-show buckets without an appointment outcome', () => {
+    const withRoles: MetricsInput = {
+      ...FIXTURE,
+      contacts: [
+        ...FIXTURE.contacts,
+        c('n1', 'Ned', 'Facebook', '2026-08-01', 'roadmap_noshow'), // moved into Roadmap No Show on 08-06, no appointment row
+        c('n2', 'Nia', 'Google', '2026-08-01', 'consult_noshow'), // moved on 08-04 (Day-3 on 08-07)
+        c('n3', 'Nox', null, '2026-08-01', 'roadmap_noshow'), // moved on 08-06 but has a later Roadmap booked → skip
+      ],
+      transitions: [
+        ...FIXTURE.transitions,
+        t('n1', 'roadmap_booked', 'roadmap_noshow', '2026-08-06'),
+        t('n2', 'consult_booked', 'consult_noshow', '2026-08-04'),
+        t('n3', 'roadmap_booked', 'roadmap_noshow', '2026-08-06'),
+      ],
+      appointments: [...FIXTURE.appointments, a('n3', 'Roadmap', null, '2026-08-09')],
+    };
+    const b = computeTodoBuckets(withRoles, '2026-08-07');
+    expect(b.day1.roadmap_noshow.map((p) => p.name)).toEqual(['Ned']);
+    expect(b.day3.consult_noshow.map((p) => p.name)).toEqual(['Nia']);
+    // Bob (appointment no-show, 08-06) is still there and not duplicated by his role.
+    expect(b.day1.consult_noshow.map((p) => p.name)).toEqual(['Bob']);
+    expect(b.total).toBe(4);
+  });
+
   it('awaiting rebook: everyone in a rescheduled role, every day, dated from when they entered it', () => {
     const withResched: MetricsInput = {
       ...FIXTURE,

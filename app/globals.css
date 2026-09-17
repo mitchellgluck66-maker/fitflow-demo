@@ -14,6 +14,14 @@
    ========================================================================== */
 
 :root {
+  /* Layering — every floating element uses one of these, never a literal.
+     nav (sticky chrome) < popover (date picker, KPI trend, menus) <
+     overlay (modals, drawers, ⌘K) < toast. Popovers portal to <body>, so a
+     card's transform or animation can never trap them. */
+  --z-nav: 50;
+  --z-popover: 100;
+  --z-overlay: 200;
+  --z-toast: 300;
   color-scheme: light;
 
   /* --- Base canvas ------------------------------------------------------ */

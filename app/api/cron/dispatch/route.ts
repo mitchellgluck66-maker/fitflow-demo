@@ -68,7 +68,9 @@ export async function GET(request: NextRequest) {
     }
   };
 
-  if (want('ghl')) await run('ghl', () => runGhlSync({ mode: 'delta', trigger: 'cron' }));
+  // The GHL delta is resumable (lib/ghl/ingest.ts): it does what fits in the
+  // budget and the next dispatch / sync-ghl invocation continues the cycle.
+  if (want('ghl')) await run('ghl', () => runGhlSync({ mode: 'delta', trigger: 'cron', budgetMs: 20_000 }));
   if (want('meta')) await run('meta', () => runMetaSync({ mode: 'delta', trigger: 'cron' }));
   if (want('stripe')) await run('stripe', () => runStripeSync({ mode: 'reconcile', trigger: 'cron' }));
   if (want('google')) await run('google', () => runGoogleAdsSync({ mode: 'delta', trigger: 'cron' }));

@@ -123,9 +123,10 @@ interface Provenance {
 const ROLE_VARIANT: Record<string, 'info' | 'accent' | 'warning' | 'danger' | 'success' | 'neutral'> = {
   applied: 'info',
   consult_booked: 'accent',
-  consult_noshow: 'warning',
+  consult_noshow: 'danger',
   consult_rescheduled: 'warning',
   roadmap_booked: 'accent',
+  roadmap_noshow: 'danger',
   roadmap_showed: 'accent',
   roadmap_rescheduled: 'warning',
   enrolled: 'success',
@@ -560,7 +561,7 @@ export default function SetupPage() {
           {lastRun && (
             <div className="mt-3 text-[11.5px]" style={{ color: 'var(--text-tertiary)' }}>
               Last run: <strong>{lastRun.kind}</strong> ({lastRun.trigger}) ·{' '}
-              <Badge variant={lastRun.status === 'succeeded' ? 'success' : lastRun.status === 'failed' ? 'danger' : 'warning'} size="xs">
+              <Badge variant={lastRun.status === 'succeeded' ? 'success' : lastRun.status === 'failed' ? 'danger' : lastRun.status === 'partial' ? 'info' : 'warning'} size="xs">
                 {lastRun.status}
               </Badge>{' '}
               · {fmt(lastRun.startedAt)} · {lastRun.requestsUsed} requests

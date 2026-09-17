@@ -49,9 +49,11 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({
       ...result,
-      message: result.ok
-        ? `Synced: ${result.stats.opportunities} opportunities, ${result.stats.appointmentsUpserted} appointments, ${result.stats.transitions} stage moves (${result.requestsUsed} requests, ${Math.round(result.durationMs / 1000)}s).`
-        : (result.error ?? 'Sync failed'),
+      message: !result.ok
+        ? (result.error ?? 'Sync failed')
+        : result.partial
+          ? `Partial: ${result.progress} — ${result.stats.opportunities} opportunities so far (${result.requestsUsed} requests, ${Math.round(result.durationMs / 1000)}s). Run again to continue; the cron continues it too.`
+          : `Synced: ${result.stats.opportunities} opportunities, ${result.stats.appointmentsUpserted} appointments, ${result.stats.transitions} stage moves (${result.requestsUsed} requests, ${Math.round(result.durationMs / 1000)}s).`,
     });
   } catch (error) {
     return NextResponse.json({ error: 'Sync failed', detail: String(error) }, { status: 500 });

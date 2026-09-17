@@ -62,7 +62,7 @@ export const REMAP_SYSTEM = `You map a CRM pipeline stage name onto one of FitFl
 
 Rules:
 - Pick exactly one role from the allowed list. Use "other" when the stage is not part of the applied → consult → roadmap → enrolled funnel (e.g. archives, nurture lists, lost).
-- A "no show" stage for a roadmap/strategy call is NOT a booked or showed role — use "other" unless a no-show role exists in the list.
+- A "no show" stage maps to the matching *_noshow role (consult_noshow / roadmap_noshow) — never to a booked or showed role.
 - A "rescheduled" / "needs rebook" stage is NOT a booked role — use the matching *_rescheduled role.
 - "Previous leads" / "old leads" style parking stages map to previous_lead, not applied.
 - confidence is 0..1. Give a one-sentence rationale.`;

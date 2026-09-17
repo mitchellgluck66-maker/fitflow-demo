@@ -198,7 +198,7 @@ export const AskCard: React.FC = () => {
       </Card>
 
       {drawer && (
-        <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Question history">
+        <div className="fixed inset-0 flex" style={{ zIndex: 'var(--z-overlay)' as unknown as number }} role="dialog" aria-modal="true" aria-label="Question history">
           <button type="button" className="flex-1" style={{ background: 'rgba(0,0,0,0.35)' }} onClick={() => setDrawer(false)} aria-label="Close history" />
           <aside className="w-full max-w-[520px] h-full overflow-y-auto surface-raised p-5 space-y-4" style={{ borderLeft: '1px solid var(--border-subtle)' }}>
             <div className="flex items-center justify-between">

@@ -23,6 +23,12 @@ export const SETTING_KEYS = {
   summaryRecipientHistory: 'summary_recipient_history',
   /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
   ghlLastSyncAt: 'ghl_last_sync_at',
+  /**
+   * Resumable GHL sync cursor (JSON, lib/ghl/ingest.ts#SyncCursor): where the
+   * current delta/backfill cycle stopped when the last run hit its time
+   * budget. Cleared when a cycle completes.
+   */
+  ghlSyncCursor: 'ghl_sync_cursor',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */
   backfillFrom: 'backfill_from',
   /**

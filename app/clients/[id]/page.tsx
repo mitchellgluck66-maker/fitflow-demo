@@ -10,7 +10,7 @@ import type { ClientProfile } from '@/lib/queries/clients';
 
 function roleVariant(role: string | null): 'success' | 'danger' | 'neutral' | 'accent' {
   if (role === 'enrolled') return 'success';
-  if (role === 'consult_noshow' || role === 'consult_rescheduled' || role === 'roadmap_rescheduled') return 'danger';
+  if (role === 'consult_noshow' || role === 'roadmap_noshow' || role === 'consult_rescheduled' || role === 'roadmap_rescheduled') return 'danger';
   if (role === 'consult_booked' || role === 'roadmap_booked' || role === 'roadmap_showed') return 'accent';
   return 'neutral';
 }

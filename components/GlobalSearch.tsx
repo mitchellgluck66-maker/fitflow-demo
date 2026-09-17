@@ -213,7 +213,7 @@ export const GlobalSearch: React.FC = () => {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[95] flex items-start justify-center pt-[12vh] px-4">
+        <div className="fixed inset-0 flex items-start justify-center pt-[12vh] px-4" style={{ zIndex: 'var(--z-overlay)' as unknown as number }}>
           <div
             onClick={close}
             className="absolute inset-0 animate-fade"

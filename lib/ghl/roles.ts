@@ -22,12 +22,16 @@ export const ROLE_LABELS: Record<SemanticRole, string> = {
   consult_noshow: 'Consult no-show',
   consult_rescheduled: 'Consult rescheduled (awaiting rebook)',
   roadmap_booked: 'Roadmap booked',
+  roadmap_noshow: 'Roadmap no-show',
   roadmap_showed: 'Roadmap showed',
   roadmap_rescheduled: 'Roadmap rescheduled (awaiting rebook)',
   enrolled: 'Enrolled',
   previous_lead: 'Previous lead (parked, outside conversion math)',
   other: 'Other (excluded from funnel)',
 };
+
+/** No-show roles: red treatment everywhere; their occupants feed the daily to-do no-show buckets. */
+export const NOSHOW_ROLES: readonly SemanticRole[] = ['consult_noshow', 'roadmap_noshow'];
 
 /** Roles whose occupants must be chased every day until they rebook (daily to-do "awaiting rebook"). */
 export const RESCHEDULED_ROLES: readonly SemanticRole[] = ['consult_rescheduled', 'roadmap_rescheduled'];
@@ -64,6 +68,7 @@ const ROLE_ALIASES: Record<Exclude<SemanticRole, 'other'>, string[]> = {
     'Discovery Call Rescheduled',
   ],
   roadmap_booked: ['Pre-Roadmap Booked', 'Roadmap Booked', 'Roadmap Scheduled', 'Strategy Session Booked'],
+  roadmap_noshow: ['Roadmap No Show', 'Roadmap No-Show', 'Pre-Roadmap No Show', 'Roadmap Noshow', 'Strategy Session No Show', 'Roadmap Missed'],
   roadmap_rescheduled: [
     'Roadmap Rescheduled',
     'Roadmap Reschedule',
@@ -154,7 +159,11 @@ export function suggestRole(stageName: string): RoleSuggestion {
   // "Roadmap No Show" overlaps "Roadmap Booked" on one token but is NOT a
   // booking. A no-show name never maps to a booked/showed role automatically.
   const isNoShow = tokens(stageName).has('noshow');
-  if (isNoShow && best.role !== 'consult_noshow') {
+  if (isNoShow && best.role !== 'consult_noshow' && best.role !== 'roadmap_noshow') {
+    best = { ...best, score: Math.min(best.score, AUTO_THRESHOLD - 0.01) };
+  }
+  // And a no-show role never wins a stage that is not a no-show.
+  if (!isNoShow && (best.role === 'consult_noshow' || best.role === 'roadmap_noshow')) {
     best = { ...best, score: Math.min(best.score, AUTO_THRESHOLD - 0.01) };
   }
   // Same for reschedules: "Consult Booked (Rescheduled)" contains "Consult

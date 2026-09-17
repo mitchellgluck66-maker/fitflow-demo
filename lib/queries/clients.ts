@@ -64,7 +64,7 @@ export interface ClientProfile {
   timeline: TimelineItem[];
 }
 
-const NEGATIVE_ROLES: ReadonlySet<string> = new Set(['consult_noshow', 'consult_rescheduled', 'roadmap_rescheduled']);
+const NEGATIVE_ROLES: ReadonlySet<string> = new Set(['consult_noshow', 'roadmap_noshow', 'consult_rescheduled', 'roadmap_rescheduled']);
 
 function roleTone(role: string | null | undefined, stageName?: string | null): TimelineTone {
   if (role === 'enrolled') return 'positive';

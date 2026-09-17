@@ -918,8 +918,10 @@ export const REBOOK_LABELS: Record<RebookKind, string> = {
  *   applied_no_booking — applied exactly N days ago, still in the applied
  *                        role, and no Consult appointment ever booked.
  *   consult_noshow     — a Consult no-show exactly N days ago with no later
- *                        Consult appointment on the books.
- *   roadmap_noshow     — same for Roadmap.
+ *                        Consult appointment on the books, OR a contact who
+ *                        entered the consult_noshow stage role that day.
+ *   roadmap_noshow     — same for Roadmap (appointment outcome or the
+ *                        roadmap_noshow role).
  * N = 1 (Day-1) and N = 3 (Day-3). Names are listed plainly.
  */
 export function computeTodoBuckets(input: MetricsInput, today: string): TodoBuckets {
@@ -958,6 +960,21 @@ export function computeTodoBuckets(input: MetricsInput, today: string): TodoBuck
         const rebooked = appts.some((a) => a.type === type && a.on > target);
         if (!rebooked) out[type === 'Consult' ? 'consult_noshow' : 'roadmap_noshow'].push(person(c, target));
       }
+    }
+
+    // Stage-role no-shows: Miranda moves people into "Consult No Show" /
+    // "Roadmap No Show" stages, sometimes without an appointment outcome.
+    // A contact who ENTERED a no-show role exactly N days ago and still sits
+    // there joins the same bucket (deduped against the appointment path).
+    for (const c of input.contacts) {
+      if (c.role !== 'consult_noshow' && c.role !== 'roadmap_noshow') continue;
+      const key: TodoKind = c.role;
+      if (out[key].some((p) => p.contactId === c.id)) continue;
+      const entered = input.transitions.filter((t) => t.contactId === c.id && t.toRole === c.role).map((t) => t.on).sort();
+      const enteredOn = entered[entered.length - 1];
+      if (enteredOn !== target) continue;
+      const hasLater = (apptsByContact.get(c.id) ?? []).some((a) => a.type === (key === 'consult_noshow' ? 'Consult' : 'Roadmap') && a.on > target);
+      if (!hasLater) out[key].push(person(c, target));
     }
 
     for (const k of Object.keys(out) as TodoKind[]) out[k].sort((a, b) => a.name.localeCompare(b.name));

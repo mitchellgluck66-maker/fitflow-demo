@@ -17,6 +17,7 @@ const ROLE_DESCRIPTIONS: Record<SemanticRole, string> = {
   consult_noshow: 'Missed the consult',
   consult_rescheduled: 'Consult was rescheduled / needs to be rebooked — followed up daily until it is',
   roadmap_booked: 'Has the roadmap / strategy session booked',
+  roadmap_noshow: 'Missed the roadmap / strategy session',
   roadmap_showed: 'Attended the roadmap session (including objection/undecided outcomes)',
   roadmap_rescheduled: 'Roadmap session was rescheduled / needs to be rebooked — followed up daily until it is',
   enrolled: 'Became a paying client',

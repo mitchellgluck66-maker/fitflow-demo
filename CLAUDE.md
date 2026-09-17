@@ -80,7 +80,10 @@ large changes. This file is the standing contract.
      and `disclaimer_sunset` (2026-10-15, Setup → Data caveats) make it
      self-expiring — after the sunset nothing renders and the AI
      `dataCaveats` array is empty, no redeploy.
-   - *Roles* consult_rescheduled / roadmap_rescheduled are holding states whose
+   - *Roles* consult_noshow / roadmap_noshow are the no-show stages (red treatment;
+     a contact who entered one exactly 1 / 3 days ago joins the daily to-do
+     no-show bucket alongside appointment no-shows). consult_rescheduled /
+     roadmap_rescheduled are holding states whose
      occupants appear in the daily to-do "awaiting rebook" bucket every day until
      they leave; previous_lead is a parked row outside the stage chain, and a
      contact whose first observed stage was previous_lead never enters the stages.
@@ -154,7 +157,9 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   `npm run verify:readonly` proves it by grep; `tests/readonly.test.ts` by test.
 - Sync: `lib/ghl/ingest.ts#runGhlSync({mode:'delta'|'backfill'})`; cron in
   `vercel.json` → `/api/cron/sync-ghl` (hourly on Pro, daily on Hobby; needs `CRON_SECRET`). Backfill from
-  `settings.backfill_from` (2026-06-16) via Setup or `npm run backfill`.
+  `settings.backfill_from` via Setup or `npm run backfill`. Since 2026-09-17 a sync
+  is a RESUMABLE CYCLE (see Phase K): each run does what fits its time budget
+  and persists a page cursor in `settings.ghl_sync_cursor`.
 - Stage roles: `lib/ghl/roles.ts` suggests; ≥0.8 confidence auto-applies,
   otherwise `unmapped` + `sync_incidents` row; humans override in /setup
   (`role_source='manual'`, never overwritten by sync).
@@ -434,6 +439,35 @@ computed as Σ contract value ÷ spend, which equals the brief's "contract value
   `POST /api/auth/logout` clears it; NavBar "Sign out"; `/login` page (no
   nav chrome). `tests/auth.test.ts` covers tokens, policy, the interceptor
   end to end, the login route and the rate limit.
+
+## Phase K status (done 2026-09-17 — production findings)
+
+- **Overlay layer**: `components/Popover.tsx` portals every floating panel to
+  `<body>` at `--z-popover`, anchored to the trigger's viewport rect (Esc /
+  click-away / re-anchor on scroll). `--z-nav < --z-popover < --z-overlay <
+  --z-toast` in globals.css; Modal, PeopleDrawer, ⌘K, the Ask drawer and Toast
+  use the tokens. The date picker's preset panel and the KPI trend popover use
+  `Popover` — nothing floats inside a card any more. The comparison dropdown is
+  a native `<select>` (browser-rendered, never clipped). Never use `z-[…]`
+  literals or `position:absolute` panels inside cards again.
+- **roadmap_noshow** role (after roadmap_booked in every enumeration): aliases
+  in the suggester, `NOSHOW_ROLES`, danger tone in Setup / client pages /
+  timeline, remap prompt. Not a funnel bar (the chain is booked → showed).
+- **Resumable GHL sync** (`lib/ghl/ingest.ts`): a cycle = phase 0 (pipelines,
+  stages, users, order = followed first then mirrors) → phase 1 (one
+  50-opportunity page at a time per pipeline; contacts fetched only when new or
+  changed since the last COMPLETED cycle; cursor persisted after every page) →
+  phase 2 (calendar events, payment re-match, `ghl_last_sync_at` =
+  cycleStartedAt, cursor cleared). Runs stop STARTING pages at `budgetMs`
+  (default 40s; dispatch passes 20s) and finish as status `partial` with a
+  progress string; the run that completes the cycle records `succeeded` with the
+  cycle's totals (`stats.cycleRuns`). An explicit `since` starts a fresh cycle.
+  Position rule: a followed-pipeline opportunity always owns the contact's
+  position; an unfollowed one only when the stored position is empty or itself
+  unfollowed. `tests/ingest.test.ts` → "resumable cycle".
+- **Stale banner**: `GET /api/sync/status` (no GHL call) + `StaleSyncBanner` in
+  the layout on data pages when the last COMPLETED GHL cycle is older than
+  26 h (or never): "Pipeline data last synced … — Sync now" (POST /api/sync).
 
 ## Working agreements
 
