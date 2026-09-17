@@ -5,6 +5,8 @@ import { ArrowDown } from 'lucide-react';
 import { formatCents, formatPct, FUNNEL_STAGES, FUNNEL_MODE_LABELS, type Funnel as FunnelData, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
 import { formatRangeLabel } from '@/lib/dates';
 import { PeopleDrawer } from './PeopleDrawer';
+import { MaturingBadge } from './MaturingBadge';
+import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
 
 export type FunnelConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone };
 
@@ -29,7 +31,9 @@ export const Funnel: React.FC<{
   compact?: boolean;
   /** Bar height in px. The Funnel tab uses 44; compact = 22. */
   rowHeight?: number;
-}> = ({ funnel, conversions, baseline, rangeLabel, compact, rowHeight }) => {
+  /** Maturing-data disclaimer: badges the history-dependent stages and every conversion chip while active. */
+  maturity?: DataMaturity | null;
+}> = ({ funnel, conversions, baseline, rangeLabel, compact, rowHeight, maturity }) => {
   const stages = funnel.stages;
   const max = Math.max(...stages.map((s) => s.count), 1);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -83,6 +87,7 @@ export const Funnel: React.FC<{
                   {formatPct(conv.current)} → {short === 'client' ? 'enrolled' : s.label.toLowerCase()}
                   <span style={{ opacity: 0.75 }}>· {s.dropOff} {cohort ? 'not yet' : 'dropped'}</span>
                 </span>
+                <MaturingBadge maturity={maturity} compact />
               </div>
             )}
 
@@ -93,8 +98,9 @@ export const Funnel: React.FC<{
               title={`Show the ${s.count} ${s.count === 1 ? 'person' : 'people'} at ${s.label}`}
             >
               <div className="w-[148px] shrink-0">
-                <div className="text-[13px] font-medium leading-tight" style={{ color: 'var(--text-primary)' }}>
+                <div className="text-[13px] font-medium leading-tight flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                   {s.label}
+                  <MaturingBadge maturity={maturity} show={isMaturingStage(s.key, maturity)} compact />
                 </div>
                 <div className="text-[11.5px] tabular mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
                   {s.count} · {formatPct(s.shareOfApplied)}

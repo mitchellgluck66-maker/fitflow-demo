@@ -92,6 +92,8 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per lead"
               trendMetric="cpl"
+              maturity={data.maturity}
+              maturing
               value={formatCents(kpis.costPerLeadCents)}
               delta={computeDelta(kpis.costPerLeadCents, previousKpis?.costPerLeadCents ?? null, true)}
               deltaKind="cents"
@@ -105,6 +107,8 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per consult"
               trendMetric="cost_consult"
+              maturity={data.maturity}
+              maturing
               value={formatCents(kpis.costPerConsultCents)}
               delta={computeDelta(kpis.costPerConsultCents, previousKpis?.costPerConsultCents ?? null, true)}
               deltaKind="cents"
@@ -118,6 +122,8 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per roadmap"
               trendMetric="cost_roadmap"
+              maturity={data.maturity}
+              maturing
               value={formatCents(kpis.costPerRoadmapCents)}
               delta={computeDelta(kpis.costPerRoadmapCents, previousKpis?.costPerRoadmapCents ?? null, true)}
               deltaKind="cents"

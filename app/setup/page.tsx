@@ -36,6 +36,7 @@ import { GoogleAdsCard } from '@/components/setup/GoogleAdsCard';
 import { AnthropicCard } from '@/components/setup/AnthropicCard';
 import { SyncHealth } from '@/components/setup/SyncHealth';
 import { IncidentLog } from '@/components/setup/IncidentLog';
+import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
 
 interface Credentials {
   configured: boolean;
@@ -772,6 +773,9 @@ export default function SetupPage() {
 
         {/* ---- Incident log ---- */}
         <IncidentLog />
+
+        {/* ---- Maturing-data disclaimer dates (self-expiring) ---- */}
+        <DataCaveatsCard />
 
         {/* ---- Sample data ---- */}
         <AccordionCard

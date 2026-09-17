@@ -8,6 +8,7 @@ import { renderScorecardDigest } from '@/lib/email/digests';
 import { computeScorecard, computeTrend, computeAdsKpis, computeCampaignTable, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
 import { resolveComparison, rangeFromParams } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
+import { computeMaturity } from '@/lib/metrics/maturity';
 
 const TODAY = '2026-08-26';
 const noon = (d: string) => Date.parse(`${d}T12:00:00Z`);
@@ -66,6 +67,7 @@ function build(rangeParams: { range: string; start?: string }): ScorecardResult 
     trailingWeeks: [],
     ads: { kpis: computeAdsKpis(INPUT, range), previousKpis: computeAdsKpis(INPUT, P), campaigns: computeCampaignTable(INPUT, range), previousCampaigns: computeCampaignTable(INPUT, P) },
     revenue: computeRevenueSummary(INPUT, range),
+    maturity: computeMaturity({ range, today: TODAY, historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
   };
 }
 

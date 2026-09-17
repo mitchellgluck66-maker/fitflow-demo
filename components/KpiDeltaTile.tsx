@@ -7,6 +7,8 @@ import type { Delta } from '@/lib/metrics';
 import { formatDelta } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
 import { KpiTrendPopover } from './KpiTrendPopover';
+import { MaturingBadge } from './MaturingBadge';
+import type { DataMaturity } from '@/lib/metrics/maturity';
 
 /**
  * KPI tile driven by an engine `Delta`. Same chrome as KPITile, plus a
@@ -33,8 +35,11 @@ export const KpiDeltaTile: React.FC<{
   empty?: { title: string; description: string };
   /** Key in lib/metrics/trendMetrics — enables the click-to-trend popover. */
   trendMetric?: string;
+  /** Maturing-data disclaimer state; the badge shows only when `maturing` is true AND it is active. */
+  maturity?: DataMaturity | null;
+  maturing?: boolean;
   className?: string;
-}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, className }) => {
+}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, maturity, maturing, className }) => {
   const [open, setOpen] = useState(false);
   const clickable = Boolean(trendMetric);
   const ACCENTS = {
@@ -100,6 +105,7 @@ export const KpiDeltaTile: React.FC<{
           <span className="text-[11.5px] font-medium uppercase tracking-[0.045em] truncate" style={{ color: 'var(--text-tertiary)' }}>
             {label}
           </span>
+          {maturing && <MaturingBadge maturity={maturity} compact className="shrink-0" />}
         </div>
         {!empty && delta.direction !== 'none' && (
           <span

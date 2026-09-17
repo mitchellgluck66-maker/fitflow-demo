@@ -19,6 +19,7 @@ import {
   type Range,
 } from './index';
 import { addDays, weekBuckets, weekStart, formatRangeLabel, type DateRange } from '../dates';
+import type { DataMaturity } from './maturity';
 
 export type TrendGrain = 'day' | 'week';
 export type TrendValueKind = 'count' | 'cents' | 'pct' | 'ratio';
@@ -133,6 +134,10 @@ export interface MetricTrend {
   previousSpanValue: number | null;
   span: { start: string; end: string; label: string };
   previousSpan: { start: string; end: string; label: string };
+  /** Maturing-data disclaimer for the span (set by the service; null in pure computation). */
+  maturity: DataMaturity | null;
+  /** True when this metric carries the badge for the span. */
+  maturing: boolean;
 }
 
 /** Compute a metric's trend from already-loaded rows (pure). */
@@ -154,6 +159,8 @@ export function computeMetricTrend(metric: TrendMetric, input: MetricsInput, tod
     previousSpanValue: metric.compute(input, prev),
     span: { ...cur, label: formatRangeLabel(cur.start, cur.end) },
     previousSpan: { ...prev, label: formatRangeLabel(prev.start, prev.end) },
+    maturity: null,
+    maturing: false,
   };
 }
 

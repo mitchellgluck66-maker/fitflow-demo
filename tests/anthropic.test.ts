@@ -12,6 +12,7 @@ import { ANTHROPIC_KEYS } from '@/lib/anthropic/config';
 import { buildInsightInput, hashInsightInput, validateInsights } from '@/lib/metrics/insights';
 import { computeScorecard, computeRevenueSummary, computeAdsKpis, type MetricsInput } from '@/lib/metrics';
 import type { ScorecardResult } from '@/lib/metrics/service';
+import { computeMaturity } from '@/lib/metrics/maturity';
 import { runInsights } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative, getNarrative } from '@/lib/anthropic/narrative';
 import { suggestRoleForStage } from '@/lib/anthropic/remap';
@@ -59,6 +60,7 @@ function fakeResult(): ScorecardResult {
     trailingWeeks: [],
     ads: { kpis: computeAdsKpis(INPUT, R), previousKpis: null, campaigns: [], previousCampaigns: null },
     revenue: computeRevenueSummary(INPUT, R),
+    maturity: computeMaturity({ range: R, today: '2026-08-26', historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
   };
 }
 

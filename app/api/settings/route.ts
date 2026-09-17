@@ -23,6 +23,8 @@ export async function GET() {
       lastAutoSyncAt: stored[SETTING_KEYS.ghlLastSyncAt] ?? null,
       backfillFrom: stored[SETTING_KEYS.backfillFrom] ?? '2026-06-01',
       metaBackfillFrom: stored[SETTING_KEYS.metaBackfillFrom] ?? '2026-07-16',
+      historyCompleteSince: stored[SETTING_KEYS.historyCompleteSince],
+      disclaimerSunset: stored[SETTING_KEYS.disclaimerSunset],
       ghl: {
         configured: config.configured,
         readOnly: true,
@@ -74,6 +76,12 @@ export async function POST(request: NextRequest) {
     if (typeof body.backfillFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.backfillFrom)) {
       await setSetting(SETTING_KEYS.backfillFrom, body.backfillFrom);
     }
+    for (const [field, key] of [
+      ['historyCompleteSince', SETTING_KEYS.historyCompleteSince],
+      ['disclaimerSunset', SETTING_KEYS.disclaimerSunset],
+    ] as const) {
+      if (typeof body[field] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body[field])) await setSetting(key, body[field]);
+    }
     if (typeof body.metaBackfillFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.metaBackfillFrom)) {
       await setSetting(SETTING_KEYS.metaBackfillFrom, body.metaBackfillFrom);
       // A new window invalidates any partial-backfill cursor.
@@ -103,6 +111,8 @@ export async function POST(request: NextRequest) {
       digestRecipientsMonthly: stored[SETTING_KEYS.digestRecipientsMonthly] ?? '',
       backfillFrom: stored[SETTING_KEYS.backfillFrom],
       metaBackfillFrom: stored[SETTING_KEYS.metaBackfillFrom],
+      historyCompleteSince: stored[SETTING_KEYS.historyCompleteSince],
+      disclaimerSunset: stored[SETTING_KEYS.disclaimerSunset],
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update settings', detail: String(error) }, { status: 500 });

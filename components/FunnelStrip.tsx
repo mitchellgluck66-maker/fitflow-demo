@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import { formatPct, FUNNEL_MODE_LABELS, type Funnel, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
+import { MaturingBadge } from './MaturingBadge';
+import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
 
 /**
  * Compact funnel summary for the Command Center — one slim row of stage
@@ -21,7 +23,8 @@ export const FunnelStrip: React.FC<{
   href: string;
   rangeLabel: string;
   title?: string;
-}> = ({ funnel, conversions, href, rangeLabel, title }) => {
+  maturity?: DataMaturity | null;
+}> = ({ funnel, conversions, href, rangeLabel, title, maturity }) => {
   const stages = funnel.stages;
   const heading = title ?? (funnel.mode === 'cohort' ? `Funnel · ${FUNNEL_MODE_LABELS.cohort.label}` : 'Funnel');
 
@@ -81,6 +84,7 @@ export const FunnelStrip: React.FC<{
                     <ChevronRight size={10} strokeWidth={2.4} style={{ opacity: 0.7 }} />
                     {formatPct(conv.current)}
                   </span>
+                  <MaturingBadge maturity={maturity} compact className="ml-1" />
                 </div>
               )}
               <div
@@ -92,8 +96,9 @@ export const FunnelStrip: React.FC<{
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-[11px] leading-tight truncate" style={{ color: 'var(--text-tertiary)' }}>
+                    <div className="text-[11px] leading-tight truncate flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
                       {s.label}
+                      <MaturingBadge maturity={maturity} show={isMaturingStage(s.key, maturity)} compact />
                     </div>
                     <div className="flex items-baseline gap-1.5 mt-0.5">
                       <span

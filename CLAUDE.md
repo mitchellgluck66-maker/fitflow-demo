@@ -69,6 +69,17 @@ large changes. This file is the standing contract.
      "By cohort" = everyone who applied inside the dates and every stage they
      have reached since, no time cutoff. Chips are recomputed per mode against
      the same-mode trailing-8-week baseline.
+   - *History-dependent metrics (maturing data)*: live stage-history observation
+     began 2026-09-01; before that GHL kept only each contact's last stage
+     change. Consults booked, roadmaps booked, cost per lead / consult /
+     roadmap and every stage→stage conversion are therefore under/over-counted
+     for ranges touching earlier dates. Enrollments, initial cash, Paid /
+     Blended CAC, ROAS, LTV:CAC, spend and show rates do NOT depend on that
+     history and never carry the caveat. `lib/metrics/maturity.ts` owns the
+     rule and the one wording; settings `history_complete_since` (2026-09-01)
+     and `disclaimer_sunset` (2026-10-15, Setup → Data caveats) make it
+     self-expiring — after the sunset nothing renders and the AI
+     `dataCaveats` array is empty, no redeploy.
    - *Roles* consult_rescheduled / roadmap_rescheduled are holding states whose
      occupants appear in the daily to-do "awaiting rebook" bucket every day until
      they leave; previous_lead is a parked row outside the stage chain, and a
@@ -106,7 +117,9 @@ External APIs → ingest crons → Supabase Postgres → pure metrics engine →
   booked) → data-health notice → funnel strip → trend + AI insight card + Ask card.
 - Funnel = horizontal proportional bars with ghost drop-off segments and stage→stage %
   chips colored vs trailing 8-week average. NEVER a tapered funnel shape. Bar click →
-  drawer with the actual people.
+  drawer with the actual people. "By cohort" is the DEFAULT mode (`?mode=period`
+  for the secondary "In period"); a caption under the funnel says what each mode
+  counts, and the Command Center strip shows cohort numbers.
 - Emails follow scorecard rules: one timeframe per digest; skip sending when empty.
 - Daily to-do email buckets: Day-1 and Day-3 × {applied-no-booking, consult no-show,
   roadmap no-show} plus the persistent "awaiting rebook" bucket (everyone in a
@@ -380,6 +393,23 @@ computed as Σ contract value ÷ spend, which equals the brief's "contract value
   Ads, Revenue). "Open in Metrics →" lands on `/metrics?metric=<key>` where
   `MetricFocusCard` shows the same series full width. No maturing-data badge
   system exists in the app, so the popover carries none.
+
+## Phase I status (done 2026-09-17 — cohort default + maturing-data disclaimer)
+
+- Funnel tab defaults to "By cohort"; "In period" is `?mode=period`. Each mode
+  has a one-line caption under the bars. The Command Center funnel strip is the
+  cohort funnel (`scorecard.cohort`).
+- Maturing-data disclaimer: `lib/metrics/maturity.ts` (`computeMaturity`,
+  `isMaturingMetric`, `isMaturingStage`, `maturingCaveatText`, `dataCaveats`,
+  `HISTORY_DEPENDENT_METRICS`). `ScorecardResult.maturity` and
+  `MetricTrend.maturing` are set by the service from the two settings.
+  `MaturingBadge` is the only renderer (amber = warning tokens, compact
+  hourglass on tiles/chips); `KpiDeltaTile` takes `maturity` + `maturing`,
+  `Funnel` / `FunnelStrip` take `maturity` and badge consult/roadmap-booked
+  rows and every conversion chip, the trend popover badges its header, the
+  scorecard assembly flags stats (`ScorecardStat.maturing`) and the email marks
+  them "†" with one explanatory note. `tests/maturity.test.ts` pins the two
+  conditions, the sunset, and that non-history metrics never badge.
 
 ## Working agreements
 

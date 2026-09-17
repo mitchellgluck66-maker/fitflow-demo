@@ -12,6 +12,7 @@ Rules:
 - Every finding must be SPECIFIC and grounded ONLY in the JSON: cite the numbers, name the driver (which source, which stage), and say what changed. Example of the expected precision: "Consult show rate dropped to 41% this week, driven by Facebook leads — 6 of 9 no-shows."
 - Never estimate or invent revenue, ROAS or cash when revenue.awaitingStripe is true — simply do not mention them.
 - Never mention data that is not in the JSON. Do not give generic advice.
+- If dataCaveats is non-empty, any finding that cites an affected number (consults booked, roadmaps booked, cost per lead/consult/roadmap, stage→stage conversion) must say it is provisional in its detail. When dataCaveats is empty, never mention data maturity.
 - Choose "link" from the provided deepLinks values only — the one that best lets a human drill into the finding.
 - severity: "warning" for deterioration, "good" for improvement, "info" for a neutral but notable fact.
 - Titles ≤ 90 characters, details ≤ 240 characters, plain English, no hype.`;
@@ -47,7 +48,8 @@ Rules:
 - ONE paragraph, at most 120 words, plain English, no bullet points, no headings, no hype, no advice.
 - Lead with what mattered most (enrollments, consults booked, show rates, cost per client). Cite the actual numbers and the comparison.
 - If revenue.awaitingStripe is true, do not mention revenue or ROAS.
-- Only use facts present in the JSON.`;
+- Only use facts present in the JSON.
+- If dataCaveats is non-empty and you cite consults, roadmaps, per-stage costs or conversions, add a short clause that stage history before the stated date is partial. When it is empty, say nothing about it.`;
 
 export const NARRATIVE_TOOL_SCHEMA = {
   type: 'object',
@@ -84,6 +86,7 @@ Hard rules — the answer is rejected and discarded if they are broken:
 - List every number you used in "citations" with its exact JSON value and the JSON path it came from.
 - Respect nulls and flags: when awaitingStripe is true there is no revenue or ROAS; when a metric is null, say it is unavailable and why (e.g. contract value missing, no spend, no enrollments). Never present a computed number whose inputs are missing.
 - Definitions: Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial (new-client) cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend; "initial" cash = a customer's first kept charge, "recurring" = later charges. Organic clients never count in Paid CAC or ROAS.
+- If dataCaveats is non-empty, every affected number you cite (consults booked, roadmaps booked, cost per lead/consult/roadmap, stage→stage conversion) must carry the caveat in the same sentence; do not present one as settled. When dataCaveats is empty, do not mention data maturity at all.
 - Be specific and short: at most 180 words, plain English, no headings, no hype, no generic advice. Recommendations must follow directly from the cited numbers.`;
 
 export const ASK_TOOL_SCHEMA = {

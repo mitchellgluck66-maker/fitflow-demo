@@ -12,6 +12,7 @@ import { formatCents } from '@/lib/metrics';
 import { periodFamily, rangeFromParams, todayInTimezone } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import type { ScorecardView, ScorecardStat, CampaignPick } from '@/lib/scorecard/assemble';
+import type { DataMaturity } from '@/lib/metrics/maturity';
 
 const ACCENT: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'info'> = {
   initial_cash: 'success',
@@ -32,7 +33,7 @@ const ACCENT: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'info
   cost_client: 'warning',
 };
 
-const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null }> = ({ stat, comparisonLabel }) => (
+const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; maturity: DataMaturity }> = ({ stat, comparisonLabel, maturity }) => (
   <KpiDeltaTile
     label={stat.label}
     value={stat.value}
@@ -44,6 +45,8 @@ const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null }
     empty={stat.empty}
     ring={stat.deltaKind === 'pct' && !stat.empty ? stat.delta.current : undefined}
     trendMetric={stat.key}
+    maturity={maturity}
+    maturing={stat.maturing}
   />
 );
 
@@ -226,7 +229,7 @@ function ScorecardPage() {
         </div>
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${cols} gap-3 stagger`}>
           {stats.map((st) => (
-            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} />
+            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} maturity={view.maturity} />
           ))}
           {extra}
         </div>
@@ -267,6 +270,7 @@ function ScorecardPage() {
           href={`/funnel?${query}&mode=cohort`}
           rangeLabel={`${view.title} · who applied then, and where they are now`}
           title="Cohort funnel"
+          maturity={view.maturity}
         />
 
         <Card padding="lg">

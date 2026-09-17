@@ -17,7 +17,8 @@ import {
   type Comparison,
   type ComparisonMode,
 } from '../dates';
-import { getTimezone } from '../settings';
+import { getTimezone, getSetting, SETTING_KEYS } from '../settings';
+import { computeMaturity, isMaturingMetric, type DataMaturity } from './maturity';
 import { loadMetricsInput } from './load';
 import {
   computeScorecard,
@@ -54,6 +55,14 @@ export interface ScorecardResult {
   ads: { kpis: AdsKpis; previousKpis: AdsKpis | null; campaigns: CampaignRow[]; previousCampaigns: CampaignRow[] | null };
   /** Revenue tab. */
   revenue: RevenueSummary;
+  /** Maturing-data disclaimer state for this range (self-expiring; see lib/metrics/maturity.ts). */
+  maturity: DataMaturity;
+}
+
+/** Read the two disclaimer dates and evaluate them for a range. */
+export async function getMaturity(range: { start: string; end: string }, today: string): Promise<DataMaturity> {
+  const [since, sunset] = await Promise.all([getSetting(SETTING_KEYS.historyCompleteSince), getSetting(SETTING_KEYS.disclaimerSunset)]);
+  return computeMaturity({ range, today, historyCompleteSince: since, sunset });
 }
 
 export async function getScorecard(params: {
@@ -114,6 +123,7 @@ export async function getScorecard(params: {
       previousCampaigns: comparison.range ? computeCampaignTable(input, comparison.range) : null,
     },
     revenue: computeRevenueSummary(input, range),
+    maturity: await getMaturity(range, today),
   };
 }
 
@@ -147,5 +157,8 @@ export async function getMetricTrend(key: string, params: { pipelineId?: string 
   const today = todayInTimezone(timezone);
   const window = trendWindow(metric, today);
   const input = await loadMetricsInput({ start: window.start, end: window.end, timezone, pipelineId: params.pipelineId });
-  return computeMetricTrend(metric, input, today);
+  const trend = computeMetricTrend(metric, input, today);
+  // The popover's "selected range" is the trend's current span.
+  const maturity = await getMaturity(trend.span, today);
+  return { ...trend, maturity, maturing: isMaturingMetric(metric.key, maturity) };
 }

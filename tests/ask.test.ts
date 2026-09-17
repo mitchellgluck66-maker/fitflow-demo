@@ -13,6 +13,7 @@ import { askDashboard, checkAskRateLimit, resetAskRateLimit, listAskHistory, ASK
 import { ASK_SYSTEM } from '@/lib/anthropic/prompts';
 import { computeScorecard, computeTrend, computeAdsKpis, computeCampaignTable, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
 import type { ScorecardResult } from '@/lib/metrics/service';
+import { computeMaturity } from '@/lib/metrics/maturity';
 
 const R = { start: '2026-08-16', end: '2026-08-22' };
 const P = { start: '2026-08-09', end: '2026-08-15' };
@@ -48,6 +49,7 @@ function fakeResult(): ScorecardResult {
     trailingWeeks: computeTrend(INPUT, weeks),
     ads: { kpis: computeAdsKpis(INPUT, R), previousKpis: computeAdsKpis(INPUT, P), campaigns: computeCampaignTable(INPUT, R), previousCampaigns: computeCampaignTable(INPUT, P) },
     revenue: computeRevenueSummary(INPUT, R),
+    maturity: computeMaturity({ range: R, today: '2026-08-26', historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
   };
 }
 

@@ -36,6 +36,9 @@ export const SETTING_KEYS = {
    * re-run resume a partial backfill instead of restarting.
    */
   metaBackfillCursor: 'meta_backfill_cursor',
+  /** Maturing-data disclaimer (lib/metrics/maturity.ts): first day with complete stage history, and the day the notice retires. */
+  historyCompleteSince: 'history_complete_since',
+  disclaimerSunset: 'disclaimer_sunset',
   // Legacy keys kept so the dormant write-back code still resolves them.
   ghlPipelineId: 'ghl_pipeline_id',
   ghlStageMap: 'ghl_stage_map',
@@ -50,6 +53,8 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.summaryRecipientHistory]: '[]',
   [SETTING_KEYS.backfillFrom]: '2026-06-01',
   [SETTING_KEYS.metaBackfillFrom]: '2026-07-16',
+  [SETTING_KEYS.historyCompleteSince]: '2026-09-01',
+  [SETTING_KEYS.disclaimerSunset]: '2026-10-15',
   // First sends go to Mitchell until recipients are changed on the Reports page.
   [SETTING_KEYS.digestRecipientsTodo]: 'mitchellgluck66@gmail.com',
   [SETTING_KEYS.digestRecipientsWeekly]: 'mitchellgluck66@gmail.com',

@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { ScorecardResult } from './service';
 import { buildInsightInput, type InsightInput } from './insights';
 import type { CampaignRow, Funnel, MarketingMetrics, TrendPoint } from './index';
+import { dataCaveats } from './maturity';
 
 export interface AskContext {
   note: string;
@@ -33,6 +34,8 @@ export interface AskContext {
   campaigns: CampaignSlice[];
   previousCampaigns: CampaignSlice[] | null;
   dataHealth: string[];
+  /** Maturing-data caveats — same wording as the badge; empty after sunset. */
+  dataCaveats: string[];
 }
 
 interface FunnelSlice {
@@ -156,6 +159,7 @@ export function buildAskContext(result: ScorecardResult): AskContext {
     campaigns: result.ads.campaigns.map(campaignSlice),
     previousCampaigns: result.ads.previousCampaigns?.map(campaignSlice) ?? null,
     dataHealth,
+    dataCaveats: dataCaveats(result.maturity),
   };
 }
 

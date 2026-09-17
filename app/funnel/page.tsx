@@ -23,12 +23,14 @@ function FunnelTab() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  // The mode lives in the URL (?mode=cohort) so a cohort view is a shareable link.
-  const mode: FunnelMode = params.get('mode') === 'cohort' ? 'cohort' : 'period';
+  // The mode lives in the URL so a view is a shareable link. "By cohort" is the
+  // default (the honest read: the same people down the whole funnel);
+  // ?mode=period switches to "In period".
+  const mode: FunnelMode = params.get('mode') === 'period' ? 'period' : 'cohort';
   const setMode = useCallback(
     (next: FunnelMode) => {
       const q = new URLSearchParams(params.toString());
-      if (next === 'cohort') q.set('mode', 'cohort');
+      if (next === 'period') q.set('mode', 'period');
       else q.delete('mode');
       router.replace(`${pathname}?${q.toString()}`, { scroll: false });
     },
@@ -105,7 +107,7 @@ function FunnelTab() {
 
   const modeToggle = (
     <div className="inline-flex items-center rounded-[8px] p-0.5" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }} role="tablist" aria-label="Funnel mode">
-      {(['period', 'cohort'] as FunnelMode[]).map((m) => {
+      {(['cohort', 'period'] as FunnelMode[]).map((m) => {
         const active = m === mode;
         const Icon = m === 'cohort' ? Route : CalendarRange;
         return (
@@ -156,8 +158,13 @@ function FunnelTab() {
                 description={cohort ? 'A cohort needs applicants in the selected dates. Try a wider range.' : 'Try Last 30 days, or run a sync from Setup to pull the latest opportunities.'}
               />
             ) : (
-              <Funnel funnel={funnel} conversions={conversions} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
+              <Funnel funnel={funnel} conversions={conversions} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} maturity={data.maturity} />
             )}
+            <p className="text-[12px] mt-3 pt-3" style={{ color: 'var(--text-tertiary)', borderTop: '1px solid var(--border-subtle)' }}>
+              {cohort
+                ? 'Following everyone who applied in this period — each bar is how many of those same people have reached that stage since.'
+                : 'Everyone who reached each stage during this period — rows are not the same people, so later stages can exceed earlier ones.'}
+            </p>
           </Card>
 
           {/* ---- Show rates: rates with a natural 0–100% frame → rings ---- */}

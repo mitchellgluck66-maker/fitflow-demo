@@ -12,6 +12,7 @@
 import type { ScorecardResult } from '../metrics/service';
 import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Delta, type CampaignRow, type ShowRate } from '../metrics';
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
+import { isMaturingMetric, maturingCaveatText, type DataMaturity } from '../metrics/maturity';
 
 export type ScorecardKind = 'weekly' | 'monthly' | 'custom';
 export type StatTone = 'good' | 'bad' | 'neutral';
@@ -29,6 +30,8 @@ export interface ScorecardStat {
   tone: StatTone;
   /** Present when the number must NOT be shown (inputs missing). */
   empty?: { title: string; description: string };
+  /** Carries the maturing-data badge (history-dependent metric while the disclaimer is active). */
+  maturing: boolean;
 }
 
 export interface CampaignPick {
@@ -61,6 +64,7 @@ export interface ScorecardView {
   empty: boolean;
   /** Email subject line. */
   subject: string;
+  maturity: DataMaturity;
 }
 
 function deltaSub(d: Delta, kind: ScorecardStat['deltaKind']): { sub: string; tone: StatTone } {
@@ -71,7 +75,11 @@ function deltaSub(d: Delta, kind: ScorecardStat['deltaKind']): { sub: string; to
 
 function stat(key: string, label: string, value: string, delta: Delta, deltaKind: ScorecardStat['deltaKind'], override?: { sub: string; tone?: StatTone; empty?: ScorecardStat['empty'] }): ScorecardStat {
   const ds = deltaSub(delta, deltaKind);
-  return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty };
+  return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty, maturing: false };
+}
+
+function withMaturity(stats: ScorecardStat[], maturity: DataMaturity): ScorecardStat[] {
+  return stats.map((st) => ({ ...st, maturing: isMaturingMetric(st.key, maturity) }));
 }
 
 function rateOf(rows: ShowRate[] | null, type: string): number | null {
@@ -196,6 +204,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${formatCents(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
   if (rev.unclassifiedCount > 0) notes.push({ text: `${rev.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, tone: 'warn' });
   if (m.unattributedInitialCount > 0) notes.push({ text: `${formatCents(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
+  if (result.maturity.active) notes.push({ text: `Maturing data — ${maturingCaveatText(result.maturity)} Affected here: consults booked, roadmaps booked, cost per lead / consult / roadmap and the funnel conversions.`, tone: 'warn' });
 
   const title = periodTitle(r);
   return {
@@ -204,7 +213,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
     subtitle: cmp ? `vs ${cmp.resolvedLabel}` : null,
     period: { start: r.start, end: r.end, label: r.resolvedLabel },
     comparison: cmp ? { start: cmp.start, end: cmp.end, label: cmp.resolvedLabel } : null,
-    sections: { money, pipeline, ads: adsStats },
+    sections: { money: withMaturity(money, result.maturity), pipeline: withMaturity(pipeline, result.maturity), ads: withMaturity(adsStats, result.maturity) },
     campaigns: { top, worst, note: campaignNote },
     funnelRows,
     showRows,
@@ -215,5 +224,6 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
     narrativeTitle: kind === 'monthly' ? 'This month in one paragraph' : 'This week in one paragraph',
     empty: scorecard.empty,
     subject: `FitFlow ${kind === 'custom' ? '' : `${kind} `}scorecard — ${formatRangeLabel(r.start, r.end)}: ${k.enrollments.current ?? 0} enrolled, ${k.consultsBooked.current ?? 0} consults booked`,
+    maturity: result.maturity,
   };
 }

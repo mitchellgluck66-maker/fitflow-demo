@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ScorecardResult } from './service';
 import { paramsForRange } from '../dates';
+import { dataCaveats } from './maturity';
 import { FUNNEL_STAGES, type FunnelStageKey } from './index';
 
 export interface InsightInput {
@@ -56,6 +57,12 @@ export interface InsightInput {
     appliedToEnrolled: number | null;
   }>;
   warnings: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null }>;
+  /**
+   * Maturing-data caveats (empty once the disclaimer sunsets): which numbers
+   * in this snapshot are undercounted because pre-Sept-1 stage history is
+   * partial. The model must repeat the caveat whenever it cites one.
+   */
+  dataCaveats: string[];
   deepLinks: Record<string, string>;
 }
 
@@ -135,6 +142,7 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       .filter((c) => c.tone === 'warn')
       .slice(0, 5)
       .map((c) => ({ from: c.from, to: c.to, current: round(c.current), previous: round(c.previous) })),
+    dataCaveats: dataCaveats(result.maturity),
     deepLinks,
   };
 }

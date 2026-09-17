@@ -228,6 +228,8 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Consults booked"
             trendMetric="consults_booked"
+            maturity={data.maturity}
+            maturing
             value={String(scorecard.kpis.consultsBooked.current ?? 0)}
             delta={scorecard.kpis.consultsBooked}
             comparisonLabel={cmpLabel}
@@ -239,6 +241,8 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Cost per roadmap booked"
             trendMetric="cost_roadmap"
+            maturity={data.maturity}
+            maturing
             value={formatCents(marketing.costPerRoadmapCents)}
             delta={scorecard.kpis.costPerRoadmapCents}
             deltaKind="cents"
@@ -256,7 +260,13 @@ function CommandCenter() {
         </div>
 
         {/* ---- Funnel summary strip (the deep-dive lives on /funnel) ---- */}
-        <FunnelStrip funnel={scorecard.funnel} conversions={scorecard.conversions} href={`/funnel?${search.toString()}`} rangeLabel={`${range.presetLabel} · ${range.resolvedLabel}`} />
+        <FunnelStrip
+          funnel={scorecard.cohort.funnel}
+          conversions={scorecard.cohort.conversions}
+          href={`/funnel?${search.toString()}`}
+          rangeLabel={`${range.presetLabel} · ${range.resolvedLabel} · who applied then, and where they are now`}
+          maturity={data.maturity}
+        />
 
         {/* ---- Trend + insights ---- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
