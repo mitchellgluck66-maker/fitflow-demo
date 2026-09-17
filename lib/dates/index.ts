@@ -22,7 +22,14 @@ export type Preset =
   | 'this_month'
   | 'last_month'
   | 'last_30_days'
-  | 'custom';
+  | 'custom'
+  /** An anchored Sun–Sat week (?range=week&start=<Sunday>) — what the period cycler steps to. */
+  | 'week'
+  /** An anchored calendar month (?range=month&start=<first of month>). */
+  | 'month';
+
+/** Week- and month-shaped presets: the ones the ◀ ▶ period cycler can step. */
+export type PeriodFamily = 'week' | 'month';
 
 export type ComparisonMode = 'previous_period' | 'last_year' | 'off';
 
@@ -62,7 +69,7 @@ export const COMPARISONS: Array<{ value: ComparisonMode; label: string }> = [
   { value: 'off', label: 'No comparison' },
 ];
 
-const PRESET_LABEL = Object.fromEntries(PRESETS.map((p) => [p.value, p.label])) as Record<Preset, string>;
+const PRESET_LABEL = { ...Object.fromEntries(PRESETS.map((p) => [p.value, p.label])), week: 'Week', month: 'Month' } as Record<Preset, string>;
 
 // ---------------------------------------------------------------------------
 // Calendar primitives (UTC-anchored arithmetic on plain dates — no tz needed)
@@ -209,6 +216,19 @@ export function resolvePreset(
       end = custom.start <= custom.end ? custom.end : custom.start;
       break;
     }
+    case 'week': {
+      // Anchored week: any date inside it resolves to its Sun–Sat week.
+      if (!custom || !isValidDate(custom.start)) return resolvePreset('this_week', today);
+      start = weekStart(custom.start);
+      end = addDays(start, 6);
+      break;
+    }
+    case 'month': {
+      if (!custom || !isValidDate(custom.start)) return resolvePreset('this_month', today);
+      start = monthStart(custom.start);
+      end = monthEnd(custom.start);
+      break;
+    }
   }
 
   const year = parts(today).y;
@@ -226,11 +246,82 @@ export function rangeFromParams(
   params: { range?: string | null; start?: string | null; end?: string | null },
   today: string,
 ): DateRange {
+  if ((params.range === 'week' || params.range === 'month') && params.start) {
+    // Anchored periods normalise back to the named preset when they coincide
+    // with it, so "this week" reached by stepping reads as "This week".
+    return normalizePeriod(resolvePreset(params.range, today, { start: params.start, end: params.start }), today);
+  }
   const preset = (PRESETS.some((p) => p.value === params.range) ? params.range : 'last_30_days') as Preset;
   if (preset === 'custom' || (params.start && params.end && !params.range)) {
     return resolvePreset('custom', today, { start: params.start ?? '', end: params.end ?? '' });
   }
   return resolvePreset(preset, today);
+}
+
+// ---------------------------------------------------------------------------
+// Period cycler (◀ ▶ one whole Sun–Sat week / calendar month at a time)
+// ---------------------------------------------------------------------------
+
+/** week for This/Last week and anchored weeks; month likewise; null otherwise. */
+export function periodFamily(range: { preset: Preset }): PeriodFamily | null {
+  if (range.preset === 'this_week' || range.preset === 'last_week' || range.preset === 'week') return 'week';
+  if (range.preset === 'this_month' || range.preset === 'last_month' || range.preset === 'month') return 'month';
+  return null;
+}
+
+/**
+ * Give an anchored week/month its named preset when it IS this/last week or
+ * this/last month, otherwise keep it anchored. Idempotent.
+ */
+export function normalizePeriod(range: DateRange, today: string): DateRange {
+  const family = periodFamily(range);
+  if (!family) return range;
+  const named: Preset[] = family === 'week' ? ['this_week', 'last_week'] : ['this_month', 'last_month'];
+  for (const p of named) {
+    const r = resolvePreset(p, today);
+    if (r.start === range.start && r.end === range.end) return r;
+  }
+  return resolvePreset(family, today, { start: range.start, end: range.start });
+}
+
+/** The current week/month is the ceiling: ▶ never steps into the future. */
+export function canStepForward(range: DateRange, today: string): boolean {
+  const family = periodFamily(range);
+  if (!family) return false;
+  return range.end < (family === 'week' ? weekEnd(today) : monthEnd(today));
+}
+
+/**
+ * One whole period back (-1) or forward (+1). Weeks stay Sun–Sat, months stay
+ * calendar months (Jan 31 → Feb 28, Dec → Jan across the year). Returns the
+ * same range when it cannot step (not a week/month preset, or ▶ at today).
+ */
+export function stepPeriod(range: DateRange, direction: -1 | 1, today: string): DateRange {
+  const family = periodFamily(range);
+  if (!family) return range;
+  if (direction === 1 && !canStepForward(range, today)) return range;
+  const anchor = family === 'week' ? addDays(range.start, 7 * direction) : addMonths(monthStart(range.start), direction);
+  return normalizePeriod(resolvePreset(family, today, { start: anchor, end: anchor }), today);
+}
+
+/** URL params that reproduce a range (the cycler writes these; every page reads them). */
+export function paramsForRange(range: DateRange): { range: string; start: string | null; end: string | null } {
+  if (range.preset === 'week' || range.preset === 'month') return { range: range.preset, start: range.start, end: null };
+  if (range.preset === 'custom') return { range: 'custom', start: range.start, end: range.end };
+  return { range: range.preset, start: null, end: null };
+}
+
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** "Week of Sep 6–12" · "September 2026" · otherwise the resolved label. */
+export function periodTitle(range: DateRange): string {
+  const family = periodFamily(range);
+  if (family === 'week') return `Week of ${range.resolvedLabel}`;
+  if (family === 'month') {
+    const { y, m } = parts(range.start);
+    return `${MONTHS_LONG[m - 1]} ${y}`;
+  }
+  return range.resolvedLabel;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,10 +337,10 @@ export function previousPeriod(range: DateRange, today: string): DateRange {
   let start: string;
   let end: string;
 
-  if (range.preset === 'this_week' || range.preset === 'last_week') {
+  if (periodFamily(range) === 'week') {
     start = addDays(range.start, -7);
     end = addDays(range.end, -7);
-  } else if (range.preset === 'this_month' || range.preset === 'last_month') {
+  } else if (periodFamily(range) === 'month') {
     const prev = addMonths(range.start, -1);
     start = monthStart(prev);
     end = monthEnd(prev);
@@ -277,10 +368,10 @@ export function samePeriodLastYear(range: DateRange, today: string): DateRange {
   let start: string;
   let end: string;
 
-  if (range.preset === 'this_week' || range.preset === 'last_week') {
+  if (periodFamily(range) === 'week') {
     start = addDays(range.start, -364);
     end = addDays(range.end, -364);
-  } else if (range.preset === 'this_month' || range.preset === 'last_month') {
+  } else if (periodFamily(range) === 'month') {
     const prev = addMonths(range.start, -12);
     start = monthStart(prev);
     end = monthEnd(prev);

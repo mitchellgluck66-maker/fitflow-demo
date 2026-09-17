@@ -15,6 +15,12 @@ import {
   addMonths,
   monthEnd,
   rangeFromParams,
+  stepPeriod,
+  canStepForward,
+  periodFamily,
+  normalizePeriod,
+  paramsForRange,
+  periodTitle,
 } from '@/lib/dates';
 
 // 2026-08-26 is a Wednesday.
@@ -156,5 +162,99 @@ describe('DST and instants (business timezone, never UTC)', () => {
     expect(localDate(instant, 'America/New_York')).toBe('2026-08-22');
     expect(weekStart(localDate(instant, 'America/New_York'))).toBe('2026-08-16');
     expect(localDate(instant, 'UTC')).toBe('2026-08-23'); // what UTC bucketing would wrongly say
+  });
+});
+
+describe('period cycler (◀ ▶ one whole week / month)', () => {
+  // 2026-09-17 is a Thursday: this week = Sun Sep 13 – Sat Sep 19.
+  const NOW = '2026-09-17';
+
+  it('classifies presets into a steppable family', () => {
+    expect(periodFamily(resolvePreset('this_week', NOW))).toBe('week');
+    expect(periodFamily(resolvePreset('last_month', NOW))).toBe('month');
+    expect(periodFamily(resolvePreset('last_30_days', NOW))).toBeNull();
+    expect(periodFamily(resolvePreset('today', NOW))).toBeNull();
+  });
+
+  it('steps weeks back Sun–Sat, naming last week and this week as it passes them', () => {
+    const thisWeek = resolvePreset('this_week', NOW);
+    const back1 = stepPeriod(thisWeek, -1, NOW);
+    expect(back1).toMatchObject({ preset: 'last_week', start: '2026-09-06', end: '2026-09-12' });
+    const back2 = stepPeriod(back1, -1, NOW);
+    expect(back2).toMatchObject({ preset: 'week', start: '2026-08-30', end: '2026-09-05', resolvedLabel: 'Aug 30 – Sep 5' });
+    expect(periodTitle(back2)).toBe('Week of Aug 30 – Sep 5');
+    expect(periodTitle(back1)).toBe('Week of Sep 6–12');
+    // Forward retraces exactly.
+    expect(stepPeriod(back2, 1, NOW)).toEqual(back1);
+    expect(stepPeriod(back1, 1, NOW)).toEqual(thisWeek);
+  });
+
+  it('▶ is disabled at the current week and month; stepping forward there is a no-op', () => {
+    const thisWeek = resolvePreset('this_week', NOW);
+    expect(canStepForward(thisWeek, NOW)).toBe(false);
+    expect(stepPeriod(thisWeek, 1, NOW)).toBe(thisWeek);
+    expect(canStepForward(resolvePreset('last_week', NOW), NOW)).toBe(true);
+    const thisMonth = resolvePreset('this_month', NOW);
+    expect(canStepForward(thisMonth, NOW)).toBe(false);
+    expect(canStepForward(resolvePreset('last_month', NOW), NOW)).toBe(true);
+    expect(canStepForward(resolvePreset('last_30_days', NOW), NOW)).toBe(false);
+    expect(stepPeriod(resolvePreset('last_30_days', NOW), -1, NOW).preset).toBe('last_30_days');
+  });
+
+  it('weeks step across month and year boundaries without splitting', () => {
+    // Anchored week Sun Dec 27, 2026 – Sat Jan 2, 2027 (year boundary inside the week)
+    const w = rangeFromParams({ range: 'week', start: '2026-12-30' }, '2027-01-20');
+    expect(w).toMatchObject({ preset: 'week', start: '2026-12-27', end: '2027-01-02' });
+    expect(w.resolvedLabel).toBe('Dec 27, 2026 – Jan 2, 2027');
+    expect(stepPeriod(w, -1, '2027-01-20')).toMatchObject({ start: '2026-12-20', end: '2026-12-26' });
+    expect(stepPeriod(w, 1, '2027-01-20')).toMatchObject({ start: '2027-01-03', end: '2027-01-09' });
+    // Month boundary: Aug 30 – Sep 5 → Sep 6–12
+    expect(stepPeriod(rangeFromParams({ range: 'week', start: '2026-08-30' }, NOW), 1, NOW)).toMatchObject({ preset: 'last_week', start: '2026-09-06' });
+  });
+
+  it('months step as calendar months, including Jan ← Dec and short months', () => {
+    const thisMonth = resolvePreset('this_month', NOW); // Sep 2026
+    const aug = stepPeriod(thisMonth, -1, NOW);
+    expect(aug).toMatchObject({ preset: 'last_month', start: '2026-08-01', end: '2026-08-31' });
+    const jul = stepPeriod(aug, -1, NOW);
+    expect(jul).toMatchObject({ preset: 'month', start: '2026-07-01', end: '2026-07-31' });
+    expect(periodTitle(jul)).toBe('July 2026');
+    expect(stepPeriod(jul, 1, NOW)).toEqual(aug);
+    // Year boundary
+    const jan = rangeFromParams({ range: 'month', start: '2027-01-15' }, '2027-03-10');
+    expect(jan).toMatchObject({ start: '2027-01-01', end: '2027-01-31' });
+    expect(stepPeriod(jan, -1, '2027-03-10')).toMatchObject({ start: '2026-12-01', end: '2026-12-31' });
+    expect(periodTitle(stepPeriod(jan, -1, '2027-03-10'))).toBe('December 2026');
+    // Short months: Mar 31-anchored month → Feb (28 days) → back to Mar 31
+    const mar = rangeFromParams({ range: 'month', start: '2026-03-31' }, NOW);
+    const feb = stepPeriod(mar, -1, NOW);
+    expect(feb).toMatchObject({ start: '2026-02-01', end: '2026-02-28' });
+    expect(stepPeriod(feb, 1, NOW)).toMatchObject({ start: '2026-03-01', end: '2026-03-31' });
+    // Leap February
+    expect(stepPeriod(rangeFromParams({ range: 'month', start: '2028-03-01' }, '2028-06-01'), -1, '2028-06-01')).toMatchObject({ end: '2028-02-29' });
+  });
+
+  it('the comparison follows the stepped period, so chips are vs the period before the one shown', () => {
+    const w = stepPeriod(stepPeriod(resolvePreset('this_week', NOW), -1, NOW), -1, NOW); // Aug 30 – Sep 5
+    expect(previousPeriod(w, NOW)).toMatchObject({ start: '2026-08-23', end: '2026-08-29' });
+    expect(samePeriodLastYear(w, NOW)).toMatchObject({ start: '2025-08-31', end: '2025-09-06' });
+    const m = rangeFromParams({ range: 'month', start: '2026-06-01' }, NOW);
+    expect(previousPeriod(m, NOW)).toMatchObject({ start: '2026-05-01', end: '2026-05-31' });
+    expect(resolveComparison(m, 'last_year', NOW).range).toMatchObject({ start: '2025-06-01', end: '2025-06-30' });
+  });
+
+  it('URL round-trip: anchored params re-resolve to the same range and normalise to named presets', () => {
+    const anchored = rangeFromParams({ range: 'week', start: '2026-08-05' }, NOW); // any day inside → its Sun–Sat week
+    expect(anchored).toMatchObject({ preset: 'week', start: '2026-08-02', end: '2026-08-08' });
+    expect(paramsForRange(anchored)).toEqual({ range: 'week', start: '2026-08-02', end: null });
+    expect(rangeFromParams(paramsForRange(anchored), NOW)).toEqual(anchored);
+    // Anchored at this week's Sunday → reads as "This week"
+    expect(rangeFromParams({ range: 'week', start: '2026-09-13' }, NOW).preset).toBe('this_week');
+    expect(rangeFromParams({ range: 'month', start: '2026-08-20' }, NOW).preset).toBe('last_month');
+    expect(paramsForRange(resolvePreset('last_week', NOW))).toEqual({ range: 'last_week', start: null, end: null });
+    expect(normalizePeriod(resolvePreset('last_30_days', NOW), NOW).preset).toBe('last_30_days');
+    // Missing/invalid anchor falls back sanely.
+    expect(rangeFromParams({ range: 'week', start: 'nope' }, NOW).preset).toBe('this_week');
+    expect(rangeFromParams({ range: 'week' }, NOW).preset).toBe('last_30_days');
   });
 });

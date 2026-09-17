@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarDays, ChevronDown } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   PRESETS,
   COMPARISONS,
@@ -12,6 +12,11 @@ import {
   comparisonFromParam,
   todayInTimezone,
   isValidDate,
+  periodFamily,
+  stepPeriod,
+  canStepForward,
+  paramsForRange,
+  periodTitle,
   type Preset,
   type ComparisonMode,
 } from '@/lib/dates';
@@ -21,6 +26,12 @@ import { Select } from './Input';
  * The one global date-range picker. State lives in the URL (?range, ?start,
  * ?end, ?compare) so a view is shareable and every fetch on the page reads
  * the same params. Every preset shows the dates it resolves to.
+ *
+ * Period cycler: on a week or month preset, ◀ ▶ step one whole Sun–Sat week
+ * / calendar month (anchored as ?range=week|month&start=…). The comparison
+ * setting is untouched, so delta chips always read against the period before
+ * the one displayed; ▶ disables at the current period. ← → do the same while
+ * the picker has focus.
  */
 export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'America/New_York' }) => {
   const router = useRouter();
@@ -48,6 +59,32 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
     router.replace(`${pathname}?${q.toString()}`);
   };
 
+  const family = periodFamily(range);
+  const forwardOk = canStepForward(range, today);
+  const step = useCallback(
+    (direction: -1 | 1) => {
+      const next = stepPeriod(range, direction, today);
+      if (next === range) return;
+      push(paramsForRange(next));
+    },
+    // push closes over params/pathname; range/today are derived from them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [range, today, params, pathname],
+  );
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!family) return;
+    const t = e.target as HTMLElement;
+    // Native selects and date inputs own their arrow keys.
+    if (t.tagName === 'SELECT' || t.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      step(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      step(1);
+    }
+  };
+
   const choosePreset = (preset: Preset) => {
     if (preset === 'custom') {
       push({ range: 'custom', start: customStart, end: customEnd });
@@ -63,8 +100,28 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
     setOpen(false);
   };
 
+  const arrow = (direction: -1 | 1) => {
+    const disabled = direction === 1 && !forwardOk;
+    const Icon = direction === -1 ? ChevronLeft : ChevronRight;
+    const what = family === 'week' ? 'week' : 'month';
+    return (
+      <button
+        type="button"
+        onClick={() => step(direction)}
+        disabled={disabled}
+        aria-label={direction === -1 ? `Previous ${what}` : `Next ${what}`}
+        title={disabled ? `Already on the current ${what}` : `${direction === -1 ? 'Previous' : 'Next'} ${what} (${direction === -1 ? '←' : '→'})`}
+        className="focus-ring h-8 w-8 grid place-items-center rounded-[7px] transition-colors enabled:hover:bg-[var(--surface-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
+      >
+        <Icon size={15} strokeWidth={2.3} />
+      </button>
+    );
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" onKeyDown={onKeyDown} role="group" aria-label="Date range">
+      {family && arrow(-1)}
       <div className="relative">
         <button
           type="button"
@@ -77,8 +134,19 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
           }}
         >
           <CalendarDays size={14} strokeWidth={2.2} style={{ color: 'var(--accent)' }} />
-          <span>{range.presetLabel}</span>
-          <span style={{ color: 'var(--text-tertiary)' }}>· {range.resolvedLabel}</span>
+          {family ? (
+            <>
+              <span>{periodTitle(range)}</span>
+              {(range.preset === 'this_week' || range.preset === 'last_week' || range.preset === 'this_month' || range.preset === 'last_month') && (
+                <span style={{ color: 'var(--text-tertiary)' }}>· {range.presetLabel}</span>
+              )}
+            </>
+          ) : (
+            <>
+              <span>{range.presetLabel}</span>
+              <span style={{ color: 'var(--text-tertiary)' }}>· {range.resolvedLabel}</span>
+            </>
+          )}
           <ChevronDown size={13} style={{ color: 'var(--text-quaternary)' }} />
         </button>
 
@@ -151,6 +219,8 @@ export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'A
           </>
         )}
       </div>
+
+      {family && arrow(1)}
 
       <div className="w-[270px]">
         <Select

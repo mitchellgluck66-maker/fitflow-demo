@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ScorecardResult } from './service';
+import { paramsForRange } from '../dates';
 import { FUNNEL_STAGES, type FunnelStageKey } from './index';
 
 export interface InsightInput {
@@ -62,7 +63,8 @@ const round = (n: number | null, d = 3) => (n === null ? null : Math.round(n * 1
 
 export function buildInsightInput(result: ScorecardResult): InsightInput {
   const { scorecard, range, comparison, baseline } = result;
-  const q = `range=${range.preset}${range.preset === 'custom' ? `&start=${range.start}&end=${range.end}` : ''}&compare=${comparison.mode}`;
+  const rp = paramsForRange(range);
+  const q = `range=${rp.range}${rp.start ? `&start=${rp.start}` : ''}${rp.end ? `&end=${rp.end}` : ''}&compare=${comparison.mode}`;
 
   const deepLinks: Record<string, string> = { funnel: `/funnel?${q}`, ads: `/ads?${q}`, command_center: `/?${q}` };
   for (const s of FUNNEL_STAGES) deepLinks[`stage:${s.key}`] = `/funnel?${q}&stage=${s.key}`;
