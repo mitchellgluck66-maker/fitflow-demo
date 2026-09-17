@@ -98,6 +98,7 @@ export {
 export type {
   SemanticRole,
   Origin,
+  PaymentClass,
   Pipeline,
   NewPipeline,
   Stage,

@@ -17,7 +17,10 @@
  *   enrolled         contacts who entered the enrolled role in range
  *   show rate        showed ÷ (showed + no-show), per appointment type
  *   cost per client  spend in range ÷ enrolled in range (null when 0 enrolled)
- *   ROAS             revenue collected in range ÷ spend in range
+ *   cash collected   succeeded payments net of refunds, split by payment class:
+ *                    initial (a customer's first kept charge) vs recurring
+ *   ROAS             INITIAL cash collected in range ÷ spend in range
+ *                    (recurring cash never enters marketing math)
  *
  * Money is integer cents everywhere.
  */
@@ -103,6 +106,12 @@ export interface PaymentRow {
   customerName?: string | null;
   description?: string | null;
   matchSource?: string | null;
+  /**
+   * initial (new-client cash) | recurring | null (not cash / not yet
+   * classified). See lib/stripe/classify.ts. Marketing math (ROAS, revenue on
+   * the Command Center) uses ONLY initial cash.
+   */
+  paymentClass?: 'initial' | 'recurring' | null;
 }
 
 export interface MetricsInput {
@@ -363,30 +372,76 @@ export function computeCac(input: MetricsInput, range: Range): Cac {
 }
 
 export interface Revenue {
-  /** Sum of succeeded payments minus refunds, in range. */
+  /** Net cash collected in range (every class, succeeded minus refunds). */
   collectedCents: number;
+  /** New-client cash: payments classed `initial`, net of their refunds. */
+  initialCents: number;
+  /** Recurring cash: payments classed `recurring`, net of their refunds. */
+  recurringCents: number;
+  /** Succeeded cash with NO class yet — a data-health problem, never silently bucketed. */
+  unclassifiedCents: number;
+  unclassifiedCount: number;
+  initialCount: number;
+  recurringCount: number;
   paymentCount: number;
   failedCount: number;
   refundedCents: number;
-  /** collected ÷ spend; null when either side is missing. */
+  /** initial cash ÷ spend; null when either side is missing. */
   roas: number | null;
   /** No Stripe data has ever been synced → show "awaiting Stripe", never 0. */
   awaitingStripe: boolean;
 }
 
+/** Net cash a single payment row contributed: amount minus refunds, for succeeded/refunded rows. */
+function netCents(p: PaymentRow): number {
+  if (p.kind === 'refund' || p.kind === 'subscription') return 0;
+  if (p.status !== 'succeeded' && p.status !== 'refunded') return 0;
+  return Math.max(0, p.amountCents - p.refundedCents);
+}
+
+/**
+ * Cash in range, split by payment class. A fully refunded charge nets to
+ * zero (its amount was never kept), a partial refund reduces the class it
+ * belongs to. Failed payments are counted, never summed.
+ */
 export function computeRevenue(input: MetricsInput, range: Range): Revenue {
   const awaitingStripe = !input.payments.some((p) => p.origin === 'stripe');
-  const rows = input.payments.filter((p) => inRange(p.on, range));
-  const succeeded = rows.filter((p) => p.status === 'succeeded');
-  const refundedCents = rows.reduce((s, p) => s + p.refundedCents, 0);
-  const collectedCents = succeeded.reduce((s, p) => s + p.amountCents, 0) - refundedCents;
+  const rows = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
+  const cash = rows.filter((p) => p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded'));
+
+  let initialCents = 0;
+  let recurringCents = 0;
+  let unclassifiedCents = 0;
+  let initialCount = 0;
+  let recurringCount = 0;
+  let unclassifiedCount = 0;
+  for (const p of cash) {
+    const net = netCents(p);
+    if (p.paymentClass === 'initial') {
+      initialCents += net;
+      initialCount += 1;
+    } else if (p.paymentClass === 'recurring') {
+      recurringCents += net;
+      recurringCount += 1;
+    } else if (net > 0) {
+      unclassifiedCents += net;
+      unclassifiedCount += 1;
+    }
+  }
+  const collectedCents = initialCents + recurringCents + unclassifiedCents;
   const spendCents = computeSpend(input.spend, range);
   return {
     collectedCents,
-    paymentCount: succeeded.length,
+    initialCents,
+    recurringCents,
+    unclassifiedCents,
+    unclassifiedCount,
+    initialCount,
+    recurringCount,
+    paymentCount: cash.filter((p) => p.status === 'succeeded').length,
     failedCount: rows.filter((p) => p.status === 'failed').length,
-    refundedCents,
-    roas: !awaitingStripe && spendCents > 0 ? collectedCents / spendCents : null,
+    refundedCents: cash.reduce((s, p) => s + p.refundedCents, 0),
+    roas: !awaitingStripe && spendCents > 0 ? initialCents / spendCents : null,
     awaitingStripe,
   };
 }
@@ -540,7 +595,12 @@ export interface TrendPoint {
   enrolled: number;
   spendCents: number;
   cacCents: number | null;
+  /** Total net cash in the bucket (all classes). */
   revenueCents: number;
+  /** New-client cash in the bucket (class initial) — what marketing math uses. */
+  initialCents: number;
+  /** Recurring cash in the bucket (class recurring). */
+  recurringCents: number;
 }
 
 export function computeTrend(
@@ -551,6 +611,7 @@ export function computeTrend(
     const m = funnelMembership(input, b);
     const spendCents = computeSpend(input.spend, b);
     const enrolled = m.enrolled.length;
+    const rev = computeRevenue(input, b);
     return {
       start: b.start,
       end: b.end,
@@ -560,7 +621,9 @@ export function computeTrend(
       enrolled,
       spendCents,
       cacCents: enrolled > 0 && spendCents > 0 ? Math.round(spendCents / enrolled) : null,
-      revenueCents: computeRevenue(input, b).collectedCents,
+      revenueCents: rev.collectedCents,
+      initialCents: rev.initialCents,
+      recurringCents: rev.recurringCents,
     };
   });
 }
@@ -663,7 +726,10 @@ export interface Scorecard {
   revenue: Revenue;
   showRates: ShowRate[];
   kpis: {
+    /** Total net cash (all classes). The Revenue tab shows it; marketing tiles use initialCents. */
     revenueCents: Delta;
+    /** New-client cash — the Command Center "Initial cash collected" tile. */
+    initialCents: Delta;
     enrollments: Delta;
     cacCents: Delta;
     roas: Delta;
@@ -711,6 +777,7 @@ export function computeScorecard(
     showRates: computeShowRates(input, range),
     kpis: {
       revenueCents: computeDelta(revenue.awaitingStripe ? null : revenue.collectedCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.collectedCents : null),
+      initialCents: computeDelta(revenue.awaitingStripe ? null : revenue.initialCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.initialCents : null),
       enrollments: computeDelta(count(funnel, 'enrolled'), count(previousFunnel, 'enrolled')),
       cacCents: computeDelta(cac.cacCents, prevCac?.cacCents ?? null, true),
       roas: computeDelta(revenue.roas, prevRevenue?.roas ?? null),
@@ -870,13 +937,25 @@ export interface PaymentDetail {
   /** Sun–Sat week the matched contact applied in, e.g. "2026-08-16". */
   cohortWeek: string | null;
   matchSource: string | null;
+  /** initial | recurring | null (not cash). */
+  paymentClass: 'initial' | 'recurring' | null;
 }
 
 export interface RevenueSummary {
   awaitingStripe: boolean;
+  /** Net cash in range, every class. */
   collectedCents: number;
-  /** Monthly-normalised sum of active subscriptions (not range-bound). */
+  /** New-client cash in range (class initial, net of refunds). */
+  initialCents: number;
+  initialCount: number;
+  /** Recurring cash in range (class recurring, net of refunds). */
   recurringCents: number;
+  recurringCount: number;
+  /** Succeeded cash with no class — shown as a data-health warning. */
+  unclassifiedCents: number;
+  unclassifiedCount: number;
+  /** Monthly-normalised sum of active subscriptions (not range-bound). */
+  mrrCents: number;
   activeSubscriptions: number;
   failedCount: number;
   failedCents: number;
@@ -911,6 +990,7 @@ export function computeRevenueSummary(input: MetricsInput, range: Range): Revenu
       source: c?.source ?? null,
       cohortWeek: c?.appliedOn ? weekOf(c.appliedOn) : null,
       matchSource: p.matchSource ?? null,
+      paymentClass: p.paymentClass ?? null,
     };
   };
 
@@ -924,7 +1004,13 @@ export function computeRevenueSummary(input: MetricsInput, range: Range): Revenu
   return {
     awaitingStripe: base.awaitingStripe,
     collectedCents: base.collectedCents,
-    recurringCents: subs.reduce((s, p) => s + p.amountCents, 0),
+    initialCents: base.initialCents,
+    initialCount: base.initialCount,
+    recurringCents: base.recurringCents,
+    recurringCount: base.recurringCount,
+    unclassifiedCents: base.unclassifiedCents,
+    unclassifiedCount: base.unclassifiedCount,
+    mrrCents: subs.reduce((s, p) => s + p.amountCents, 0),
     activeSubscriptions: subs.length,
     failedCount: base.failedCount,
     failedCents: inR.filter((p) => p.status === 'failed').reduce((s, p) => s + p.amountCents, 0),

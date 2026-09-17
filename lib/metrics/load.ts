@@ -130,6 +130,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       customerName: payments.customerName,
       description: payments.description,
       matchSource: payments.matchSource,
+      paymentClass: payments.paymentClass,
     })
     .from(payments);
 
@@ -177,6 +178,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       customerName: p.customerName,
       description: p.description,
       matchSource: p.matchSource,
+      paymentClass: p.paymentClass ?? null,
     })),
   };
 }

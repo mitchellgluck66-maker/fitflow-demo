@@ -22,6 +22,13 @@
       "when": 1788280332595,
       "tag": "0002_followed_pipelines",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789661746356,
+      "tag": "0003_phase_g_payment_class",
+      "breakpoints": true
     }
   ]
 }

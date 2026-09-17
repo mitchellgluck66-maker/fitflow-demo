@@ -18,7 +18,7 @@ const STATUS_VARIANT: Record<string, 'positive' | 'negative' | 'warning' | 'info
   pending: 'info',
 };
 
-const FACETS = ['status', 'kind', 'source', 'matched'];
+const FACETS = ['class', 'status', 'kind', 'source', 'matched'];
 
 const th = { color: 'var(--text-quaternary)' };
 
@@ -28,7 +28,8 @@ function fmtDate(on: string | null): string {
   return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-const kindLabel = (k: string) => (k === 'invoice' ? 'recurring' : k);
+const kindLabel = (k: string) => (k === 'invoice' ? 'invoice' : k);
+const classLabel = (c: PaymentDetail['paymentClass']) => c ?? 'not cash';
 
 const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
   const failed = p.status === 'failed';
@@ -50,6 +51,17 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
           <div className="text-[11.5px] truncate max-w-[260px]" style={{ color: 'var(--text-quaternary)' }}>
             {p.description}
           </div>
+        )}
+      </td>
+      <td className="px-3 py-2.5">
+        {p.paymentClass ? (
+          <Badge variant={p.paymentClass === 'initial' ? 'success' : 'accent'} size="xs">
+            {p.paymentClass}
+          </Badge>
+        ) : (
+          <span className="text-[11.5px]" title="Failed, pending, fully refunded or a plan row — never counted as cash" style={{ color: 'var(--text-quaternary)' }}>
+            —
+          </span>
         )}
       </td>
       <td className="px-3 py-2.5">
@@ -115,6 +127,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
       applyClient(payments, t.state, {
         search: [(p) => p.customerName, (p) => p.email, (p) => p.description, (p) => p.contactName, (p) => p.stripeId],
         facets: {
+          class: (p) => classLabel(p.paymentClass),
           status: (p) => p.status,
           kind: (p) => kindLabel(p.kind),
           source: (p) => p.source ?? 'Unknown',
@@ -155,6 +168,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
       <FilterBar
         state={t.state}
         facets={[
+          { key: 'class', label: 'Class', options: facetOptions(payments, (p) => classLabel(p.paymentClass)) },
           { key: 'status', label: 'Status', options: facetOptions(payments, (p) => p.status) },
           { key: 'kind', label: 'Kind', options: facetOptions(payments, (p) => kindLabel(p.kind)) },
           { key: 'source', label: 'Source', options: facetOptions(payments, (p) => p.source ?? 'Unknown') },
@@ -178,6 +192,9 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
               <tr style={{ background: 'var(--surface-sunken)' }}>
                 <SortableHeader label="Date" sortKey="date" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
                 <SortableHeader label="Customer" sortKey="customer" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
+                <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th} title="initial = the customer's first kept charge (new-client cash); recurring = every later charge">
+                  Class
+                </th>
                 <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
                   Kind
                 </th>
@@ -192,7 +209,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
               {failed.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
+                    <td colSpan={7} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
                       <span className="inline-flex items-center gap-1.5">
                         <AlertTriangle size={12} strokeWidth={2.4} /> Needs attention · {failed.length} failed
                       </span>
@@ -203,7 +220,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
                   ))}
                   {rest.length > 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-quaternary)', background: 'var(--surface-sunken)' }}>
+                      <td colSpan={7} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-quaternary)', background: 'var(--surface-sunken)' }}>
                         All payments
                       </td>
                     </tr>

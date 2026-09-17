@@ -2,7 +2,7 @@
 
 import React, { Suspense } from 'react';
 import Link from 'next/link';
-import { Banknote, Repeat, AlertTriangle, Undo2 } from 'lucide-react';
+import { Banknote, Repeat, AlertTriangle, Undo2, Sparkles, CalendarClock } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast, Button } from '@/components';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
@@ -39,9 +39,13 @@ function RevenueTab() {
   const { revenue, scorecard, comparison, range, trend } = data;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
   const weekly = trend.grain === 'week';
+  const prevRev = scorecard.kpis;
 
   const header = (
-    <PageHeader title="Revenue" description="Real cash collected from Stripe, tied back to the cohort that produced it — never estimated.">
+    <PageHeader
+      title="Revenue"
+      description="Real cash collected from Stripe, split into new-client (initial) and recurring — never estimated. Only initial cash feeds ROAS and CAC."
+    >
       <DateRangePicker timezone={data.timezone} />
     </PageHeader>
   );
@@ -71,9 +75,20 @@ function RevenueTab() {
 
   const trendRows = trend.current.map((p, i) => {
     const c = trend.comparison?.[i];
-    return { label: p.label, revenue: p.revenueCents / 100, revenuePrev: c ? c.revenueCents / 100 : null };
+    return {
+      label: p.label,
+      initial: p.initialCents / 100,
+      recurring: p.recurringCents / 100,
+      initialPrev: c ? c.initialCents / 100 : null,
+    };
   });
-  const spark = trend.current.map((p) => p.revenueCents);
+  const sparkInitial = trend.current.map((p) => p.initialCents);
+  const sparkRecurring = trend.current.map((p) => p.recurringCents);
+
+  // The comparison period's recurring cash is not carried on the scorecard KPI
+  // deltas; derive it from total − initial so the tile still gets a delta.
+  const prevRecurring =
+    prevRev.revenueCents.previous !== null && prevRev.initialCents.previous !== null ? prevRev.revenueCents.previous - prevRev.initialCents.previous : null;
 
   return (
     <>
@@ -81,27 +96,53 @@ function RevenueTab() {
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">
+        {revenue.unclassifiedCount > 0 && (
+          <div
+            className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-[10px]"
+            style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)' }}
+          >
+            <AlertTriangle size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--warning)' }} />
+            <p className="text-[12.5px] leading-snug" style={{ color: 'var(--warning)' }}>
+              <strong>{revenue.unclassifiedCount}</strong> succeeded payment{revenue.unclassifiedCount === 1 ? '' : 's'} (
+              {formatCents(revenue.unclassifiedCents)}) in this period {revenue.unclassifiedCount === 1 ? 'has' : 'have'} no payment class yet, so{' '}
+              {revenue.unclassifiedCount === 1 ? 'it is' : 'they are'} excluded from Initial and Recurring below. Run <code>npm run reclassify:payments</code> or
+              a Stripe sync to classify.
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
           <KpiDeltaTile
-            label="Collected"
-            value={formatCents(revenue.collectedCents, { compact: true })}
-            delta={scorecard.kpis.revenueCents}
+            label="Initial cash"
+            value={formatCents(revenue.initialCents, { compact: true })}
+            delta={scorecard.kpis.initialCents}
             deltaKind="cents"
             comparisonLabel={cmpLabel}
-            icon={Banknote}
+            icon={Sparkles}
             accent="success"
-            sparkline={spark}
-            subtext={`${scorecard.revenue.paymentCount} successful payments, net of refunds`}
+            sparkline={sparkInitial}
+            subtext={`${revenue.initialCount} new-client payment${revenue.initialCount === 1 ? '' : 's'} · net of refunds · feeds ROAS`}
           />
           <KpiDeltaTile
-            label="Recurring"
+            label="Recurring cash"
             value={formatCents(revenue.recurringCents, { compact: true })}
+            delta={computeDelta(revenue.recurringCents, prevRecurring)}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Repeat}
+            accent="accent"
+            sparkline={sparkRecurring}
+            subtext={`${revenue.recurringCount} payment${revenue.recurringCount === 1 ? '' : 's'} from existing clients · excluded from ROAS`}
+          />
+          <KpiDeltaTile
+            label="Subscriptions"
+            value={formatCents(revenue.mrrCents, { compact: true })}
             delta={computeDelta(null, null)}
             deltaKind="cents"
             comparisonLabel={null}
-            icon={Repeat}
-            accent="accent"
-            subtext={`${revenue.activeSubscriptions} active subscription${revenue.activeSubscriptions === 1 ? '' : 's'} · monthly`}
+            icon={CalendarClock}
+            accent="info"
+            subtext={`${revenue.activeSubscriptions} active · monthly-normalised plan value, not range-bound`}
           />
           <KpiDeltaTile
             label="Failed"
@@ -120,20 +161,27 @@ function RevenueTab() {
             comparisonLabel={cmpLabel}
             icon={Undo2}
             accent="warning"
-            subtext={`${revenue.refundCount} refund${revenue.refundCount === 1 ? '' : 's'}`}
+            subtext={`${revenue.refundCount} refund${revenue.refundCount === 1 ? '' : 's'} · already netted out above`}
           />
         </div>
 
         <Card padding="lg">
           <CardHeader
-            title={weekly ? 'Revenue trend · weekly (Sun–Sat)' : 'Revenue trend · daily'}
-            subtitle={comparison.range ? `Dashed series = ${comparison.range.resolvedLabel}` : 'No comparison selected'}
-            action={<ChartLegend items={[{ label: 'Collected ($)', color: 'var(--success)' }]} />}
+            title={weekly ? 'Cash collected · weekly (Sun–Sat)' : 'Cash collected · daily'}
+            subtitle={comparison.range ? `Dashed series = initial cash, ${comparison.range.resolvedLabel}` : 'No comparison selected'}
+            action={
+              <ChartLegend
+                items={[
+                  { label: 'Initial ($)', color: 'var(--success)' },
+                  { label: 'Recurring ($)', color: 'var(--accent)' },
+                ]}
+              />
+            }
           />
           <ResponsiveContainer width="100%" height={240}>
             <ComposedChart data={trendRows} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
               <defs>
-                <linearGradient id="revCollected" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="revInitial" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--success)" stopOpacity={0.22} />
                   <stop offset="100%" stopColor="var(--success)" stopOpacity={0} />
                 </linearGradient>
@@ -142,14 +190,19 @@ function RevenueTab() {
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="revenue" name="Collected ($)" stroke="var(--success)" strokeWidth={2} fill="url(#revCollected)" />
-              <Line type="monotone" dataKey="revenuePrev" name="Collected (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
+              <Area type="monotone" dataKey="initial" name="Initial ($)" stroke="var(--success)" strokeWidth={2} fill="url(#revInitial)" />
+              <Line type="monotone" dataKey="recurring" name="Recurring ($)" stroke="var(--accent)" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="initialPrev" name="Initial (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         </Card>
 
         <Card padding="lg">
-          <CardHeader title="Payments" subtitle={`${range.presetLabel} · ${range.resolvedLabel} · failed payments pinned first`} icon={Banknote} />
+          <CardHeader
+            title="Payments"
+            subtitle={`${range.presetLabel} · ${range.resolvedLabel} · failed payments pinned first · filter by class to see initial vs recurring`}
+            icon={Banknote}
+          />
           <PaymentsTable payments={revenue.payments} unmatchedCount={revenue.unmatchedCount} />
         </Card>
       </PageBody>

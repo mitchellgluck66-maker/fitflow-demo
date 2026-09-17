@@ -4,6 +4,7 @@ import { verifyStripeSignature } from '@/lib/stripe/webhook';
 import { StripeEventSchema, StripeChargeSchema, StripeSubscriptionSchema, StripeRefundSchema } from '@/lib/stripe/schemas';
 import { upsertCharge, upsertSubscription, upsertRefund, fetchCharge } from '@/lib/stripe/ingest';
 import { runPaymentMatching } from '@/lib/stripe/matching';
+import { runPaymentClassification } from '@/lib/stripe/classify';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +67,10 @@ export async function POST(request: NextRequest) {
         handled = true;
       }
     }
-    if (handled) await runPaymentMatching();
+    if (handled) {
+      await runPaymentMatching();
+      await runPaymentClassification();
+    }
   } catch (error) {
     console.error('stripe webhook failed:', error);
     return NextResponse.json({ received: true, error: 'processing failed' }, { status: 500 });

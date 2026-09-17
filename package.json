@@ -21,7 +21,8 @@
     "sync:stripe": "tsx scripts/sync-stripe.ts",
     "db:seed:demo": "tsx db/seed-demo.ts",
     "db:wipe:demo": "tsx scripts/wipe-demo.ts",
-    "screenshots": "tsx scripts/screenshots.ts"
+    "screenshots": "tsx scripts/screenshots.ts",
+    "reclassify:payments": "tsx scripts/reclassify-payments.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

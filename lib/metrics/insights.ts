@@ -29,7 +29,9 @@ export interface InsightInput {
     spendCents: number;
     cacCents: number | null;
     previousCacCents: number | null;
-    revenue: { awaitingStripe: true } | { awaitingStripe: false; collectedCents: number; roas: number | null };
+    revenue:
+      | { awaitingStripe: true }
+      | { awaitingStripe: false; initialCents: number; recurringCents: number; collectedCents: number; roas: number | null; roasNote: string };
   };
   sources: Array<{
     source: string;
@@ -82,7 +84,16 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       spendCents: scorecard.cac.spendCents,
       cacCents: scorecard.cac.cacCents,
       previousCacCents: scorecard.kpis.cacCents.previous,
-      revenue: rev.awaitingStripe ? { awaitingStripe: true } : { awaitingStripe: false, collectedCents: rev.collectedCents, roas: round(rev.roas) },
+      revenue: rev.awaitingStripe
+        ? { awaitingStripe: true }
+        : {
+            awaitingStripe: false,
+            initialCents: rev.initialCents,
+            recurringCents: rev.recurringCents,
+            collectedCents: rev.collectedCents,
+            roas: round(rev.roas),
+            roasNote: 'ROAS = initial (new-client) cash ÷ spend; recurring cash is excluded',
+          },
     },
     sources: scorecard.sources.slice(0, 10).map((s) => ({
       source: s.source,

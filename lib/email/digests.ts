@@ -113,8 +113,8 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
   const awaiting = scorecard.revenue.awaitingStripe;
   const cards = [
     awaiting
-      ? { label: 'Revenue collected', value: '—', sub: 'Awaiting Stripe', tone: 'neutral' as const }
-      : { label: 'Revenue collected', value: formatCents(k.revenueCents.current), ...deltaSub(k.revenueCents, 'cents') },
+      ? { label: 'Initial cash', value: '—', sub: 'Awaiting Stripe', tone: 'neutral' as const }
+      : { label: 'Initial cash', value: formatCents(k.initialCents.current), ...deltaSub(k.initialCents, 'cents') },
     { label: 'Enrollments', value: String(k.enrollments.current ?? 0), ...deltaSub(k.enrollments) },
     {
       label: 'Cost per client',
@@ -156,7 +156,13 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
   const bodyHtml =
     narrativeHtml +
     statRow(cards) +
-    (awaiting ? note('Revenue and ROAS will appear once Stripe is connected (Phase C). Nothing here is estimated.') : '') +
+    (awaiting ? note('Revenue and ROAS will appear once Stripe is connected. Nothing here is estimated.') : '') +
+    (!awaiting
+      ? `<div style="font-size:12px;color:#6b7280;margin:6px 0 0;">Initial cash = new-client payments only, net of refunds (${formatCents(scorecard.revenue.recurringCents)} recurring collected separately). ROAS = initial cash ÷ spend.</div>`
+      : '') +
+    (scorecard.revenue.unclassifiedCount > 0
+      ? note(`${scorecard.revenue.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, 'warn')
+      : '') +
     sectionTitle('Funnel', r.resolvedLabel) +
     table(['Stage', 'Count', 'Of applied', 'From previous', 'Cost per'], funnelRows, ['left', 'right', 'right', 'right', 'right']) +
     sectionTitle('Cost per client') +

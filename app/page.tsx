@@ -74,7 +74,7 @@ function CommandCenter() {
 
   const { scorecard, comparison, range, trend } = data;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
-  const spark = (key: 'enrolled' | 'consultsBooked' | 'applied' | 'cacCents' | 'revenueCents') =>
+  const spark = (key: 'enrolled' | 'consultsBooked' | 'applied' | 'cacCents' | 'revenueCents' | 'initialCents') =>
     trend.current.map((p) => (p[key] as number | null) ?? 0);
   const weekly = trend.grain === 'week';
 
@@ -93,18 +93,26 @@ function CommandCenter() {
         {/* ---- 5 pinned KPIs ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
           <KpiDeltaTile
-            label="Revenue collected"
-            value={formatCents(scorecard.revenue.collectedCents, { compact: true })}
-            delta={scorecard.kpis.revenueCents}
+            label="Initial cash collected"
+            value={formatCents(scorecard.revenue.initialCents, { compact: true })}
+            delta={scorecard.kpis.initialCents}
             deltaKind="cents"
             comparisonLabel={cmpLabel}
             icon={DollarSign}
             accent="success"
-            sparkline={spark('revenueCents')}
-            subtext={`${scorecard.revenue.paymentCount} payments`}
+            sparkline={spark('initialCents')}
+            subtext={
+              scorecard.revenue.unclassifiedCount > 0 ? (
+                <span style={{ color: 'var(--warning)' }}>
+                  {scorecard.revenue.unclassifiedCount} payment{scorecard.revenue.unclassifiedCount === 1 ? '' : 's'} unclassified — run reclassify
+                </span>
+              ) : (
+                `${scorecard.revenue.initialCount} new-client payment${scorecard.revenue.initialCount === 1 ? '' : 's'} · recurring excluded`
+              )
+            }
             empty={
               scorecard.revenue.awaitingStripe
-                ? { title: 'Awaiting Stripe', description: 'Real cash collected appears once the Stripe key is connected (Phase C).' }
+                ? { title: 'Awaiting Stripe', description: 'New-client cash appears once the Stripe key is connected.' }
                 : undefined
             }
           />
@@ -147,7 +155,7 @@ function CommandCenter() {
             comparisonLabel={cmpLabel}
             icon={TrendingUp}
             accent="info"
-            subtext="revenue ÷ ad spend"
+            subtext="initial cash ÷ ad spend"
             empty={
               scorecard.revenue.awaitingStripe
                 ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Spend is tracked already.' }

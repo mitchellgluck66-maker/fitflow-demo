@@ -10,7 +10,7 @@ import { db, aiReports, pipelines, stages } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { ANTHROPIC_KEYS } from '@/lib/anthropic/config';
 import { buildInsightInput, hashInsightInput, validateInsights } from '@/lib/metrics/insights';
-import { computeScorecard, type MetricsInput } from '@/lib/metrics';
+import { computeScorecard, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import { runInsights } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative, getNarrative } from '@/lib/anthropic/narrative';
@@ -56,7 +56,7 @@ function fakeResult(): ScorecardResult {
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: [], comparison: null },
     ads: { kpis: { spendCents: 0, costPerLeadCents: null, costPerConsultCents: null, cacCents: null, roas: null, awaitingStripe: true, apiConnected: false, byPlatform: [] }, previousKpis: null, campaigns: [], previousCampaigns: null },
-    revenue: { awaitingStripe: true, collectedCents: 0, recurringCents: 0, activeSubscriptions: 0, failedCount: 0, failedCents: 0, refundedCents: 0, refundCount: 0, payments: [], unmatchedCount: 0 },
+    revenue: computeRevenueSummary(INPUT, R),
   };
 }
 

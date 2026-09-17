@@ -45,6 +45,9 @@ export type SemanticRole = (typeof SEMANTIC_ROLES)[number];
 
 export type Origin = 'demo' | 'ghl' | 'meta' | 'google' | 'stripe' | 'manual';
 
+/** initial (new-client cash) | recurring — see payments.paymentClass. */
+export type PaymentClass = 'initial' | 'recurring';
+
 /** Provenance columns every externally-sourced row must carry. */
 const provenance = {
   /** Which system this row was read from ('ghl', 'meta', 'stripe', 'manual', 'demo'). */
@@ -362,6 +365,16 @@ export const payments = pgTable(
     contactId: text('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     /** auto (email/phone join) | manual (picked in Setup — never overwritten by sync). */
     matchSource: text('match_source'),
+    /**
+     * Phase G new-client vs recurring cash (CLAUDE.md "Payment classes"):
+     *   initial    the customer's FIRST successful, not-fully-refunded charge
+     *   recurring  every later successful charge (subscription invoices included)
+     *   null       failed / pending / fully refunded / refund rows / subscription
+     *              plan rows — never counted as cash, so never classed.
+     * Derived by lib/stripe/classify.ts after every sync and by
+     * `npm run reclassify:payments`; never entered by hand.
+     */
+    paymentClass: text('payment_class').$type<PaymentClass>(),
     customerName: text('customer_name'),
     /** For subscriptions: monthly-normalised plan amount lives in amountCents. */
     intervalMonths: integer('interval_months'),

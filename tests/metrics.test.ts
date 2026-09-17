@@ -156,19 +156,29 @@ describe('spend, CAC and revenue', () => {
     expect(r).toMatchObject({ awaitingStripe: true, roas: null, collectedCents: 0 });
   });
 
-  it('revenue and ROAS from Stripe rows', () => {
+  it('revenue and ROAS from Stripe rows — initial cash only, net of refunds', () => {
     const withStripe: MetricsInput = {
       ...FIXTURE,
       payments: [
-        { contactId: 'c1', amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-05', origin: 'stripe' },
-        { contactId: 'c7', amountCents: 50_000, refundedCents: 50_000, status: 'refunded', on: '2026-08-06', origin: 'stripe' },
+        { contactId: 'c1', amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-05', origin: 'stripe', paymentClass: 'initial' },
+        // Fully refunded: the 50,000 was never kept, so it nets to 0 (not −50,000).
+        { contactId: 'c7', amountCents: 50_000, refundedCents: 50_000, status: 'refunded', on: '2026-08-06', origin: 'stripe', paymentClass: null },
+        { contactId: 'c1', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', kind: 'invoice', paymentClass: 'recurring' },
         { contactId: null, amountCents: 99_900, refundedCents: 0, status: 'failed', on: '2026-08-07', origin: 'stripe' },
-        { contactId: null, amountCents: 999_900, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe' }, // out of range
+        { contactId: null, amountCents: 999_900, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe', paymentClass: 'initial' }, // out of range
       ],
     };
     const r = computeRevenue(withStripe, R);
-    expect(r).toMatchObject({ awaitingStripe: false, collectedCents: 200_000, paymentCount: 1, failedCount: 1, refundedCents: 50_000 });
-    expect(r.roas).toBeCloseTo(200_000 / 120_000);
+    expect(r).toMatchObject({
+      awaitingStripe: false,
+      initialCents: 250_000,
+      recurringCents: 19_900,
+      collectedCents: 269_900,
+      paymentCount: 2,
+      failedCount: 1,
+      refundedCents: 50_000,
+    });
+    expect(r.roas).toBeCloseTo(250_000 / 120_000);
   });
 });
 
@@ -276,6 +286,7 @@ describe('scorecard (what tiles + emails render)', () => {
     expect(s.kpis.applied).toMatchObject({ current: 5, previous: 2, pct: 1.5 });
     expect(s.kpis.cacCents).toMatchObject({ current: 60_000, previous: null, direction: 'none' });
     expect(s.kpis.revenueCents).toMatchObject({ current: null, direction: 'none' });
+    expect(s.kpis.initialCents).toMatchObject({ current: null, direction: 'none' });
     expect(s.kpis.roas.current).toBeNull();
     expect(s.revenue.awaitingStripe).toBe(true);
     expect(s.empty).toBe(false);

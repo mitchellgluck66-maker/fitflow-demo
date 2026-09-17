@@ -7,8 +7,9 @@
  *
  * The webhook route reuses `upsertCharge` / `upsertSubscription` /
  * `upsertRefund`, so real-time and scheduled paths write identical rows.
- * Rows are keyed by Stripe id. contactId / matchSource are NEVER touched by an
- * upsert — matching is a separate step and manual matches persist.
+ * Rows are keyed by Stripe id. contactId / matchSource / paymentClass are NEVER
+ * touched by an upsert — matching and classification are separate steps that
+ * run after every sync; manual matches persist.
  */
 
 import { eq, sql } from 'drizzle-orm';
@@ -19,6 +20,7 @@ import { normalizeEmail, normalizePhone } from '../ghl/transitions';
 import { getStripeConfig } from './config';
 import { listAll, stripeRequest, getStripeRequestCount } from './client';
 import { runPaymentMatching } from './matching';
+import { runPaymentClassification } from './classify';
 import {
   StripeChargeSchema,
   StripeSubscriptionSchema,
@@ -40,7 +42,7 @@ export interface StripeSyncResult {
   runId: string | null;
   mode: StripeSyncMode;
   since: Date | null;
-  stats: { charges: number; subscriptions: number; refunds: number; rejectedRows: number; matched: number; unmatched: number };
+  stats: { charges: number; subscriptions: number; refunds: number; rejectedRows: number; matched: number; unmatched: number; classified: number };
   warnings: string[];
   requestsUsed: number;
   error?: string;
@@ -174,7 +176,7 @@ export async function upsertRefund(refund: StripeRefund, meta: UpsertMeta): Prom
 
 export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'cron' | 'manual' | 'cli' | 'webhook'; since?: string }): Promise<StripeSyncResult> {
   const startedAt = new Date();
-  const stats = { charges: 0, subscriptions: 0, refunds: 0, rejectedRows: 0, matched: 0, unmatched: 0 };
+  const stats = { charges: 0, subscriptions: 0, refunds: 0, rejectedRows: 0, matched: 0, unmatched: 0, classified: 0 };
   const warnings: string[] = [];
   const requestsBefore = getStripeRequestCount();
   const backfilled = options.mode === 'backfill';
@@ -251,6 +253,11 @@ export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'c
     const matching = await runPaymentMatching();
     stats.matched = matching.matched;
     stats.unmatched = matching.unmatched;
+
+    // Initial vs recurring is a property of the customer's whole history, so
+    // it is recomputed after every sync (idempotent; only changes are written).
+    const classification = await runPaymentClassification();
+    stats.classified = classification.updated;
 
     return finish(true, since);
   } catch (err) {

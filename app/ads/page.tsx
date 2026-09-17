@@ -48,12 +48,12 @@ function AdsTab() {
     return {
       label: p.label,
       spend: p.spendCents / 100,
-      revenue: revenue.awaitingStripe ? null : p.revenueCents / 100,
+      revenue: revenue.awaitingStripe ? null : p.initialCents / 100,
       spendPrev: c ? c.spendCents / 100 : null,
-      revenuePrev: c && !revenue.awaitingStripe ? c.revenueCents / 100 : null,
+      revenuePrev: c && !revenue.awaitingStripe ? c.initialCents / 100 : null,
     };
   });
-  const spark = (key: 'spendCents' | 'revenueCents') => trend.current.map((p) => p[key]);
+  const spark = (key: 'spendCents' | 'initialCents') => trend.current.map((p) => p[key]);
 
   return (
     <>
@@ -114,17 +114,17 @@ function AdsTab() {
             comparisonLabel={cmpLabel}
             icon={TrendingUp}
             accent="success"
-            subtext="revenue ÷ ad spend"
+            subtext="initial cash ÷ ad spend"
             empty={kpis.awaitingStripe ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Connect Stripe in Setup.' } : undefined}
           />
         </div>
 
         <Card padding="lg">
           <CardHeader
-            title={weekly ? 'Spend vs revenue · weekly (Sun–Sat)' : 'Spend vs revenue · daily'}
+            title={weekly ? 'Spend vs initial cash · weekly (Sun–Sat)' : 'Spend vs initial cash · daily'}
             subtitle={
               revenue.awaitingStripe
-                ? 'Revenue series hidden until Stripe is connected — spend only.'
+                ? 'Cash series hidden until Stripe is connected — spend only.'
                 : comparison.range
                   ? `Dashed series = ${comparison.range.resolvedLabel}`
                   : 'No comparison selected'
@@ -133,7 +133,7 @@ function AdsTab() {
               <ChartLegend
                 items={[
                   { label: 'Spend ($)', color: 'var(--warning)' },
-                  ...(revenue.awaitingStripe ? [] : [{ label: 'Revenue ($)', color: 'var(--success)' }]),
+                  ...(revenue.awaitingStripe ? [] : [{ label: 'Initial cash ($)', color: 'var(--success)' }]),
                 ]}
               />
             }
@@ -154,8 +154,8 @@ function AdsTab() {
               <Line type="monotone" dataKey="spendPrev" name="Spend (comparison)" stroke="var(--warning)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
               {!revenue.awaitingStripe && (
                 <>
-                  <Line type="monotone" dataKey="revenue" name="Revenue ($)" stroke="var(--success)" strokeWidth={2.2} dot={false} />
-                  <Line type="monotone" dataKey="revenuePrev" name="Revenue (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="revenue" name="Initial cash ($)" stroke="var(--success)" strokeWidth={2.2} dot={false} />
+                  <Line type="monotone" dataKey="revenuePrev" name="Initial cash (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
                 </>
               )}
             </ComposedChart>

@@ -187,21 +187,25 @@ describe('revenue summary', () => {
   const REV: MetricsInput = {
     ...ADS,
     payments: [
-      { id: 'pay1', stripeId: 'ch_1', contactId: 'p1', kind: 'charge', amountCents: 299_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', email: 'p1@example.com' },
-      { id: 'pay2', stripeId: 'ch_2', contactId: null, kind: 'charge', amountCents: 99_900, refundedCents: 99_900, status: 'refunded', on: '2026-08-05', origin: 'stripe', email: 'x@example.com' },
+      { id: 'pay1', stripeId: 'ch_1', contactId: 'p1', kind: 'charge', amountCents: 299_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', email: 'p1@example.com', paymentClass: 'initial' },
+      { id: 'pay2', stripeId: 'ch_2', contactId: null, kind: 'charge', amountCents: 99_900, refundedCents: 99_900, status: 'refunded', on: '2026-08-05', origin: 'stripe', email: 'x@example.com', paymentClass: null },
       { id: 'pay3', stripeId: 'ch_3', contactId: null, kind: 'charge', amountCents: 49_900, refundedCents: 0, status: 'failed', on: '2026-08-03', origin: 'stripe', email: 'y@example.com' },
-      { id: 'pay4', stripeId: 'in_1', contactId: 'p1', kind: 'invoice', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe' },
+      { id: 'pay4', stripeId: 'in_1', contactId: 'p1', kind: 'invoice', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
       { id: 'sub1', stripeId: 'sub_1', contactId: 'p1', kind: 'subscription', amountCents: 19_900, refundedCents: 0, status: 'active', on: '2026-08-01', origin: 'stripe' },
       { id: 'sub2', stripeId: 'sub_2', contactId: null, kind: 'subscription', amountCents: 9_900, refundedCents: 0, status: 'canceled', on: '2026-07-01', origin: 'stripe' },
       { id: 'old', stripeId: 'ch_0', contactId: null, kind: 'charge', amountCents: 500_000, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe' },
     ],
   };
 
-  it('collected = succeeded − refunds; recurring = active subscriptions; failed pinned first', () => {
+  it('collected = kept cash split initial/recurring; MRR = active subscriptions; failed pinned first', () => {
     const r = computeRevenueSummary(REV, R);
     expect(r.awaitingStripe).toBe(false);
-    expect(r.collectedCents).toBe(299_900 + 19_900 - 99_900);
+    // pay2 was fully refunded: its 99,900 was never kept, so it nets to 0 rather than subtracting.
+    expect(r.collectedCents).toBe(299_900 + 19_900);
+    expect(r.initialCents).toBe(299_900);
     expect(r.recurringCents).toBe(19_900);
+    expect(r.unclassifiedCents).toBe(0);
+    expect(r.mrrCents).toBe(19_900);
     expect(r.activeSubscriptions).toBe(1);
     expect(r.failedCount).toBe(1);
     expect(r.failedCents).toBe(49_900);
