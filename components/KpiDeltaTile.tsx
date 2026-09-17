@@ -1,16 +1,21 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import clsx from 'clsx';
-import { TrendingUp, TrendingDown, Minus, type LucideIcon } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, LineChart, type LucideIcon } from 'lucide-react';
 import type { Delta } from '@/lib/metrics';
 import { formatDelta } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
+import { KpiTrendPopover } from './KpiTrendPopover';
 
 /**
  * KPI tile driven by an engine `Delta`. Same chrome as KPITile, plus a
  * tooltip that names the exact comparison dates and an explicit empty state
  * for metrics we do not have data for yet (never a fake number).
+ *
+ * With `trendMetric`, the tile is clickable: it opens the shared
+ * KpiTrendPopover for that metric (daily 30d for volume/cash, weekly 12w for
+ * rates/CAC). Enter/Space open it too; Esc or click-away closes.
  */
 export const KpiDeltaTile: React.FC<{
   label: string;
@@ -26,8 +31,12 @@ export const KpiDeltaTile: React.FC<{
   /** 0..1 rate with a natural 0–100% frame — rendered as a radial ring instead of a sparkline. Never for counts/currency. */
   ring?: number | null;
   empty?: { title: string; description: string };
+  /** Key in lib/metrics/trendMetrics — enables the click-to-trend popover. */
+  trendMetric?: string;
   className?: string;
-}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, className }) => {
+}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, className }) => {
+  const [open, setOpen] = useState(false);
+  const clickable = Boolean(trendMetric);
   const ACCENTS = {
     accent: 'var(--accent)',
     success: 'var(--success)',
@@ -45,9 +54,36 @@ export const KpiDeltaTile: React.FC<{
     <div
       className={clsx(
         'surface-raised rounded-[12px] p-4 group transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
+        clickable && 'relative cursor-pointer focus-ring',
         className,
       )}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-haspopup={clickable ? 'dialog' : undefined}
+      aria-expanded={clickable ? open : undefined}
+      title={clickable ? `Show the trend for ${label}` : undefined}
+      onClick={clickable ? () => setOpen((v) => !v) : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setOpen((v) => !v);
+              }
+            }
+          : undefined
+      }
     >
+      {clickable && (
+        <span
+          className="absolute right-3 bottom-3 inline-flex items-center gap-1 text-[10.5px] font-medium opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          style={{ color: 'var(--accent)' }}
+          aria-hidden="true"
+        >
+          <LineChart size={11} strokeWidth={2.4} /> trend
+        </span>
+      )}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
           {Icon && (
@@ -98,6 +134,7 @@ export const KpiDeltaTile: React.FC<{
           {ring !== undefined ? <RadialRing value={ring} size={44} stroke={5} /> : sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
         </div>
       )}
+      {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} onClose={() => setOpen(false)} />}
     </div>
   );
 };

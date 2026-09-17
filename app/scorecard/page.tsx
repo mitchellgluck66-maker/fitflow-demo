@@ -43,6 +43,7 @@ const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null }
     subtext={stat.sub}
     empty={stat.empty}
     ring={stat.deltaKind === 'pct' && !stat.empty ? stat.delta.current : undefined}
+    trendMetric={stat.key}
   />
 );
 

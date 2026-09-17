@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { MetricFocusCard } from '@/components/MetricFocusCard';
 import {
   AreaChart,
   Area,
@@ -94,7 +96,8 @@ const RANGES = [
   { days: 90, label: '90d' },
 ];
 
-export default function MetricsPage() {
+function MetricsPage() {
+  const focus = useSearchParams().get('metric');
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
@@ -195,6 +198,7 @@ export default function MetricsPage() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="metrics" />
+        {focus && <MetricFocusCard metric={focus} />}
         {/* ---- Headline KPIs ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <KPITile
@@ -743,5 +747,13 @@ export default function MetricsPage() {
         )}
       </PageBody>
     </>
+  );
+}
+
+export default function MetricsRoute() {
+  return (
+    <Suspense fallback={null}>
+      <MetricsPage />
+    </Suspense>
   );
 }

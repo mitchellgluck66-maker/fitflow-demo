@@ -132,3 +132,20 @@ function addDaysLocal(date: string, days: number): string {
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
 }
+
+// ---------------------------------------------------------------------------
+// KPI trend popover
+// ---------------------------------------------------------------------------
+
+import { trendMetric, computeMetricTrend, trendWindow, type MetricTrend } from './trendMetrics';
+
+/** One metric's trend (daily 30d or weekly 12w + the prior span) from the same engine as the tiles. */
+export async function getMetricTrend(key: string, params: { pipelineId?: string } = {}): Promise<MetricTrend | null> {
+  const metric = trendMetric(key);
+  if (!metric) return null;
+  const timezone = await getTimezone();
+  const today = todayInTimezone(timezone);
+  const window = trendWindow(metric, today);
+  const input = await loadMetricsInput({ start: window.start, end: window.end, timezone, pipelineId: params.pipelineId });
+  return computeMetricTrend(metric, input, today);
+}
