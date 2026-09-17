@@ -9,7 +9,7 @@
 import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, payments } from '@/db';
-import type { SemanticRole } from '@/db/schema';
+import type { SemanticRole, AttributionClass } from '@/db/schema';
 import { getGhlConfig } from '../ghl/config';
 
 export type TimelineTone = 'positive' | 'negative' | 'neutral';
@@ -36,6 +36,14 @@ export interface ClientProfile {
   utmCampaign: string | null;
   utmContent: string | null;
   entryFunnel: string | null;
+  /** Paid/organic class with the signal that decided it (auditable), and whether a human overrode it. */
+  attributionClass: AttributionClass | null;
+  attributionReason: string | null;
+  attributionClassSource: 'auto' | 'manual';
+  fbclid: string | null;
+  gclid: string | null;
+  sessionSource: string | null;
+  attributionUrl: string | null;
   owner: string | null;
   tags: string[];
   ghlContactId: string;
@@ -182,6 +190,13 @@ export async function getClientProfile(id: string): Promise<ClientProfile | null
     utmCampaign: c.utmCampaign,
     utmContent: c.utmContent,
     entryFunnel: c.entryFunnel,
+    attributionClass: c.attributionClass ?? null,
+    attributionReason: c.attributionReason,
+    attributionClassSource: c.attributionClassSource === 'manual' ? 'manual' : 'auto',
+    fbclid: c.fbclid,
+    gclid: c.gclid,
+    sessionSource: c.sessionSource,
+    attributionUrl: c.attributionUrl,
     owner: c.ownerName,
     tags: c.tags ?? [],
     ghlContactId: c.ghlContactId,
@@ -214,6 +229,7 @@ export interface ClientListRow {
   stageId: string | null;
   stageName: string | null;
   stageRole: SemanticRole | null;
+  attributionClass: AttributionClass | null;
   appliedAt: string;
   lastActivityAt: string | null;
   owner: string | null;
@@ -232,6 +248,8 @@ export interface ClientListParams {
   status?: string | string[] | null;
   /** Contacts with at least one appointment of this type (OR across values). */
   apptType?: string | string[] | null;
+  /** paid | organic (OR). */
+  attribution?: string | string[] | null;
   /** Applied date range, YYYY-MM-DD inclusive. */
   from?: string | null;
   to?: string | null;
@@ -251,6 +269,7 @@ export interface ClientListResult {
     sources: Array<{ source: string; count: number }>;
     statuses: Array<{ status: string; count: number }>;
     apptTypes: Array<{ type: string; count: number }>;
+    attribution: Array<{ attribution: string; count: number }>;
   };
 }
 
@@ -293,6 +312,8 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
   }
   const statuses = many(params.status);
   if (statuses.length) conditions.push(inArray(contacts.opportunityStatus, statuses));
+  const attributionClasses = many(params.attribution).filter((a) => a === 'paid' || a === 'organic');
+  if (attributionClasses.length) conditions.push(inArray(contacts.attributionClass, attributionClasses));
   const apptTypes = many(params.apptType);
   if (apptTypes.length) {
     conditions.push(
@@ -330,7 +351,7 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
             ? [d(activityExpr)]
             : [d(appliedExpr)];
 
-  const [rows, [{ total }], stageFacets, sourceFacets, statusFacets, apptFacets] = await Promise.all([
+  const [rows, [{ total }], stageFacets, sourceFacets, statusFacets, apptFacets, attributionFacets] = await Promise.all([
     db
       .select({
         id: contacts.id,
@@ -342,6 +363,7 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
         stageId: contacts.stageId,
         stageName: stages.name,
         stageRole: stages.semanticRole,
+        attributionClass: contacts.attributionClass,
         ghlCreatedAt: contacts.ghlCreatedAt,
         createdAt: contacts.createdAt,
         ghlUpdatedAt: contacts.ghlUpdatedAt,
@@ -377,6 +399,11 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       .from(appointments)
       .groupBy(appointments.type)
       .orderBy(desc(sql`count(distinct ${appointments.contactId})`)),
+    db
+      .select({ attribution: contacts.attributionClass, count: sql<number>`count(*)::int` })
+      .from(contacts)
+      .groupBy(contacts.attributionClass)
+      .orderBy(desc(sql`count(*)`)),
   ]);
 
   // Last activity: newest of the latest transition / appointment / payment per listed contact.
@@ -418,6 +445,7 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       stageId: r.stageId,
       stageName: r.stageName ?? null,
       stageRole: r.stageRole ?? null,
+      attributionClass: r.attributionClass ?? null,
       appliedAt: (r.ghlCreatedAt ?? r.createdAt).toISOString(),
       lastActivityAt: lastActivity.get(r.id)?.toISOString() ?? null,
       owner: r.owner,
@@ -431,6 +459,7 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       sources: sourceFacets.map((s) => ({ source: s.source ?? 'Unknown', count: s.count })),
       statuses: statusFacets.filter((s) => s.status).map((s) => ({ status: s.status as string, count: s.count })),
       apptTypes: apptFacets.map((a) => ({ type: a.type, count: a.count })),
+      attribution: attributionFacets.map((a) => ({ attribution: a.attribution ?? 'unclassified', count: a.count })),
     },
   };
 }

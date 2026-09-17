@@ -11,7 +11,7 @@ import { SkeletonTable } from '@/components/Skeleton';
 import type { ClientListResult } from '@/lib/queries/clients';
 
 const PAGE = 50;
-const FACETS = ['stage', 'source', 'status', 'appt', 'from', 'to'];
+const FACETS = ['stage', 'source', 'status', 'appt', 'attribution', 'from', 'to'];
 
 function roleVariant(role: string | null): 'positive' | 'negative' | 'neutral' | 'accent' {
   if (role === 'enrolled') return 'positive';
@@ -47,7 +47,7 @@ function ClientsIndex() {
     let cancelled = false;
     const query = new URLSearchParams();
     if (state.q) query.set('q', state.q);
-    for (const key of ['stage', 'source', 'status', 'appt'] as const) {
+    for (const key of ['stage', 'source', 'status', 'appt', 'attribution'] as const) {
       const v = state.filters[key];
       if (v?.length) query.set(key, v.join(','));
     }
@@ -103,6 +103,7 @@ function ClientsIndex() {
               { key: 'source', label: 'Source', options: (data?.facets.sources ?? []).map((s) => ({ value: s.source, label: s.source, count: s.count })) },
               { key: 'status', label: 'Status', options: (data?.facets.statuses ?? []).map((s) => ({ value: s.status, label: s.status, count: s.count })) },
               { key: 'appt', label: 'Appointment', options: (data?.facets.apptTypes ?? []).map((a) => ({ value: a.type, label: a.type, count: a.count })) },
+              { key: 'attribution', label: 'Attribution', options: (data?.facets.attribution ?? []).filter((a) => a.attribution !== 'unclassified').map((a) => ({ value: a.attribution, label: a.attribution, count: a.count })) },
             ]}
             onQ={t.setQ}
             onToggle={t.toggleFilter}
@@ -181,6 +182,11 @@ function ClientsIndex() {
                     </td>
                     <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>
                       {r.source ?? '—'}
+                      {r.attributionClass && (
+                        <Badge variant={r.attributionClass === 'paid' ? 'accent' : 'neutral'} size="xs" className="ml-1.5">
+                          {r.attributionClass}
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-3 py-2 tabular whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                       {fmtDate(r.appliedAt)}

@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, ExternalLink, User, GitBranch, History, Eye } from 'lucide-react';
-import { Card, CardHeader, PageHeader, PageBody, EmptyState, Badge, Button, Skeleton, SkeletonText, SkeletonTable } from '@/components';
+import { ArrowLeft, ExternalLink, User, GitBranch, History, Eye, Megaphone } from 'lucide-react';
+import { Card, CardHeader, PageHeader, PageBody, EmptyState, Badge, Button, Skeleton, SkeletonText, SkeletonTable, Select } from '@/components';
 import { ClientTimeline } from '@/components/ClientTimeline';
 import type { ClientProfile } from '@/lib/queries/clients';
 
@@ -46,6 +46,27 @@ export default function ClientProfilePage() {
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'missing' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [overrideBusy, setOverrideBusy] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+
+  const setAttribution = async (value: 'paid' | 'organic' | null) => {
+    setOverrideBusy(true);
+    setOverrideError(null);
+    try {
+      const res = await fetch(`/api/clients/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attributionClass: value }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail ?? body.error ?? 'Request failed');
+      setProfile((p) => (p ? { ...p, attributionClass: body.attributionClass, attributionReason: body.reason, attributionClassSource: body.source } : p));
+    } catch (e) {
+      setOverrideError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOverrideBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +180,12 @@ export default function ClientProfilePage() {
             </Badge>
           )}
           {profile.source && <Badge variant="neutral">{profile.source}</Badge>}
+          {profile.attributionClass && (
+            <Badge variant={profile.attributionClass === 'paid' ? 'accent' : 'neutral'} dot>
+              {profile.attributionClass}
+              {profile.attributionClassSource === 'manual' ? ' · manual' : ''}
+            </Badge>
+          )}
           {profile.origin === 'demo' && (
             <Badge variant="warning" size="xs">
               sample
@@ -171,7 +198,7 @@ export default function ClientProfilePage() {
         >
           <Eye size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--text-tertiary)' }} />
           <p className="text-[12.5px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
-            Everything here is observed from GoHighLevel and Stripe. Nothing is editable in FitFlow.
+            Everything here is observed from GoHighLevel and Stripe. The only FitFlow-local field is the paid/organic override below; nothing is written back.
           </p>
         </div>
 
@@ -231,6 +258,61 @@ export default function ClientProfilePage() {
             <Row label="Last activity" value={fmtDate(profile.lastActivityAt)} />
           </Card>
         </div>
+
+        {/* ---- Attribution: paid vs organic, with the evidence and a local override ---- */}
+        <Card padding="lg">
+          <CardHeader
+            title="Attribution"
+            subtitle="Paid CAC and ROAS count this person only when the class is paid. The reason shows which signal decided it."
+            icon={Megaphone}
+            action={
+              <div className="flex items-center gap-2">
+                <Select
+                  value={profile.attributionClassSource === 'manual' ? (profile.attributionClass ?? '') : ''}
+                  disabled={overrideBusy}
+                  onChange={(e) => setAttribution(e.target.value === 'paid' || e.target.value === 'organic' ? e.target.value : null)}
+                  aria-label="Attribution override"
+                >
+                  <option value="">Automatic{profile.attributionClassSource === 'auto' && profile.attributionClass ? ` (${profile.attributionClass})` : ''}</option>
+                  <option value="paid">Override: paid</option>
+                  <option value="organic">Override: organic</option>
+                </Select>
+              </div>
+            }
+          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
+            <div>
+              <Row
+                label="Class"
+                value={
+                  profile.attributionClass ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Badge variant={profile.attributionClass === 'paid' ? 'accent' : 'neutral'} dot>
+                        {profile.attributionClass}
+                      </Badge>
+                      <Badge variant={profile.attributionClassSource === 'manual' ? 'warning' : 'success'} size="xs">
+                        {profile.attributionClassSource === 'manual' ? 'manual override' : 'auto'}
+                      </Badge>
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--warning)' }}>not classified — run npm run reclassify:attribution</span>
+                  )
+                }
+              />
+              <Row label="Reason" value={profile.attributionReason} />
+              {overrideError && <Row label="Error" value={<span style={{ color: 'var(--danger)' }}>{overrideError}</span>} />}
+            </div>
+            <div>
+              <Row label="fbclid" value={profile.fbclid ? <code className="text-[11.5px] break-all" style={{ fontFamily: 'var(--font-jetbrains)' }}>{profile.fbclid}</code> : null} />
+              <Row label="gclid" value={profile.gclid ? <code className="text-[11.5px] break-all" style={{ fontFamily: 'var(--font-jetbrains)' }}>{profile.gclid}</code> : null} />
+              <Row label="Session source" value={profile.sessionSource} />
+              <Row label="Landing URL" value={profile.attributionUrl ? <span className="break-all text-[12px]">{profile.attributionUrl}</span> : null} />
+            </div>
+          </div>
+          <p className="text-[11.5px] mt-3" style={{ color: 'var(--text-quaternary)' }}>
+            The override is a FitFlow-only label and survives every sync. Nothing is written to GoHighLevel.
+          </p>
+        </Card>
 
         <Card padding="lg">
           <CardHeader title="Timeline" subtitle="Stage moves, appointments and payments — newest first" icon={History} />

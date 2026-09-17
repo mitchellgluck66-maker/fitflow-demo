@@ -29,6 +29,13 @@
       "when": 1789661746356,
       "tag": "0003_phase_g_payment_class",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789662114319,
+      "tag": "0004_phase_g_attribution_class",
+      "breakpoints": true
     }
   ]
 }

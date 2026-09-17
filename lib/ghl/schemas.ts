@@ -160,6 +160,9 @@ export const GhlContactSchema = z.object({
       sessionSource: optionalString,
       medium: optionalString,
       url: optionalString,
+      /** Click ids GHL captures from the landing page (paid-attribution evidence). */
+      fbclid: optionalString,
+      gclid: optionalString,
     })
     .nullish(),
   attributions: z
@@ -171,6 +174,9 @@ export const GhlContactSchema = z.object({
         utmContent: optionalString,
         sessionSource: optionalString,
         medium: optionalString,
+        url: optionalString,
+        fbclid: optionalString,
+        gclid: optionalString,
         isFirst: z.boolean().nullish(),
       }),
     )

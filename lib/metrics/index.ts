@@ -46,6 +46,11 @@ export interface ContactRow {
   origin: string;
   /** utm_campaign from GHL attribution — joins to ad platform campaigns by name. */
   campaign?: string | null;
+  /**
+   * paid | organic | null (not yet classified). Paid CAC and ROAS use ONLY
+   * contacts classed `paid`; organic/direct must never leak into them.
+   */
+  attribution?: 'paid' | 'organic' | null;
 }
 
 export interface TransitionRow {

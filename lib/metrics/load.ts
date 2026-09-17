@@ -60,6 +60,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       monetaryValueCents: contacts.monetaryValueCents,
       origin: contacts.origin,
       campaign: contacts.utmCampaign,
+      attribution: contacts.attributionClass,
     })
     .from(contacts)
     .leftJoin(stages, eq(contacts.stageId, stages.id))
@@ -147,6 +148,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       monetaryValueCents: c.monetaryValueCents ?? 0,
       origin: c.origin,
       campaign: c.campaign,
+      attribution: c.attribution ?? null,
     })),
     transitions: transitionRows.map((t) => ({
       contactId: t.contactId,

@@ -99,6 +99,7 @@ export type {
   SemanticRole,
   Origin,
   PaymentClass,
+  AttributionClass,
   Pipeline,
   NewPipeline,
   Stage,

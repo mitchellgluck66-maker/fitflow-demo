@@ -14,7 +14,7 @@
  * Demo rows (origin='demo') are never touched by a sync.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   db,
   pipelines,
@@ -49,6 +49,7 @@ import type { GhlContact, GhlOpportunity } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 import { runPaymentMatching } from '../stripe/matching';
+import { classifyAttribution } from '../attribution/classify';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -586,6 +587,17 @@ export async function runGhlSync(options: {
       const phone = full?.phone ?? embedded?.phone ?? null;
       const firstTouch =
         full?.attributions?.find((a) => a.isFirst) ?? full?.attributions?.[0] ?? full?.attributionSource ?? null;
+      // Paid vs organic (Phase G item 2) from the first-touch signals. A manual
+      // override on the stored row wins — see the CASE expressions below.
+      const attribution = classifyAttribution({
+        fbclid: firstTouch?.fbclid ?? null,
+        gclid: firstTouch?.gclid ?? null,
+        url: firstTouch?.url ?? null,
+        utmSource: firstTouch?.utmSource ?? null,
+        utmMedium: firstTouch?.utmMedium ?? firstTouch?.medium ?? null,
+        source: full?.source ?? opp?.source ?? null,
+        sessionSource: firstTouch?.sessionSource ?? null,
+      });
 
       const values = {
         ghlContactId,
@@ -607,6 +619,12 @@ export async function runGhlSync(options: {
         utmMedium: firstTouch?.utmMedium ?? firstTouch?.medium ?? null,
         utmCampaign: firstTouch?.utmCampaign ?? null,
         utmContent: firstTouch?.utmContent ?? null,
+        fbclid: firstTouch?.fbclid ?? null,
+        gclid: firstTouch?.gclid ?? null,
+        sessionSource: firstTouch?.sessionSource ?? null,
+        attributionUrl: firstTouch?.url ?? null,
+        attributionClass: attribution.attributionClass,
+        attributionReason: attribution.reason,
         assignedUserId: opp?.assignedTo ?? full?.assignedTo ?? null,
         ownerName: (() => {
           const uid = opp?.assignedTo ?? full?.assignedTo ?? null;
@@ -638,6 +656,14 @@ export async function runGhlSync(options: {
             utmMedium: undefined,
             utmCampaign: undefined,
             utmContent: undefined,
+            fbclid: undefined,
+            gclid: undefined,
+            sessionSource: undefined,
+            attributionUrl: undefined,
+            // Without the full contact we have no new attribution evidence;
+            // keep whatever class the row already has.
+            attributionClass: undefined,
+            attributionReason: undefined,
             ghlCreatedAt: values.ghlCreatedAt ?? undefined,
           };
 
@@ -657,6 +683,13 @@ export async function runGhlSync(options: {
             // backfilled stays true only if it was set by a backfill; a delta
             // update on a backfilled row is still a live observation.
             backfilled,
+            // A manual paid/organic override is never overwritten by sync.
+            ...(full
+              ? {
+                  attributionClass: sql`case when ${contacts.attributionClassSource} = 'manual' then ${contacts.attributionClass} else ${attribution.attributionClass} end`,
+                  attributionReason: sql`case when ${contacts.attributionClassSource} = 'manual' then ${contacts.attributionReason} else ${attribution.reason} end`,
+                }
+              : {}),
           },
         })
         .returning({ id: contacts.id });

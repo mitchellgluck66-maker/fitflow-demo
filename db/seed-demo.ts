@@ -41,6 +41,7 @@ import { clearDemoData } from '../lib/provenance';
 import { suggestRole } from '../lib/ghl/roles';
 import { normalizeEmail, normalizePhone } from '../lib/ghl/transitions';
 import { runPaymentClassification } from '../lib/stripe/classify';
+import { runAttributionClassification } from '../lib/attribution/run';
 import { addDays, weekStart, weekEnd, resolvePreset, formatRangeLabel, todayInTimezone, localDate } from '../lib/dates';
 import type { SemanticRole } from './schema';
 
@@ -640,6 +641,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
   }
   await chunkInsert(paymentRows, (c) => db.insert(payments).values(c));
   await runPaymentClassification();
+  await runAttributionClassification();
 
   // ---- AI reports (pre-generated, model 'demo') ------------------------------
   const generatedAt = new Date(now.getTime() - 6 * 3_600_000).toISOString();

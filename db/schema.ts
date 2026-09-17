@@ -45,6 +45,9 @@ export type SemanticRole = (typeof SEMANTIC_ROLES)[number];
 
 export type Origin = 'demo' | 'ghl' | 'meta' | 'google' | 'stripe' | 'manual';
 
+/** paid | organic — see contacts.attributionClass. */
+export type AttributionClass = 'paid' | 'organic';
+
 /** initial (new-client cash) | recurring — see payments.paymentClass. */
 export type PaymentClass = 'initial' | 'recurring';
 
@@ -157,6 +160,21 @@ export const contacts = pgTable(
     utmCampaign: text('utm_campaign'),
     utmContent: text('utm_content'),
     entryFunnel: text('entry_funnel'),
+    /** Click ids / landing URL / GHL session source from the first-touch attribution (Phase G). */
+    fbclid: text('fbclid'),
+    gclid: text('gclid'),
+    sessionSource: text('session_source'),
+    attributionUrl: text('attribution_url'),
+    /**
+     * paid | organic — derived by lib/attribution/classify.ts at sync and by
+     * `npm run reclassify:attribution`. `attributionReason` says which signal
+     * decided it so misattribution is auditable on the client profile.
+     * `attributionClassSource` = 'auto' | 'manual'; a manual override persists
+     * and is never overwritten by sync.
+     */
+    attributionClass: text('attribution_class').$type<AttributionClass>(),
+    attributionReason: text('attribution_reason'),
+    attributionClassSource: text('attribution_class_source').notNull().default('auto'),
 
     assignedUserId: text('assigned_user_id'),
     ownerName: text('owner_name'),

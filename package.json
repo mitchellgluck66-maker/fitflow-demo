@@ -22,7 +22,9 @@
     "db:seed:demo": "tsx db/seed-demo.ts",
     "db:wipe:demo": "tsx scripts/wipe-demo.ts",
     "screenshots": "tsx scripts/screenshots.ts",
-    "reclassify:payments": "tsx scripts/reclassify-payments.ts"
+    "reclassify:payments": "tsx scripts/reclassify-payments.ts",
+    "reclassify:attribution": "tsx scripts/reclassify-attribution.ts",
+    "reclassify": "npm run reclassify:payments && npm run reclassify:attribution"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 const SORTS = new Set(['applied', 'name', 'stage', 'source', 'activity', 'applied_desc', 'applied_asc', 'name_asc', 'activity_desc']);
 
 /**
- * GET /api/clients?q&stage=a,b&source=x,y&status=open,won&appt=Consult&from&to&sort&dir&limit&offset
+ * GET /api/clients?q&stage=a,b&source=x,y&status=open,won&appt=Consult&attribution=paid&from&to&sort&dir&limit&offset
  * Multi-value filters are comma lists (OR within, AND across). Read-only.
  */
 export async function GET(request: NextRequest) {
@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
       source: p.get('source'),
       status: p.get('status'),
       apptType: p.get('appt'),
+      attribution: p.get('attribution'),
       from: p.get('from'),
       to: p.get('to'),
       limit: p.get('limit') ? Number(p.get('limit')) : undefined,

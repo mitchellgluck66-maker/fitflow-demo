@@ -139,6 +139,10 @@ describe('runGhlSync', () => {
       utmCampaign: 'Summer',
       backfilled: true,
       source: 'ghl',
+      // Phase G: paid/organic derived from the first-touch signals at sync.
+      attributionClass: 'paid',
+      attributionReason: 'utm_source "facebook" matches a paid pattern',
+      attributionClassSource: 'auto',
     });
 
     const [a] = await db.select().from(appointments);
@@ -193,6 +197,17 @@ describe('runGhlSync', () => {
 
     const runs = await db.select().from(syncRuns).where(eq(syncRuns.kind, 'ghl_delta'));
     expect(runs[0].status).toBe('succeeded');
+  });
+
+  it('a manual attribution override survives a sync that re-fetches the contact', async () => {
+    const [before] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
+    await db.update(contacts).set({ attributionClass: 'organic', attributionReason: 'manual override', attributionClassSource: 'manual' }).where(eq(contacts.id, before.id));
+    // Backfill re-fetches every contact, so the sync has fresh (paid) evidence — the override must still win.
+    const result = await runGhlSync({ mode: 'backfill', trigger: 'cli', since: '2026-06-16' });
+    expect(result.ok).toBe(true);
+    const [after] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
+    expect(after).toMatchObject({ attributionClass: 'organic', attributionReason: 'manual override', attributionClassSource: 'manual' });
+    await db.update(contacts).set({ attributionClass: 'paid', attributionClassSource: 'auto' }).where(eq(contacts.id, before.id));
   });
 
   it('a manual role override survives the next sync, and a renamed stage is re-mapped', async () => {
