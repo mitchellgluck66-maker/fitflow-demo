@@ -27,11 +27,23 @@ export interface InsightInput {
   showRates: Array<{ type: string; showed: number; noShow: number; rate: number | null }>;
   money: {
     spendCents: number;
+    /** Blended CAC (spend ÷ all enrollments). */
     cacCents: number | null;
     previousCacCents: number | null;
+    paidCacCents: number | null;
+    previousPaidCacCents: number | null;
+    blendedCacCents: number | null;
+    paidEnrollments: number;
+    organicEnrollments: number;
+    unattributedEnrollments: number;
+    ltvToCac: number | null;
+    contractValueCents: number;
+    contractValueMissingCount: number;
+    costPerRoadmapCents: number | null;
+    definitions: string;
     revenue:
       | { awaitingStripe: true }
-      | { awaitingStripe: false; initialCents: number; recurringCents: number; collectedCents: number; roas: number | null; roasNote: string };
+      | { awaitingStripe: false; initialCents: number; recurringCents: number; collectedCents: number; roas: number | null; paidInitialCents: number; roasNote: string };
   };
   sources: Array<{
     source: string;
@@ -84,6 +96,18 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       spendCents: scorecard.cac.spendCents,
       cacCents: scorecard.cac.cacCents,
       previousCacCents: scorecard.kpis.cacCents.previous,
+      paidCacCents: scorecard.marketing.paidCacCents,
+      previousPaidCacCents: scorecard.kpis.paidCacCents.previous,
+      blendedCacCents: scorecard.marketing.blendedCacCents,
+      paidEnrollments: scorecard.marketing.paidEnrollments,
+      organicEnrollments: scorecard.marketing.organicEnrollments,
+      unattributedEnrollments: scorecard.marketing.unattributedEnrollments,
+      ltvToCac: round(scorecard.marketing.ltvToCac, 2),
+      contractValueCents: scorecard.marketing.contractValueCents,
+      contractValueMissingCount: scorecard.marketing.contractValueMissing.length,
+      costPerRoadmapCents: scorecard.marketing.costPerRoadmapCents,
+      definitions:
+        'Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial (new-client) cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend (null while any new client lacks a contract value). Money is integer cents.',
       revenue: rev.awaitingStripe
         ? { awaitingStripe: true }
         : {
@@ -91,8 +115,9 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
             initialCents: rev.initialCents,
             recurringCents: rev.recurringCents,
             collectedCents: rev.collectedCents,
-            roas: round(rev.roas),
-            roasNote: 'ROAS = initial (new-client) cash ÷ spend; recurring cash is excluded',
+            roas: round(scorecard.marketing.roas),
+            paidInitialCents: scorecard.marketing.paidInitialCents,
+            roasNote: 'ROAS = paid-attributed initial (new-client) cash ÷ spend; recurring cash and organic clients are excluded',
           },
     },
     sources: scorecard.sources.slice(0, 10).map((s) => ({

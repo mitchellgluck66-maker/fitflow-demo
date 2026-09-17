@@ -3,7 +3,7 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck } from 'lucide-react';
+import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck, Scale, Map } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, Toast, SkeletonTile, SkeletonChart, Skeleton } from '@/components';
 import { InsightsCard } from '@/components/InsightsCard';
@@ -11,6 +11,7 @@ import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
+import { DataHealthNotice, marketingWarnings } from '@/components/DataHealth';
 import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
@@ -39,6 +40,11 @@ function CommandCenter() {
         <PageBody className="space-y-5" aria-busy="true">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
             {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonTile key={i} />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
               <SkeletonTile key={i} />
             ))}
           </div>
@@ -73,6 +79,7 @@ function CommandCenter() {
   }
 
   const { scorecard, comparison, range, trend } = data;
+  const { marketing } = scorecard;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
   const spark = (key: 'enrolled' | 'consultsBooked' | 'applied' | 'cacCents' | 'revenueCents' | 'initialCents') =>
     trend.current.map((p) => (p[key] as number | null) ?? 0);
@@ -89,8 +96,9 @@ function CommandCenter() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
+        <DataHealthNotice items={marketingWarnings(marketing, scorecard.revenue)} />
 
-        {/* ---- 5 pinned KPIs ---- */}
+        {/* ---- Row 1: Initial cash · Enrollments · Paid CAC · Blended CAC · ROAS ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
           <KpiDeltaTile
             label="Initial cash collected"
@@ -101,15 +109,7 @@ function CommandCenter() {
             icon={DollarSign}
             accent="success"
             sparkline={spark('initialCents')}
-            subtext={
-              scorecard.revenue.unclassifiedCount > 0 ? (
-                <span style={{ color: 'var(--warning)' }}>
-                  {scorecard.revenue.unclassifiedCount} payment{scorecard.revenue.unclassifiedCount === 1 ? '' : 's'} unclassified — run reclassify
-                </span>
-              ) : (
-                `${scorecard.revenue.initialCount} new-client payment${scorecard.revenue.initialCount === 1 ? '' : 's'} · recurring excluded`
-              )
-            }
+            subtext={`${scorecard.revenue.initialCount} new-client payment${scorecard.revenue.initialCount === 1 ? '' : 's'} · net of refunds · recurring excluded`}
             empty={
               scorecard.revenue.awaitingStripe
                 ? { title: 'Awaiting Stripe', description: 'New-client cash appears once the Stripe key is connected.' }
@@ -124,42 +124,98 @@ function CommandCenter() {
             icon={Trophy}
             accent="accent"
             sparkline={spark('enrolled')}
-            subtext={comparison.range ? `${scorecard.kpis.enrollments.previous ?? 0} in ${comparison.range.resolvedLabel}` : 'new clients in period'}
+            subtext={`${marketing.paidEnrollments} paid · ${marketing.organicEnrollments} organic${marketing.unattributedEnrollments ? ` · ${marketing.unattributedEnrollments} unclassified` : ''}`}
           />
           <KpiDeltaTile
-            label="Cost per client"
-            value={formatCents(scorecard.cac.cacCents)}
-            delta={scorecard.kpis.cacCents}
+            label="Paid CAC"
+            value={formatCents(marketing.paidCacCents)}
+            delta={scorecard.kpis.paidCacCents}
             deltaKind="cents"
             comparisonLabel={cmpLabel}
             icon={Target}
             accent="warning"
-            sparkline={weekly ? spark('cacCents') : undefined}
             subtext={
-              scorecard.cac.noSpendData ? (
+              marketing.noSpendData ? (
                 <Link href="/ads" style={{ color: 'var(--accent)' }}>
                   Enter weekly spend →
                 </Link>
-              ) : scorecard.cac.cacCents === null ? (
+              ) : marketing.paidCacCents === null ? (
+                'no paid-attributed enrollments in period'
+              ) : (
+                `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${marketing.paidEnrollments} paid enrolled`
+              )
+            }
+          />
+          <KpiDeltaTile
+            label="Blended CAC"
+            value={formatCents(marketing.blendedCacCents)}
+            delta={scorecard.kpis.blendedCacCents}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Target}
+            accent="info"
+            sparkline={weekly ? spark('cacCents') : undefined}
+            subtext={
+              marketing.noSpendData ? (
+                <Link href="/ads" style={{ color: 'var(--accent)' }}>
+                  Enter weekly spend →
+                </Link>
+              ) : marketing.blendedCacCents === null ? (
                 'no enrollments in period'
               ) : (
-                `${formatCents(scorecard.cac.spendCents, { compact: true })} spend ÷ ${scorecard.cac.enrollments} enrolled`
+                `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${marketing.enrollments} enrolled (organic included)`
               )
             }
           />
           <KpiDeltaTile
             label="ROAS"
-            value={scorecard.revenue.roas !== null ? `${scorecard.revenue.roas.toFixed(2)}×` : '—'}
+            value={marketing.roas !== null ? `${marketing.roas.toFixed(2)}×` : '—'}
             delta={scorecard.kpis.roas}
             deltaKind="ratio"
             comparisonLabel={cmpLabel}
             icon={TrendingUp}
-            accent="info"
-            subtext="initial cash ÷ ad spend"
+            accent="success"
+            subtext={
+              marketing.roas === null
+                ? marketing.noSpendData
+                  ? 'no spend in period'
+                  : 'paid initial cash ÷ ad spend'
+                : `${formatCents(marketing.paidInitialCents, { compact: true })} paid initial cash ÷ ${formatCents(marketing.spendCents, { compact: true })} spend`
+            }
             empty={
               scorecard.revenue.awaitingStripe
                 ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Spend is tracked already.' }
                 : undefined
+            }
+          />
+        </div>
+
+        {/* ---- Row 2: LTV:CAC · Consults booked · Cost per roadmap booked ---- */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 stagger">
+          <KpiDeltaTile
+            label="LTV:CAC"
+            value={marketing.ltvToCac !== null ? `${marketing.ltvToCac.toFixed(1)}×` : '—'}
+            delta={scorecard.kpis.ltvToCac}
+            deltaKind="ratio"
+            comparisonLabel={cmpLabel}
+            icon={Scale}
+            accent="accent"
+            subtext={
+              marketing.ltvToCac !== null
+                ? `${formatCents(marketing.contractValueCents, { compact: true })} contract value of ${marketing.enrollments} new client${marketing.enrollments === 1 ? '' : 's'} ÷ ${formatCents(marketing.spendCents, { compact: true })} spend`
+                : 'avg contract value ÷ blended CAC'
+            }
+            empty={
+              marketing.contractValueMissing.length > 0
+                ? {
+                    title: 'Contract value missing',
+                    description: `${marketing.contractValueMissing.length} new client${marketing.contractValueMissing.length === 1 ? ' has' : 's have'} no opportunity value in GHL — see the notice above.`,
+                  }
+                : marketing.enrollments === 0
+                  ? { title: 'No new clients', description: 'LTV:CAC needs at least one enrollment in the period.' }
+                  : marketing.noSpendData
+                    ? { title: 'No spend', description: 'LTV:CAC needs ad spend for the period.' }
+                    : undefined
             }
           />
           <KpiDeltaTile
@@ -171,6 +227,22 @@ function CommandCenter() {
             accent="accent"
             sparkline={spark('consultsBooked')}
             subtext={`${scorecard.kpis.applied.current ?? 0} applied`}
+          />
+          <KpiDeltaTile
+            label="Cost per roadmap booked"
+            value={formatCents(marketing.costPerRoadmapCents)}
+            delta={scorecard.kpis.costPerRoadmapCents}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Map}
+            accent="info"
+            subtext={
+              marketing.costPerRoadmapCents === null
+                ? marketing.noSpendData
+                  ? 'no spend in period'
+                  : 'no roadmaps booked in period'
+                : `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${scorecard.kpis.roadmapsBooked.current ?? 0} roadmaps booked`
+            }
           />
         </div>
 
@@ -188,7 +260,7 @@ function CommandCenter() {
                   items={[
                     { label: 'Applied', color: 'var(--info)' },
                     { label: 'Enrolled', color: 'var(--accent)' },
-                    ...(weekly ? [{ label: 'Cost per client ($)', color: 'var(--warning)' }] : []),
+                    ...(weekly ? [{ label: 'Blended CAC ($)', color: 'var(--warning)' }] : []),
                   ]}
                 />
               }
@@ -220,7 +292,7 @@ function CommandCenter() {
                 <Line yAxisId="count" type="monotone" dataKey="enrolled" name="Enrolled" stroke="var(--accent)" strokeWidth={2.2} dot={false} />
                 <Line yAxisId="count" type="monotone" dataKey="enrolledPrev" name="Enrolled (comparison)" stroke="var(--accent)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
                 {weekly && (
-                  <Line yAxisId="money" type="monotone" dataKey="cac" name="Cost per client ($)" stroke="var(--warning)" strokeWidth={1.8} dot={false} connectNulls />
+                  <Line yAxisId="money" type="monotone" dataKey="cac" name="Blended CAC ($)" stroke="var(--warning)" strokeWidth={1.8} dot={false} connectNulls />
                 )}
               </ComposedChart>
             </ResponsiveContainer>

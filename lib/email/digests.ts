@@ -110,6 +110,7 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
   const subtitle = comparison.range ? `vs ${comparison.range.resolvedLabel}` : null;
 
   const k = scorecard.kpis;
+  const m = scorecard.marketing;
   const awaiting = scorecard.revenue.awaitingStripe;
   const cards = [
     awaiting
@@ -117,16 +118,37 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
       : { label: 'Initial cash', value: formatCents(k.initialCents.current), ...deltaSub(k.initialCents, 'cents') },
     { label: 'Enrollments', value: String(k.enrollments.current ?? 0), ...deltaSub(k.enrollments) },
     {
-      label: 'Cost per client',
-      value: k.cacCents.current === null ? '—' : formatCents(k.cacCents.current),
-      ...(k.cacCents.current === null
-        ? { sub: scorecard.cac.noSpendData ? 'no spend entered' : 'no enrollments', tone: 'neutral' as const }
-        : deltaSub(k.cacCents, 'cents')),
+      label: 'Paid CAC',
+      value: k.paidCacCents.current === null ? '—' : formatCents(k.paidCacCents.current),
+      ...(k.paidCacCents.current === null
+        ? { sub: m.noSpendData ? 'no spend entered' : 'no paid enrollments', tone: 'neutral' as const }
+        : deltaSub(k.paidCacCents, 'cents')),
+    },
+    {
+      label: 'Blended CAC',
+      value: k.blendedCacCents.current === null ? '—' : formatCents(k.blendedCacCents.current),
+      ...(k.blendedCacCents.current === null
+        ? { sub: m.noSpendData ? 'no spend entered' : 'no enrollments', tone: 'neutral' as const }
+        : deltaSub(k.blendedCacCents, 'cents')),
     },
     awaiting
       ? { label: 'ROAS', value: '—', sub: 'Awaiting Stripe', tone: 'neutral' as const }
       : { label: 'ROAS', value: k.roas.current === null ? '—' : `${k.roas.current.toFixed(2)}×`, ...deltaSub(k.roas, 'ratio') },
+  ];
+  const secondRow = [
+    {
+      label: 'LTV:CAC',
+      value: k.ltvToCac.current === null ? '—' : `${k.ltvToCac.current.toFixed(1)}×`,
+      ...(k.ltvToCac.current === null
+        ? { sub: m.contractValueMissing.length ? `${m.contractValueMissing.length} missing contract value` : 'needs spend + enrollments', tone: 'neutral' as const }
+        : deltaSub(k.ltvToCac, 'ratio')),
+    },
     { label: 'Consults booked', value: String(k.consultsBooked.current ?? 0), ...deltaSub(k.consultsBooked) },
+    {
+      label: 'Cost per roadmap',
+      value: k.costPerRoadmapCents.current === null ? '—' : formatCents(k.costPerRoadmapCents.current),
+      ...(k.costPerRoadmapCents.current === null ? { sub: 'no roadmaps booked', tone: 'neutral' as const } : deltaSub(k.costPerRoadmapCents, 'cents')),
+    },
   ];
 
   const funnelRows = scorecard.funnel.stages.map((s) => [
@@ -141,11 +163,22 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
     .slice(0, 8)
     .map((s) => [s.source, String(s.counts.applied), String(s.counts.consult_booked), String(s.counts.enrolled), formatPct(s.appliedToEnrolled)]);
 
-  const cacLine = scorecard.cac.cacCents
-    ? `${formatCents(scorecard.cac.spendCents)} spend ÷ ${scorecard.cac.enrollments} enrollments = ${formatCents(scorecard.cac.cacCents)} per client`
-    : scorecard.cac.noSpendData
-      ? 'No ad spend entered for this period — add weekly spend in Setup to get cost per client.'
-      : `${formatCents(scorecard.cac.spendCents)} spend, no enrollments this period.`;
+  const cacLine = m.noSpendData
+    ? 'No ad spend entered for this period — add weekly spend on the Ads tab to get CAC.'
+    : m.enrollments === 0
+      ? `${formatCents(m.spendCents)} spend, no enrollments this period.`
+      : [
+          `Paid CAC: ${formatCents(m.spendCents)} spend ÷ ${m.paidEnrollments} paid-attributed enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${m.paidCacCents === null ? '—' : formatCents(m.paidCacCents)}.`,
+          `Blended CAC: ${formatCents(m.spendCents)} ÷ ${m.enrollments} enrollments (${m.organicEnrollments} organic) = ${formatCents(m.blendedCacCents)}.`,
+          m.ltvToCac !== null
+            ? `LTV:CAC: ${formatCents(m.contractValueCents)} contract value ÷ ${formatCents(m.spendCents)} spend = ${m.ltvToCac.toFixed(1)}×.`
+            : m.contractValueMissing.length
+              ? `LTV:CAC withheld — no contract value in GHL for: ${m.contractValueMissing.map((p) => p.name).join(', ')}.`
+              : '',
+          m.unattributedEnrollments ? `${m.unattributedEnrollments} enrollment(s) have no paid/organic class and are excluded from Paid CAC.` : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
 
   const narrative = await getNarrative(kind, r.start, r.end);
   const narrativeHtml = narrative
@@ -156,6 +189,8 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
   const bodyHtml =
     narrativeHtml +
     statRow(cards) +
+    `<div style="height:8px"></div>` +
+    statRow(secondRow) +
     (awaiting ? note('Revenue and ROAS will appear once Stripe is connected. Nothing here is estimated.') : '') +
     (!awaiting
       ? `<div style="font-size:12px;color:#6b7280;margin:6px 0 0;">Initial cash = new-client payments only, net of refunds (${formatCents(scorecard.revenue.recurringCents)} recurring collected separately). ROAS = initial cash ÷ spend.</div>`
@@ -165,7 +200,7 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
       : '') +
     sectionTitle('Funnel', r.resolvedLabel) +
     table(['Stage', 'Count', 'Of applied', 'From previous', 'Cost per'], funnelRows, ['left', 'right', 'right', 'right', 'right']) +
-    sectionTitle('Cost per client') +
+    sectionTitle('Customer acquisition cost') +
     `<div style="font-size:13px;color:#55585e;">${cacLine}</div>` +
     sectionTitle('Show rates') +
     table(['Type', 'Showed', 'No-show', 'Cancelled', 'Show rate'], showRows, ['left', 'right', 'right', 'right', 'right']) +
@@ -175,12 +210,12 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
   const text = [
     ...textHeader(DIGEST_LABELS[kind], title, subtitle),
     ...(narrative ? [narrative, ''] : []),
-    ...cards.map((c) => `${c.label.padEnd(18)} ${c.value.padEnd(10)} ${c.sub ?? ''}`),
+    ...[...cards, ...secondRow].map((c) => `${c.label.padEnd(18)} ${c.value.padEnd(10)} ${c.sub ?? ''}`),
     '',
     'FUNNEL',
     ...textTable(['Stage', 'Count', 'Of applied', 'From prev', 'Cost per'], funnelRows),
     '',
-    'COST PER CLIENT',
+    'CUSTOMER ACQUISITION COST',
     cacLine,
     '',
     'SHOW RATES',

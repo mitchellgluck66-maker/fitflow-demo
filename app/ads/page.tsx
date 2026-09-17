@@ -2,7 +2,7 @@
 
 import React, { Suspense } from 'react';
 import Link from 'next/link';
-import { DollarSign, Users, CalendarCheck, Target, TrendingUp, Megaphone } from 'lucide-react';
+import { DollarSign, Users, CalendarCheck, Target, TrendingUp, Megaphone, Map } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast, Button } from '@/components';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
@@ -12,6 +12,7 @@ import { CampaignTable } from '@/components/CampaignTable';
 import { SpendEntry } from '@/components/SpendEntry';
 import { CsvSpendUpload } from '@/components/CsvSpendUpload';
 import { useScorecard } from '@/components/useScorecard';
+import { DataHealthNotice, marketingWarnings } from '@/components/DataHealth';
 import { computeDelta, formatCents } from '@/lib/metrics';
 
 function AdsTab() {
@@ -63,8 +64,9 @@ function AdsTab() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
+        <DataHealthNotice items={marketingWarnings(data.scorecard.marketing, data.scorecard.revenue)} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">
           <KpiDeltaTile
             label="Spend"
             value={formatCents(kpis.spendCents, { compact: true })}
@@ -97,14 +99,34 @@ function AdsTab() {
             subtext="spend ÷ consults booked"
           />
           <KpiDeltaTile
-            label="Cost per client"
-            value={formatCents(kpis.cacCents)}
-            delta={computeDelta(kpis.cacCents, previousKpis?.cacCents ?? null, true)}
+            label="Cost per roadmap"
+            value={formatCents(kpis.costPerRoadmapCents)}
+            delta={computeDelta(kpis.costPerRoadmapCents, previousKpis?.costPerRoadmapCents ?? null, true)}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Map}
+            accent="info"
+            subtext="spend ÷ roadmaps booked"
+          />
+          <KpiDeltaTile
+            label="Paid CAC"
+            value={formatCents(kpis.paidCacCents)}
+            delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
             deltaKind="cents"
             comparisonLabel={cmpLabel}
             icon={Target}
             accent="warning"
-            subtext={kpis.cacCents === null ? 'no enrollments in period' : 'spend ÷ enrolled'}
+            subtext={kpis.paidCacCents === null ? 'no paid-attributed enrollments' : 'spend ÷ paid-attributed enrolled'}
+          />
+          <KpiDeltaTile
+            label="Blended CAC"
+            value={formatCents(kpis.blendedCacCents)}
+            delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
+            deltaKind="cents"
+            comparisonLabel={cmpLabel}
+            icon={Target}
+            accent="info"
+            subtext={kpis.blendedCacCents === null ? 'no enrollments in period' : 'spend ÷ all enrolled'}
           />
           <KpiDeltaTile
             label="ROAS"
@@ -114,7 +136,7 @@ function AdsTab() {
             comparisonLabel={cmpLabel}
             icon={TrendingUp}
             accent="success"
-            subtext="initial cash ÷ ad spend"
+            subtext="paid initial cash ÷ ad spend"
             empty={kpis.awaitingStripe ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Connect Stripe in Setup.' } : undefined}
           />
         </div>

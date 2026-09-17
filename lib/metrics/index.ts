@@ -19,8 +19,14 @@
  *   cost per client  spend in range ÷ enrolled in range (null when 0 enrolled)
  *   cash collected   succeeded payments net of refunds, split by payment class:
  *                    initial (a customer's first kept charge) vs recurring
- *   ROAS             INITIAL cash collected in range ÷ spend in range
- *                    (recurring cash never enters marketing math)
+ *   ROAS             PAID-attributed initial cash in range ÷ spend in range
+ *                    (recurring cash and organic clients never enter it)
+ *   Paid CAC         spend ÷ enrollments whose contact is attribution `paid`
+ *   Blended CAC      spend ÷ ALL enrollments (organic included)
+ *   LTV:CAC          Σ contract value of the period's new clients ÷ spend
+ *                    (= avg contract value ÷ blended CAC); withheld with a
+ *                    warning while any new client has no contract value
+ *   cost per roadmap spend ÷ roadmap_booked reached in range
  *
  * Money is integer cents everywhere.
  */
@@ -391,7 +397,10 @@ export interface Revenue {
   paymentCount: number;
   failedCount: number;
   refundedCents: number;
-  /** initial cash ÷ spend; null when either side is missing. */
+  /**
+   * ALL initial cash ÷ spend (attribution-blind). The KPI everyone sees is
+   * `MarketingMetrics.roas`, which counts paid-attributed initial cash only.
+   */
   roas: number | null;
   /** No Stripe data has ever been synced → show "awaiting Stripe", never 0. */
   awaitingStripe: boolean;
@@ -448,6 +457,126 @@ export function computeRevenue(input: MetricsInput, range: Range): Revenue {
     refundedCents: cash.reduce((s, p) => s + p.refundedCents, 0),
     roas: !awaitingStripe && spendCents > 0 ? initialCents / spendCents : null,
     awaitingStripe,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Marketing economics (Phase G item 3): Paid CAC, Blended CAC, ROAS, LTV:CAC
+// ---------------------------------------------------------------------------
+
+export interface MarketingMetrics {
+  spendCents: number;
+  noSpendData: boolean;
+  awaitingStripe: boolean;
+
+  /** Every new enrollment in range (organic included). */
+  enrollments: number;
+  /** Enrollments whose contact is attribution-classed `paid`. */
+  paidEnrollments: number;
+  organicEnrollments: number;
+  /** Enrolled contacts with NO attribution class — data-health, excluded from Paid CAC. */
+  unattributedEnrollments: number;
+
+  /** All initial (new-client) cash in range, net of refunds. */
+  initialCents: number;
+  /** Initial cash whose matched contact is `paid` — the ONLY cash ROAS sees. */
+  paidInitialCents: number;
+  organicInitialCents: number;
+  /** Initial cash not matched to a contact, or matched to an unclassified one — data-health. */
+  unattributedInitialCents: number;
+  unattributedInitialCount: number;
+
+  /** paidInitialCents ÷ spend. null when awaiting Stripe or no spend. */
+  roas: number | null;
+  /** spend ÷ paidEnrollments. null when either is 0. */
+  paidCacCents: number | null;
+  /** spend ÷ enrollments (organic included). null when either is 0. */
+  blendedCacCents: number | null;
+  /** spend ÷ roadmap_booked reached in range. */
+  costPerRoadmapCents: number | null;
+
+  /** Σ GHL opportunity value of the period's new clients (cents). */
+  contractValueCents: number;
+  /** Enrolled clients whose opportunity value is missing/zero — LTV:CAC is withheld while any exist. */
+  contractValueMissing: Array<{ contactId: string; name: string }>;
+  /**
+   * LTV:CAC = average contract value per new client ÷ blended CAC, which is
+   * algebraically total contract value ÷ spend. null when spend, enrollments
+   * or ANY contract value is missing (warning shown instead — no silent zeros).
+   */
+  ltvToCac: number | null;
+}
+
+/**
+ * The strict marketing view. Organic/direct never leaks into Paid CAC or
+ * ROAS: both only count contacts (and their cash) classed `paid`. Anything
+ * unclassified or unmatched is reported as a data-health figure, not folded
+ * into either side.
+ */
+export function computeMarketing(input: MetricsInput, range: Range): MarketingMetrics {
+  const spendCents = computeSpend(input.spend, range);
+  const members = funnelMembership(input, range);
+  const revenue = computeRevenue(input, range);
+  const contactById = new Map(input.contacts.map((c) => [c.id, c]));
+
+  let paidEnrollments = 0;
+  let organicEnrollments = 0;
+  let unattributedEnrollments = 0;
+  let contractValueCents = 0;
+  const contractValueMissing: Array<{ contactId: string; name: string }> = [];
+  for (const id of members.enrolled) {
+    const c = contactById.get(id);
+    const att = c?.attribution ?? null;
+    if (att === 'paid') paidEnrollments += 1;
+    else if (att === 'organic') organicEnrollments += 1;
+    else unattributedEnrollments += 1;
+    const value = c?.monetaryValueCents ?? 0;
+    if (value > 0) contractValueCents += value;
+    else contractValueMissing.push({ contactId: id, name: c?.name ?? id });
+  }
+  const enrollments = members.enrolled.length;
+
+  let paidInitialCents = 0;
+  let organicInitialCents = 0;
+  let unattributedInitialCents = 0;
+  let unattributedInitialCount = 0;
+  for (const p of input.payments) {
+    if (p.paymentClass !== 'initial' || p.kind === 'subscription' || !inRange(p.on, range)) continue;
+    const net = netCents(p);
+    if (net <= 0) continue;
+    const att = p.contactId ? (contactById.get(p.contactId)?.attribution ?? null) : null;
+    if (att === 'paid') paidInitialCents += net;
+    else if (att === 'organic') organicInitialCents += net;
+    else {
+      unattributedInitialCents += net;
+      unattributedInitialCount += 1;
+    }
+  }
+
+  const per = (n: number) => (n > 0 && spendCents > 0 ? Math.round(spendCents / n) : null);
+  const blendedCacCents = per(enrollments);
+  const ltvOk = enrollments > 0 && spendCents > 0 && contractValueMissing.length === 0 && contractValueCents > 0;
+
+  return {
+    spendCents,
+    noSpendData: !input.spend.some((s) => inRange(s.date, range)),
+    awaitingStripe: revenue.awaitingStripe,
+    enrollments,
+    paidEnrollments,
+    organicEnrollments,
+    unattributedEnrollments,
+    initialCents: revenue.initialCents,
+    paidInitialCents,
+    organicInitialCents,
+    unattributedInitialCents,
+    unattributedInitialCount,
+    roas: !revenue.awaitingStripe && spendCents > 0 ? paidInitialCents / spendCents : null,
+    paidCacCents: per(paidEnrollments),
+    blendedCacCents,
+    costPerRoadmapCents: per(members.roadmap_booked.length),
+    contractValueCents,
+    contractValueMissing,
+    ltvToCac: ltvOk ? contractValueCents / spendCents : null,
   };
 }
 
@@ -727,8 +856,11 @@ export interface Scorecard {
   comparisonRange: Range | null;
   funnel: Funnel;
   previousFunnel: Funnel | null;
+  /** Blended CAC (spend ÷ all enrollments) — kept for the funnel/email lines. */
   cac: Cac;
   revenue: Revenue;
+  /** Paid CAC, Blended CAC, ROAS (paid initial cash), LTV:CAC, cost per roadmap. */
+  marketing: MarketingMetrics;
   showRates: ShowRate[];
   kpis: {
     /** Total net cash (all classes). The Revenue tab shows it; marketing tiles use initialCents. */
@@ -736,9 +868,16 @@ export interface Scorecard {
     /** New-client cash — the Command Center "Initial cash collected" tile. */
     initialCents: Delta;
     enrollments: Delta;
+    /** Blended CAC (same as blendedCacCents; kept for older callers). */
     cacCents: Delta;
+    paidCacCents: Delta;
+    blendedCacCents: Delta;
+    /** Paid-attributed initial cash ÷ spend. */
     roas: Delta;
+    ltvToCac: Delta;
+    costPerRoadmapCents: Delta;
     consultsBooked: Delta;
+    roadmapsBooked: Delta;
     applied: Delta;
   };
   /** Stage→stage conversion deltas vs the comparison period. */
@@ -762,6 +901,8 @@ export function computeScorecard(
   const prevCac = comparisonRange ? computeCac(input, comparisonRange) : null;
   const revenue = computeRevenue(input, range);
   const prevRevenue = comparisonRange ? computeRevenue(input, comparisonRange) : null;
+  const marketing = computeMarketing(input, range);
+  const prevMarketing = comparisonRange ? computeMarketing(input, comparisonRange) : null;
 
   const count = (f: Funnel | null, key: FunnelStageKey) => (f ? f.stages.find((s) => s.key === key)!.count : null);
 
@@ -779,14 +920,20 @@ export function computeScorecard(
     previousFunnel,
     cac,
     revenue,
+    marketing,
     showRates: computeShowRates(input, range),
     kpis: {
       revenueCents: computeDelta(revenue.awaitingStripe ? null : revenue.collectedCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.collectedCents : null),
       initialCents: computeDelta(revenue.awaitingStripe ? null : revenue.initialCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.initialCents : null),
       enrollments: computeDelta(count(funnel, 'enrolled'), count(previousFunnel, 'enrolled')),
       cacCents: computeDelta(cac.cacCents, prevCac?.cacCents ?? null, true),
-      roas: computeDelta(revenue.roas, prevRevenue?.roas ?? null),
+      paidCacCents: computeDelta(marketing.paidCacCents, prevMarketing?.paidCacCents ?? null, true),
+      blendedCacCents: computeDelta(marketing.blendedCacCents, prevMarketing?.blendedCacCents ?? null, true),
+      roas: computeDelta(marketing.roas, prevMarketing?.roas ?? null),
+      ltvToCac: computeDelta(marketing.ltvToCac, prevMarketing?.ltvToCac ?? null),
+      costPerRoadmapCents: computeDelta(marketing.costPerRoadmapCents, prevMarketing?.costPerRoadmapCents ?? null, true),
       consultsBooked: computeDelta(count(funnel, 'consult_booked'), count(previousFunnel, 'consult_booked')),
+      roadmapsBooked: computeDelta(count(funnel, 'roadmap_booked'), count(previousFunnel, 'roadmap_booked')),
       applied: computeDelta(count(funnel, 'applied'), count(previousFunnel, 'applied')),
     },
     conversions,
@@ -804,7 +951,12 @@ export interface AdsKpis {
   spendCents: number;
   costPerLeadCents: number | null;
   costPerConsultCents: number | null;
+  costPerRoadmapCents: number | null;
+  /** Blended CAC (spend ÷ all enrollments). */
   cacCents: number | null;
+  paidCacCents: number | null;
+  blendedCacCents: number | null;
+  /** Paid-attributed initial cash ÷ spend. */
   roas: number | null;
   awaitingStripe: boolean;
   /** No API-origin spend rows at all in range → "connect Meta" state. */
@@ -898,7 +1050,7 @@ export function computeAdsKpis(input: MetricsInput, range: Range): AdsKpis {
   const daily = expandSpend(input.spend).filter((d) => inRange(d.date, range));
   const spendCents = daily.reduce((s, d) => s + d.spendCents, 0);
   const members = funnelMembership(input, range);
-  const revenue = computeRevenue(input, range);
+  const marketing = computeMarketing(input, range);
   const platforms = new Map<string, { apiCents: number; manualCents: number }>();
   for (const d of daily) {
     if (!platforms.has(d.platform)) platforms.set(d.platform, { apiCents: 0, manualCents: 0 });
@@ -911,9 +1063,12 @@ export function computeAdsKpis(input: MetricsInput, range: Range): AdsKpis {
     spendCents,
     costPerLeadCents: per(members.applied.length),
     costPerConsultCents: per(members.consult_booked.length),
+    costPerRoadmapCents: per(members.roadmap_booked.length),
     cacCents: per(members.enrolled.length),
-    roas: revenue.roas,
-    awaitingStripe: revenue.awaitingStripe,
+    paidCacCents: marketing.paidCacCents,
+    blendedCacCents: marketing.blendedCacCents,
+    roas: marketing.roas,
+    awaitingStripe: marketing.awaitingStripe,
     apiConnected: daily.some((d) => d.from === 'api'),
     byPlatform: Array.from(platforms.entries())
       .map(([platform, p]) => ({ platform, spendCents: p.apiCents + p.manualCents, ...p }))
