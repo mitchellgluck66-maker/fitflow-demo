@@ -20,6 +20,27 @@ With a Supabase project, put `DATABASE_URL` in `.env.local` (see `.env.example`)
 and the same commands run against Postgres — the CLIs load `.env.local` too, so
 `db:seed`, `sync:*` and the app always hit the same database.
 
+## Authentication
+
+The deployed app is public on the internet and holds real client data and
+stored API credentials, so **every page and API route requires a session**.
+`proxy.ts` (Next 16's request interceptor) redirects unauthenticated pages to
+`/login` and answers API calls with `401`. Exempt, each with its own guard:
+`/login`, Next static assets, `/api/health`, `/api/cron/*` (`CRON_SECRET`)
+and `/api/stripe/webhook` (Stripe signature).
+
+- Set `APP_PASSWORD` (the shared team password) and `AUTH_SECRET`
+  (`openssl rand -base64 48`; signs the cookie) in the Vercel project.
+  **Production or preview without them fails closed** — a 503 "FitFlow is
+  locked" page and no data, on purpose.
+- Locally with both unset, auth is skipped so `npm run dev`, tests and the
+  screenshot harness work without a password.
+- A correct password sets an `httpOnly`, `Secure`, `SameSite=Lax` cookie with
+  an HMAC-signed token; sessions last 30 days and slide (re-issued after a day
+  of use). Passwords are compared in constant time; `/api/auth/login` allows 5
+  attempts per minute per IP. **Sign out** in the nav clears the cookie.
+- Rotating `AUTH_SECRET` signs every device out.
+
 ## Connecting GoHighLevel (read-only)
 
 1. In GHL: Settings → Private Integrations → create a token with only the

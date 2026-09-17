@@ -85,6 +85,15 @@ large changes. This file is the standing contract.
      they leave; previous_lead is a parked row outside the stage chain, and a
      contact whose first observed stage was previous_lead never enters the stages.
 
+9. **Every page and API route requires a session** (`proxy.ts`, Next 16's
+   request interceptor; policy in `lib/auth/policy.ts`). Exempt, each with its
+   own guard: `/login` (+ `/api/auth/*`), Next static assets and `/public`
+   files, `/api/health`, `/api/cron/*` (CRON_SECRET), `/api/stripe/webhook`
+   (signature). `APP_PASSWORD` + `AUTH_SECRET` are REQUIRED in production and
+   preview — missing either fails CLOSED (503, no data). Local dev with both
+   unset skips auth. Never add an exemption without its own guard; never put
+   a secret in a cookie (the token is only an HMAC-signed timestamp pair).
+
 ## Architecture (target)
 
 External APIs → ingest crons → Supabase Postgres → pure metrics engine → UI + emails.
@@ -410,6 +419,21 @@ computed as Σ contract value ÷ spend, which equals the brief's "contract value
   scorecard assembly flags stats (`ScorecardStat.maturing`) and the email marks
   them "†" with one explanatory note. `tests/maturity.test.ts` pins the two
   conditions, the sunset, and that non-history metrics never badge.
+
+## Phase J status (done 2026-09-17 — authentication, shipped alone)
+
+- `proxy.ts` → `lib/auth/policy.ts#decide` (pure): exempt → allow; no
+  APP_PASSWORD/AUTH_SECRET in production/preview → fail closed (HTML 503 for
+  pages, JSON 503 for APIs); local dev → skip; else verify the cookie — pages
+  307 to `/login?next=`, APIs 401 JSON; a session older than a day is
+  re-issued (30-day sliding expiry). `lib/auth/session.ts`: HMAC-SHA256 via
+  Web Crypto, `v1.<iat>.<exp>.<sig>`, constant-time signature compare.
+  `lib/auth/login.ts`: SHA-256 + `timingSafeEqual` password check, 5
+  attempts / min / IP (per warm instance). `POST /api/auth/login` sets the
+  `fitflow_session` cookie (httpOnly, Secure on https, SameSite=Lax);
+  `POST /api/auth/logout` clears it; NavBar "Sign out"; `/login` page (no
+  nav chrome). `tests/auth.test.ts` covers tokens, policy, the interceptor
+  end to end, the login route and the rate limit.
 
 ## Working agreements
 

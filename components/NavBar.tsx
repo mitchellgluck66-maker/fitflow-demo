@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import clsx from 'clsx';
 import {
   LayoutDashboard,
@@ -15,6 +15,7 @@ import {
   FileText,
   Plug,
   Eye,
+  LogOut,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { GlobalSearch } from './GlobalSearch';
@@ -32,6 +33,21 @@ const LINKS = [
 
 export const NavBar: React.FC = () => {
   const pathname = usePathname();
+  const router = useRouter();
+  const [signingOut, setSigningOut] = React.useState(false);
+
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      router.replace('/login');
+      router.refresh();
+    }
+  };
+
+  // The gate has no chrome.
+  if (pathname === '/login') return null;
 
   return (
     <header
@@ -116,6 +132,17 @@ export const NavBar: React.FC = () => {
             </div>
 
             <ThemeToggle />
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={signingOut}
+              title="Sign out of FitFlow on this device"
+              className="focus-ring flex items-center gap-1.5 h-[26px] px-2 rounded-[6px] text-[11.5px] font-medium transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
+              style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)' }}
+            >
+              <LogOut size={12} strokeWidth={2.2} />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
           </div>
         </div>
       </div>

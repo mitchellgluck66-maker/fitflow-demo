@@ -26,6 +26,7 @@ const PAGES: Array<{ name: string; path: string; settle?: number }> = [
   { name: 'reports', path: '/reports' },
   { name: 'setup', path: '/setup' },
   { name: 'search', path: '/?open_search=1' },
+  { name: 'login', path: '/login' },
 ];
 
 async function main() {
