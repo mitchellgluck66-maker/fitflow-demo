@@ -12,6 +12,8 @@ interface MetaCreds {
   hasToken: boolean;
   hasAdAccountId: boolean;
   lastSync: { kind: string; status: string; startedAt: string; stats: Record<string, number>; error: string | null; requestsUsed: number } | null;
+  /** Meta's own backfill start (meta_backfill_from). */
+  backfillFrom: string | null;
 }
 
 /**
@@ -25,6 +27,7 @@ export const MetaCard: React.FC = () => {
   const [verified, setVerified] = useState<{ ok: boolean; message: string } | null>(null);
   const [token, setToken] = useState('');
   const [adAccountId, setAdAccountId] = useState('');
+  const [backfillFrom, setBackfillFrom] = useState('2026-07-16');
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -34,6 +37,7 @@ export const MetaCard: React.FC = () => {
       const data: MetaCreds = await fetch('/api/meta/credentials').then((r) => r.json());
       setCreds(data);
       setAdAccountId(data.adAccountId ?? '');
+      if (data.backfillFrom) setBackfillFrom(data.backfillFrom);
     } catch {
       setToast({ message: 'Could not load Meta state', type: 'error' });
     }
@@ -45,6 +49,7 @@ export const MetaCard: React.FC = () => {
       .then((data: MetaCreds) => {
         setCreds(data);
         setAdAccountId(data.adAccountId ?? '');
+        if (data.backfillFrom) setBackfillFrom(data.backfillFrom);
       })
       .catch(() => setToast({ message: 'Could not load Meta state', type: 'error' }));
   }, []);
@@ -81,6 +86,9 @@ export const MetaCard: React.FC = () => {
   const sync = async (mode: 'delta' | 'backfill') => {
     setBusy(mode);
     try {
+      if (mode === 'backfill') {
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ metaBackfillFrom: backfillFrom }) });
+      }
       const data = await fetch('/api/meta/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,6 +196,18 @@ export const MetaCard: React.FC = () => {
           <Button icon={RefreshCw} loading={busy === 'delta'} disabled={!configured} onClick={() => sync('delta')}>
             Sync now
           </Button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2 px-3 py-3 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+          <div className="min-w-[180px]">
+            <Input
+              label="Meta backfill from"
+              type="date"
+              value={backfillFrom}
+              onChange={(e) => setBackfillFrom(e.target.value)}
+              hint="Meta's own window (default 2026-07-16, the VSL launch). Independent of the GHL/Stripe date in step 2. Earlier rows already imported are kept."
+            />
+          </div>
           <Button icon={History} loading={busy === 'backfill'} disabled={!configured} onClick={() => sync('backfill')}>
             Backfill
           </Button>

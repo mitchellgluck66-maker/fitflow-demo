@@ -1,7 +1,7 @@
 /**
  * Stripe reconcile / backfill from the CLI.
  *   npm run sync:stripe
- *   npm run sync:stripe -- --backfill [--since 2026-06-16]
+ *   npm run sync:stripe -- --backfill [--since 2026-06-01]
  */
 import { runMigrations } from '../db/migrate';
 import { runStripeSync } from '../lib/stripe/ingest';

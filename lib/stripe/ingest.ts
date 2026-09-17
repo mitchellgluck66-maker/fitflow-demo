@@ -3,7 +3,7 @@
  *
  *   reconcile  scheduled: charges + refunds from the last 7 days, all
  *              subscriptions (status=all). Heals anything a webhook missed.
- *   backfill   one-off from settings.backfill_from (2026-06-16).
+ *   backfill   one-off from settings.backfill_from (2026-06-01).
  *
  * The webhook route reuses `upsertCharge` / `upsertSubscription` /
  * `upsertRefund`, so real-time and scheduled paths write identical rows.
@@ -15,7 +15,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, payments, syncRuns, syncIncidents } from '@/db';
 import { getDayBounds } from '../day';
-import { getSetting, getTimezone, SETTING_KEYS } from '../settings';
+import { getSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
 import { normalizeEmail, normalizePhone } from '../ghl/transitions';
 import { getStripeConfig } from './config';
 import { listAll, stripeRequest, getStripeRequestCount } from './client';
@@ -211,7 +211,7 @@ export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'c
   if (options.since) {
     since = new Date(options.since);
   } else if (backfilled) {
-    const from = (await getSetting(SETTING_KEYS.backfillFrom)) ?? '2026-06-16';
+    const from = (await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl;
     since = new Date(getDayBounds(from, await getTimezone()).startMs);
   } else {
     since = new Date(startedAt.getTime() - RECONCILE_LOOKBACK_DAYS * 86_400_000);

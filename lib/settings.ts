@@ -23,8 +23,13 @@ export const SETTING_KEYS = {
   summaryRecipientHistory: 'summary_recipient_history',
   /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
   ghlLastSyncAt: 'ghl_last_sync_at',
-  /** ISO date the backfill starts from. */
+  /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */
   backfillFrom: 'backfill_from',
+  /**
+   * ISO date the META backfill starts from — 2026-07-16, the VSL campaign
+   * launch; Meta history before that is noise. Meta reads this key only.
+   */
+  metaBackfillFrom: 'meta_backfill_from',
   /**
    * First day the Meta backfill has NOT yet covered — written after every
    * completed ≤7-day chunk, cleared ('') when a backfill finishes. Lets a
@@ -43,7 +48,8 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.timezone]: process.env.BUSINESS_TIMEZONE?.trim() || 'America/New_York',
   [SETTING_KEYS.autoSyncEnabled]: 'true',
   [SETTING_KEYS.summaryRecipientHistory]: '[]',
-  [SETTING_KEYS.backfillFrom]: '2026-06-16',
+  [SETTING_KEYS.backfillFrom]: '2026-06-01',
+  [SETTING_KEYS.metaBackfillFrom]: '2026-07-16',
   // First sends go to Mitchell until recipients are changed on the Reports page.
   [SETTING_KEYS.digestRecipientsTodo]: 'mitchellgluck66@gmail.com',
   [SETTING_KEYS.digestRecipientsWeekly]: 'mitchellgluck66@gmail.com',
@@ -109,3 +115,9 @@ export async function getRecipientHistory(): Promise<string[]> {
     return [];
   }
 }
+
+/** Default backfill start dates, for fallbacks in the ingest modules. */
+export const BACKFILL_DEFAULTS = {
+  ghl: DEFAULTS[SETTING_KEYS.backfillFrom],
+  meta: DEFAULTS[SETTING_KEYS.metaBackfillFrom],
+} as const;

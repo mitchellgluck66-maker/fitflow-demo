@@ -8,7 +8,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, adSpend, syncRuns, syncIncidents } from '@/db';
-import { getSetting, getTimezone, SETTING_KEYS } from '../settings';
+import { getSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
 import { todayInTimezone, addDays } from '../dates';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
@@ -73,7 +73,7 @@ export async function runGoogleAdsSync(options: { mode: 'delta' | 'backfill'; tr
   const today = todayInTimezone(timezone);
   const since =
     options.since ??
-    (options.mode === 'backfill' ? ((await getSetting(SETTING_KEYS.backfillFrom)) ?? '2026-06-16') : addDays(today, -DELTA_LOOKBACK_DAYS));
+    (options.mode === 'backfill' ? ((await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl) : addDays(today, -DELTA_LOOKBACK_DAYS));
 
   try {
     const report = await fetchSpendReport(since, today, config);

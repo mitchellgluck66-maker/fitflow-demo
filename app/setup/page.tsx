@@ -162,7 +162,7 @@ export default function SetupPage() {
   const [token, setToken] = useState('');
   const [locationId, setLocationId] = useState('');
   const [showToken, setShowToken] = useState(false);
-  const [backfillFrom, setBackfillFrom] = useState('2026-06-16');
+  const [backfillFrom, setBackfillFrom] = useState('2026-06-01');
 
   const loadAll = useCallback(async () => {
     try {
@@ -544,7 +544,8 @@ export default function SetupPage() {
                 Backfill history
               </div>
               <p className="text-[11.5px] mb-2" style={{ color: 'var(--text-quaternary)' }}>
-                Imports everything from this date forward, flagged <code>backfilled</code>. Safe to re-run.
+                Imports everything from this date forward, flagged <code>backfilled</code>. Safe to re-run. Also the
+                Stripe backfill start. Meta has its own date on the Meta Ads card.
               </p>
               <div className="flex items-end gap-2">
                 <Input label="From" type="date" value={backfillFrom} onChange={(e) => setBackfillFrom(e.target.value)} />

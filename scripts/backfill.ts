@@ -1,8 +1,8 @@
 /**
- * Backfill everything from June 16, 2026 (settings.backfill_from) forward.
+ * Backfill everything from June 1, 2026 (settings.backfill_from) forward.
  * Every row it writes is flagged backfilled=true. Idempotent.
  *   npm run backfill
- *   npm run backfill -- --since 2026-06-16
+ *   npm run backfill -- --since 2026-06-01
  */
 import { runMigrations } from '../db/migrate';
 import { runGhlSync } from '../lib/ghl/ingest';

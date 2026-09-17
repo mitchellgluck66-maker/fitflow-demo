@@ -7,7 +7,7 @@
  *             calendar events in a trailing/leading window. Contacts are only
  *             fetched individually when they are new or changed since the last
  *             run. Stage moves are derived by diffing against stored positions.
- *   backfill  one-off history import from `backfill_from` (June 16, 2026).
+ *   backfill  one-off history import from `backfill_from` (June 1, 2026).
  *             Same code path; every row it touches is flagged backfilled=true.
  *
  * Every upsert is keyed by the GHL id, so re-running either mode is safe.
@@ -27,7 +27,7 @@ import {
   type SemanticRole,
 } from '@/db';
 import { getDayBounds } from '../day';
-import { getSetting, setSetting, getTimezone, SETTING_KEYS } from '../settings';
+import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
 import { getGhlConfig } from './config';
 import {
   listPipelines,
@@ -394,7 +394,7 @@ export async function runGhlSync(options: {
   if (options.since) {
     since = toDate(options.since);
   } else if (backfilled) {
-    const from = (await getSetting(SETTING_KEYS.backfillFrom)) ?? '2026-06-16';
+    const from = (await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl;
     since = new Date(getDayBounds(from, timezone).startMs);
   } else {
     since = toDate(await getSetting(SETTING_KEYS.ghlLastSyncAt));

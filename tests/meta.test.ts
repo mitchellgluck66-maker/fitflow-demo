@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
 import { db, adSpend, syncRuns } from '@/db';
-import { getSetting, setSetting, SETTING_KEYS } from '@/lib/settings';
+import { getSetting, setSetting, SETTING_KEYS, BACKFILL_DEFAULTS } from '@/lib/settings';
 import { META_KEYS, normalizeAdAccountId } from '@/lib/meta/config';
 import { MetaInsightRowSchema, leadsFromActions } from '@/lib/meta/schemas';
 import { runMetaSync, chunkWindows } from '@/lib/meta/ingest';
@@ -151,8 +151,22 @@ describe('runMetaSync', () => {
     expect(june16.every((c) => c.until >= c.since)).toBe(true);
   });
 
+  it('backfill window is meta_backfill_from (defaults to the 2026-07-16 VSL launch), never the GHL backfill_from', async () => {
+    expect(BACKFILL_DEFAULTS.meta).toBe('2026-07-16');
+    expect(BACKFILL_DEFAULTS.ghl).toBe('2026-06-01');
+    expect(await getSetting(SETTING_KEYS.metaBackfillFrom)).toBe('2026-07-16');
+    await setSetting(SETTING_KEYS.backfillFrom, '2026-06-01'); // GHL window — must be ignored here
+    await setSetting(SETTING_KEYS.metaBackfillFrom, '2026-08-05');
+    await setSetting(SETTING_KEYS.metaBackfillCursor, '');
+    const r = await runMetaSync({ mode: 'backfill', trigger: 'cli' });
+    expect(r.ok).toBe(true);
+    expect(r.window?.since).toBe('2026-08-05');
+    expect(requestedWindows[0]).toBe('2026-08-05');
+    expect(requestedWindows).not.toContain('2026-06-01');
+  });
+
   it('backfill: retries a failing chunk, saves the cursor, and a re-run resumes', async () => {
-    await setSetting(SETTING_KEYS.backfillFrom, '2026-08-01');
+    await setSetting(SETTING_KEYS.metaBackfillFrom, '2026-08-01');
     await setSetting(SETTING_KEYS.metaBackfillCursor, '');
     // Chunks for 2026-08-01 → 2026-08-12: [08-01..08-07], [08-08..08-12].
     failSince.add('2026-08-08');

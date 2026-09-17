@@ -21,7 +21,8 @@ export async function GET() {
       digestEnabledWeekly: stored[SETTING_KEYS.digestEnabledWeekly] !== 'false',
       digestEnabledMonthly: stored[SETTING_KEYS.digestEnabledMonthly] !== 'false',
       lastAutoSyncAt: stored[SETTING_KEYS.ghlLastSyncAt] ?? null,
-      backfillFrom: stored[SETTING_KEYS.backfillFrom] ?? '2026-06-16',
+      backfillFrom: stored[SETTING_KEYS.backfillFrom] ?? '2026-06-01',
+      metaBackfillFrom: stored[SETTING_KEYS.metaBackfillFrom] ?? '2026-07-16',
       ghl: {
         configured: config.configured,
         readOnly: true,
@@ -73,6 +74,11 @@ export async function POST(request: NextRequest) {
     if (typeof body.backfillFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.backfillFrom)) {
       await setSetting(SETTING_KEYS.backfillFrom, body.backfillFrom);
     }
+    if (typeof body.metaBackfillFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.metaBackfillFrom)) {
+      await setSetting(SETTING_KEYS.metaBackfillFrom, body.metaBackfillFrom);
+      // A new window invalidates any partial-backfill cursor.
+      await setSetting(SETTING_KEYS.metaBackfillCursor, '');
+    }
 
     for (const [field, key] of [
       ['digestEnabledTodo', SETTING_KEYS.digestEnabledTodo],
@@ -96,6 +102,7 @@ export async function POST(request: NextRequest) {
       digestRecipientsWeekly: stored[SETTING_KEYS.digestRecipientsWeekly] ?? '',
       digestRecipientsMonthly: stored[SETTING_KEYS.digestRecipientsMonthly] ?? '',
       backfillFrom: stored[SETTING_KEYS.backfillFrom],
+      metaBackfillFrom: stored[SETTING_KEYS.metaBackfillFrom],
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update settings', detail: String(error) }, { status: 500 });

@@ -1,7 +1,8 @@
 /**
  * Meta insights → ad_spend. Idempotent upserts keyed `meta:{ad_id}:{date}`.
  *   delta     last 3 days through today (Meta restates recent days)
- *   backfill  from settings.backfill_from (2026-06-16)
+ *   backfill  from settings.meta_backfill_from (2026-07-16, the VSL launch —
+ *             Meta's own window, independent of the GHL/Stripe backfill_from)
  * Rows carry origin='meta', so the metrics engine lets them override manual
  * weekly spend for the dates they cover.
  *
@@ -14,7 +15,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, adSpend, syncRuns, syncIncidents } from '@/db';
-import { getSetting, setSetting, getTimezone, SETTING_KEYS } from '../settings';
+import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
 import { todayInTimezone, addDays } from '../dates';
 import { getMetaConfig } from './config';
 import { fetchInsights } from './client';
@@ -90,7 +91,10 @@ export async function runMetaSync(options: { mode: MetaSyncMode; trigger: 'cron'
 
   const timezone = await getTimezone();
   const today = todayInTimezone(timezone);
-  let since = options.since ?? (backfilled ? ((await getSetting(SETTING_KEYS.backfillFrom)) ?? '2026-06-16') : addDays(today, -DELTA_LOOKBACK_DAYS));
+  // Meta has its OWN window (meta_backfill_from, 2026-07-16 = VSL launch);
+  // the GHL/Stripe backfill_from never applies here. Rows imported before
+  // that date by an earlier run are kept — we just never fetch them again.
+  let since = options.since ?? (backfilled ? ((await getSetting(SETTING_KEYS.metaBackfillFrom)) ?? BACKFILL_DEFAULTS.meta) : addDays(today, -DELTA_LOOKBACK_DAYS));
 
   // Resume a partial backfill: the cursor points at the first day no completed
   // chunk has covered yet. An explicit `since` override starts fresh.

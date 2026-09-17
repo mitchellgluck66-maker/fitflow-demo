@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { desc, inArray } from 'drizzle-orm';
 import { db, syncRuns } from '@/db';
-import { setSetting } from '@/lib/settings';
+import { setSetting, getSetting, SETTING_KEYS } from '@/lib/settings';
 import { getMetaConfig, maskToken, META_KEYS } from '@/lib/meta/config';
 import { testConnection } from '@/lib/meta/client';
 
@@ -31,6 +31,7 @@ export async function GET() {
       hasToken: Boolean(config.token),
       hasAdAccountId: Boolean(config.adAccountId),
       lastSync: await lastSync(),
+      backfillFrom: await getSetting(SETTING_KEYS.metaBackfillFrom),
       readOnly: true,
     });
   } catch (error) {
