@@ -106,7 +106,7 @@ export async function fetchInsights(params: { since: string; until: string; leve
     const res = await metaRequest(
       `/${config.adAccountId}/insights`,
       {
-        fields: 'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,actions',
+        fields: 'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,reach,frequency,cpm,cpc,inline_link_clicks,actions',
         level: params.level ?? 'ad',
         time_increment: 1,
         time_range: JSON.stringify({ since: params.since, until: params.until }),

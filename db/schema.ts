@@ -349,6 +349,20 @@ export const adSpend = pgTable(
     impressions: integer('impressions'),
     clicks: integer('clicks'),
     leads: integer('leads'),
+    // ---- Phase G item 7: everything Meta reports is pulled and stored; the
+    // CEO curates what the Ads tab renders (settings.displayed_metrics).
+    reach: integer('reach'),
+    /** Meta's own frequency for the row (impressions ÷ reach); re-derived on aggregation. */
+    frequency: real('frequency'),
+    /** Platform-reported CPM / CPC for the row, in cents; re-derived on aggregation. */
+    cpmCents: integer('cpm_cents'),
+    cpcCents: integer('cpc_cents'),
+    linkClicks: integer('link_clicks'),
+    landingPageViews: integer('landing_page_views'),
+    /** Platform-reported purchases (sum of purchase action types). */
+    purchases: integer('purchases'),
+    /** Every conversion action Meta returned, keyed by action_type. */
+    actions: jsonb('actions').$type<Record<string, number>>(),
     enteredBy: text('entered_by'),
     notes: text('notes'),
     ...provenance,

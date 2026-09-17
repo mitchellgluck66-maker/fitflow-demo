@@ -25,6 +25,12 @@ export const MetaInsightRowSchema = z.object({
   spend: numString.default(0),
   impressions: numString.default(0),
   clicks: numString.default(0),
+  reach: numString.nullish(),
+  frequency: numString.nullish(),
+  cpm: numString.nullish(),
+  cpc: numString.nullish(),
+  /** Clicks that left Meta (the "link clicks" the CEO means; `clicks` counts everything). */
+  inline_link_clicks: numString.nullish(),
   actions: z.array(MetaActionSchema).nullish(),
   account_currency: optionalString,
 });
@@ -74,4 +80,28 @@ export function parseMany<T>(schema: z.ZodType<T>, items: unknown[], label: stri
   }
   if (rejected > 3) warnings.push(`${label}: ${rejected} rows rejected in total`);
   return { valid, rejected, warnings };
+}
+
+/** Purchases as Meta reports them (pixel / on-site / omni). Summed like leads. */
+export const PURCHASE_ACTION_TYPES = ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase', 'onsite_conversion.purchase'] as const;
+export const LANDING_PAGE_VIEW_ACTION_TYPES = ['landing_page_view', 'omni_landing_page_view'] as const;
+
+function sumActions(actions: MetaInsightRow['actions'], types: readonly string[]): number {
+  if (!actions) return 0;
+  return actions.filter((a) => types.includes(a.action_type)).reduce((s, a) => s + a.value, 0);
+}
+
+export function purchasesFromActions(actions: MetaInsightRow['actions']): number {
+  return sumActions(actions, PURCHASE_ACTION_TYPES);
+}
+
+export function landingPageViewsFromActions(actions: MetaInsightRow['actions']): number {
+  return sumActions(actions, LANDING_PAGE_VIEW_ACTION_TYPES);
+}
+
+/** Every action keyed by type — stored verbatim so nothing Meta reports is lost. */
+export function actionsByType(actions: MetaInsightRow['actions']): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const a of actions ?? []) out[a.action_type] = (out[a.action_type] ?? 0) + a.value;
+  return out;
 }

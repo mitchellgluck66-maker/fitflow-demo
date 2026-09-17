@@ -107,6 +107,11 @@ export interface SpendRow {
   clicks?: number | null;
   /** Platform-reported leads (Meta `lead` action). */
   leads?: number | null;
+  /** Phase G Meta expansion (null for manual / Google CSV rows). */
+  reach?: number | null;
+  linkClicks?: number | null;
+  landingPageViews?: number | null;
+  purchases?: number | null;
 }
 
 export interface PaymentRow {
@@ -305,6 +310,10 @@ export interface DailySpend {
   impressions: number;
   clicks: number;
   leads: number;
+  reach: number;
+  linkClicks: number;
+  landingPageViews: number;
+  purchases: number;
 }
 
 /**
@@ -342,6 +351,10 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
       impressions: s.impressions ?? 0,
       clicks: s.clicks ?? 0,
       leads: s.leads ?? 0,
+      reach: s.reach ?? 0,
+      linkClicks: s.linkClicks ?? 0,
+      landingPageViews: s.landingPageViews ?? 0,
+      purchases: s.purchases ?? 0,
     });
   }
 
@@ -364,6 +377,10 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
         impressions: 0,
         clicks: 0,
         leads: 0,
+        reach: 0,
+        linkClicks: 0,
+        landingPageViews: 0,
+        purchases: 0,
       });
     }
   }
@@ -1133,11 +1150,26 @@ export interface CampaignRow {
   clicks: number;
   /** Platform-reported leads (Meta lead actions). */
   platformLeads: number;
+  // ---- Phase G platform metrics (0 / null when the platform does not report them)
+  reach: number;
+  /** impressions ÷ reach, re-derived from the aggregated row; null when reach is 0. */
+  frequency: number | null;
+  /** spend ÷ impressions × 1000, in cents; null when no impressions. */
+  cpmCents: number | null;
+  linkClicks: number;
+  /** spend ÷ link clicks, in cents; null when no link clicks. */
+  cpcCents: number | null;
+  landingPageViews: number;
+  purchases: number;
   /** FitFlow-tracked funnel counts: contacts whose utm_campaign matches. */
   tracked: Record<FunnelStageKey, number>;
   costPer: Record<FunnelStageKey, number | null>;
   /** Contact ids per stage, for drill-down. */
   contactIds: Record<FunnelStageKey, string[]>;
+  /** Initial (new-client) cash in range from contacts tracked to this campaign, net of refunds. */
+  initialCents: number;
+  /** initialCents ÷ spend; null when no spend or Stripe not connected. */
+  roas: number | null;
 }
 
 function normalizeCampaign(name: string | null | undefined): string {
@@ -1171,9 +1203,18 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
         impressions: 0,
         clicks: 0,
         platformLeads: 0,
+        reach: 0,
+        frequency: null,
+        cpmCents: null,
+        linkClicks: 0,
+        cpcCents: null,
+        landingPageViews: 0,
+        purchases: 0,
         tracked: emptyCounts(),
         costPer: { applied: null, consult_booked: null, consult_showed: null, roadmap_booked: null, roadmap_showed: null, enrolled: null },
         contactIds: emptyIds(),
+        initialCents: 0,
+        roas: null,
       });
     }
     const r = rows.get(key)!;
@@ -1181,6 +1222,10 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
     r.impressions += d.impressions;
     r.clicks += d.clicks;
     r.platformLeads += d.leads;
+    r.reach += d.reach;
+    r.linkClicks += d.linkClicks;
+    r.landingPageViews += d.landingPageViews;
+    r.purchases += d.purchases;
   }
 
   // Join contacts to campaigns by normalised name.
@@ -1195,10 +1240,23 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
     }
   }
 
+  // Initial cash per campaign: initial-class payments in range whose matched
+  // contact is tracked to the campaign (by the same normalised name join).
+  const awaitingStripe = !input.payments.some((p) => p.origin === 'stripe');
+  for (const p of input.payments) {
+    if (p.paymentClass !== 'initial' || !p.contactId || !inRange(p.on, range)) continue;
+    const row = byName.get(normalizeCampaign(contactCampaign.get(p.contactId)));
+    if (row) row.initialCents += netCents(p);
+  }
+
   for (const r of rows.values()) {
     for (const key of Object.keys(r.tracked) as FunnelStageKey[]) {
       r.costPer[key] = r.tracked[key] > 0 && r.spendCents > 0 ? Math.round(r.spendCents / r.tracked[key]) : null;
     }
+    r.frequency = r.reach > 0 ? Math.round((r.impressions / r.reach) * 100) / 100 : null;
+    r.cpmCents = r.impressions > 0 ? Math.round((r.spendCents / r.impressions) * 1000) : null;
+    r.cpcCents = r.linkClicks > 0 ? Math.round(r.spendCents / r.linkClicks) : null;
+    r.roas = !awaitingStripe && r.from === 'api' && r.spendCents > 0 ? r.initialCents / r.spendCents : null;
   }
 
   return Array.from(rows.values()).sort((a, b) => b.spendCents - a.spendCents || a.campaignName.localeCompare(b.campaignName));

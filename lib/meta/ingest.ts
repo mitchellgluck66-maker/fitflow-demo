@@ -19,7 +19,7 @@ import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } 
 import { todayInTimezone, addDays } from '../dates';
 import { getMetaConfig } from './config';
 import { fetchInsights } from './client';
-import { leadsFromActions } from './schemas';
+import { leadsFromActions, purchasesFromActions, landingPageViewsFromActions, actionsByType } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 
@@ -153,6 +153,14 @@ export async function runMetaSync(options: { mode: MetaSyncMode; trigger: 'cron'
           impressions: Math.round(row.impressions),
           clicks: Math.round(row.clicks),
           leads: Math.round(leadsFromActions(row.actions)),
+          reach: row.reach != null ? Math.round(row.reach) : null,
+          frequency: row.frequency ?? null,
+          cpmCents: row.cpm != null ? Math.round(row.cpm * 100) : null,
+          cpcCents: row.cpc != null ? Math.round(row.cpc * 100) : null,
+          linkClicks: row.inline_link_clicks != null ? Math.round(row.inline_link_clicks) : null,
+          landingPageViews: Math.round(landingPageViewsFromActions(row.actions)),
+          purchases: Math.round(purchasesFromActions(row.actions)),
+          actions: actionsByType(row.actions),
           source: 'meta',
           origin: 'meta',
           syncedAt: startedAt,

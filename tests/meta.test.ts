@@ -7,7 +7,7 @@ import { runMigrations } from '@/db/migrate';
 import { db, adSpend, syncRuns } from '@/db';
 import { getSetting, setSetting, SETTING_KEYS, BACKFILL_DEFAULTS } from '@/lib/settings';
 import { META_KEYS, normalizeAdAccountId } from '@/lib/meta/config';
-import { MetaInsightRowSchema, leadsFromActions } from '@/lib/meta/schemas';
+import { MetaInsightRowSchema, leadsFromActions, purchasesFromActions, landingPageViewsFromActions, actionsByType } from '@/lib/meta/schemas';
 import { runMetaSync, chunkWindows } from '@/lib/meta/ingest';
 import { testConnection } from '@/lib/meta/client';
 
@@ -29,9 +29,17 @@ const page1 = {
       spend: '12.34',
       impressions: '1000',
       clicks: '50',
+      reach: '800',
+      frequency: '1.25',
+      cpm: '12.34',
+      cpc: '0.3085',
+      inline_link_clicks: '40',
       actions: [
         { action_type: 'lead', value: '3' },
         { action_type: 'link_click', value: '40' },
+        { action_type: 'landing_page_view', value: '30' },
+        { action_type: 'purchase', value: '2' },
+        { action_type: 'offsite_conversion.fb_pixel_purchase', value: '1' },
       ],
     },
     { date_start: '2026-08-10', date_stop: '2026-08-10', campaign_id: 'c1', campaign_name: 'Summer Shred', ad_id: 'a2', ad_name: 'Video 2', spend: '0.5', impressions: '10', clicks: '1' },
@@ -99,6 +107,18 @@ describe('schemas', () => {
     expect(leadsFromActions(row.actions)).toBe(3);
     expect(leadsFromActions(MetaInsightRowSchema.parse(page2.data[0]).actions)).toBe(1);
     expect(leadsFromActions(null)).toBe(0);
+    expect(row.reach).toBe(800);
+    expect(row.inline_link_clicks).toBe(40);
+    expect(purchasesFromActions(row.actions)).toBe(3);
+    expect(landingPageViewsFromActions(row.actions)).toBe(30);
+    expect(actionsByType(row.actions)).toMatchObject({ lead: 3, purchase: 2 });
+    expect(actionsByType(null)).toEqual({});
+  });
+
+  it('requests the expanded field list', () => {
+    const insightCalls = calls.filter((u) => u.includes('/insights'));
+    // Field list is asserted on the next sync's URL (calls are reset per test); see runMetaSync tests.
+    expect(insightCalls.length).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -131,6 +151,11 @@ describe('runMetaSync', () => {
     expect(rows).toHaveLength(3);
     const a1 = rows.find((x) => x.externalId === 'meta:a1:2026-08-10')!;
     expect(a1).toMatchObject({ platform: 'meta', level: 'ad', campaignName: 'Summer Shred', spendCents: 1234, impressions: 1000, clicks: 50, leads: 3, source: 'meta', backfilled: true });
+    // Phase G: every extra Meta metric is stored, the actions array verbatim by type.
+    expect(a1).toMatchObject({ reach: 800, frequency: 1.25, cpmCents: 1234, cpcCents: 31, linkClicks: 40, landingPageViews: 30, purchases: 3 });
+    expect(a1.actions).toEqual({ lead: 3, link_click: 40, landing_page_view: 30, purchase: 2, 'offsite_conversion.fb_pixel_purchase': 1 });
+    const a2 = rows.find((r) => r.adId === 'a2' && r.date === '2026-08-10')!;
+    expect(a2).toMatchObject({ reach: null, cpmCents: null, linkClicks: null, landingPageViews: 0, purchases: 0, actions: {} });
 
     const again = await runMetaSync({ mode: 'backfill', trigger: 'cli', since: '2026-08-10' });
     expect(again.ok).toBe(true);

@@ -13,10 +13,13 @@ import { SpendEntry } from '@/components/SpendEntry';
 import { CsvSpendUpload } from '@/components/CsvSpendUpload';
 import { useScorecard } from '@/components/useScorecard';
 import { DataHealthNotice, marketingWarnings } from '@/components/DataHealth';
+import { DisplayedMetricsPanel, useDisplayedMetrics } from '@/components/DisplayedMetricsPanel';
 import { computeDelta, formatCents } from '@/lib/metrics';
 
 function AdsTab() {
   const { data, loading, error } = useScorecard();
+  const display = useDisplayedMetrics();
+  const show = (key: string) => display.enabled.has(key);
 
   if (loading && !data) {
     return (
@@ -58,7 +61,11 @@ function AdsTab() {
 
   return (
     <>
-      <PageHeader title="Ads" description="Spend, cost per stage and what each campaign actually produced — platform numbers beside FitFlow-tracked ones.">
+      <PageHeader
+        title="Ads"
+        description="Spend, cost per stage and what each campaign actually produced — platform numbers beside FitFlow-tracked ones."
+        actions={<DisplayedMetricsPanel enabled={display.enabled} onSave={display.save} onReset={display.reset} />}
+      >
         <DateRangePicker timezone={data.timezone} />
       </PageHeader>
 
@@ -67,78 +74,92 @@ function AdsTab() {
         <DataHealthNotice items={marketingWarnings(data.scorecard.marketing, data.scorecard.revenue)} />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">
-          <KpiDeltaTile
-            label="Spend"
-            value={formatCents(kpis.spendCents, { compact: true })}
-            delta={computeDelta(kpis.spendCents, previousKpis?.spendCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={DollarSign}
-            accent="warning"
-            sparkline={spark('spendCents')}
-            subtext={kpis.byPlatform.map((p) => `${p.platform} ${formatCents(p.spendCents, { compact: true })}`).join(' · ') || 'no spend recorded'}
-          />
-          <KpiDeltaTile
-            label="Cost per lead"
-            value={formatCents(kpis.costPerLeadCents)}
-            delta={computeDelta(kpis.costPerLeadCents, previousKpis?.costPerLeadCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={Users}
-            accent="info"
-            subtext="spend ÷ applied"
-          />
-          <KpiDeltaTile
-            label="Cost per consult"
-            value={formatCents(kpis.costPerConsultCents)}
-            delta={computeDelta(kpis.costPerConsultCents, previousKpis?.costPerConsultCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={CalendarCheck}
-            accent="accent"
-            subtext="spend ÷ consults booked"
-          />
-          <KpiDeltaTile
-            label="Cost per roadmap"
-            value={formatCents(kpis.costPerRoadmapCents)}
-            delta={computeDelta(kpis.costPerRoadmapCents, previousKpis?.costPerRoadmapCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={Map}
-            accent="info"
-            subtext="spend ÷ roadmaps booked"
-          />
-          <KpiDeltaTile
-            label="Paid CAC"
-            value={formatCents(kpis.paidCacCents)}
-            delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={Target}
-            accent="warning"
-            subtext={kpis.paidCacCents === null ? 'no paid-attributed enrollments' : 'spend ÷ paid-attributed enrolled'}
-          />
-          <KpiDeltaTile
-            label="Blended CAC"
-            value={formatCents(kpis.blendedCacCents)}
-            delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
-            deltaKind="cents"
-            comparisonLabel={cmpLabel}
-            icon={Target}
-            accent="info"
-            subtext={kpis.blendedCacCents === null ? 'no enrollments in period' : 'spend ÷ all enrolled'}
-          />
-          <KpiDeltaTile
-            label="ROAS"
-            value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}×` : '—'}
-            delta={computeDelta(kpis.roas, previousKpis?.roas ?? null)}
-            deltaKind="ratio"
-            comparisonLabel={cmpLabel}
-            icon={TrendingUp}
-            accent="success"
-            subtext="paid initial cash ÷ ad spend"
-            empty={kpis.awaitingStripe ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Connect Stripe in Setup.' } : undefined}
-          />
+          {show('spend') && (
+            <KpiDeltaTile
+              label="Spend"
+              value={formatCents(kpis.spendCents, { compact: true })}
+              delta={computeDelta(kpis.spendCents, previousKpis?.spendCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={DollarSign}
+              accent="warning"
+              sparkline={spark('spendCents')}
+              subtext={kpis.byPlatform.map((p) => `${p.platform} ${formatCents(p.spendCents, { compact: true })}`).join(' · ') || 'no spend recorded'}
+            />
+          )}
+          {show('cpl') && (
+            <KpiDeltaTile
+              label="Cost per lead"
+              value={formatCents(kpis.costPerLeadCents)}
+              delta={computeDelta(kpis.costPerLeadCents, previousKpis?.costPerLeadCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={Users}
+              accent="info"
+              subtext="spend ÷ applied"
+            />
+          )}
+          {show('cost_consult') && (
+            <KpiDeltaTile
+              label="Cost per consult"
+              value={formatCents(kpis.costPerConsultCents)}
+              delta={computeDelta(kpis.costPerConsultCents, previousKpis?.costPerConsultCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={CalendarCheck}
+              accent="accent"
+              subtext="spend ÷ consults booked"
+            />
+          )}
+          {show('cost_roadmap') && (
+            <KpiDeltaTile
+              label="Cost per roadmap"
+              value={formatCents(kpis.costPerRoadmapCents)}
+              delta={computeDelta(kpis.costPerRoadmapCents, previousKpis?.costPerRoadmapCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={Map}
+              accent="info"
+              subtext="spend ÷ roadmaps booked"
+            />
+          )}
+          {show('paid_cac') && (
+            <KpiDeltaTile
+              label="Paid CAC"
+              value={formatCents(kpis.paidCacCents)}
+              delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={Target}
+              accent="warning"
+              subtext={kpis.paidCacCents === null ? 'no paid-attributed enrollments' : 'spend ÷ paid-attributed enrolled'}
+            />
+          )}
+          {show('cost_client') && (
+            <KpiDeltaTile
+              label="Blended CAC"
+              value={formatCents(kpis.blendedCacCents)}
+              delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
+              deltaKind="cents"
+              comparisonLabel={cmpLabel}
+              icon={Target}
+              accent="info"
+              subtext={kpis.blendedCacCents === null ? 'no enrollments in period' : 'spend ÷ all enrolled'}
+            />
+          )}
+          {show('roas') && (
+            <KpiDeltaTile
+              label="ROAS"
+              value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}×` : '—'}
+              delta={computeDelta(kpis.roas, previousKpis?.roas ?? null)}
+              deltaKind="ratio"
+              comparisonLabel={cmpLabel}
+              icon={TrendingUp}
+              accent="success"
+              subtext="paid initial cash ÷ ad spend"
+              empty={kpis.awaitingStripe ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Connect Stripe in Setup.' } : undefined}
+            />
+          )}
         </div>
 
         <Card padding="lg">
@@ -202,10 +223,10 @@ function AdsTab() {
         <Card padding="lg">
           <CardHeader
             title="Campaigns"
-            subtitle={`${range.presetLabel} · ${range.resolvedLabel} · FitFlow-tracked counts join contacts to campaigns by utm_campaign`}
+            subtitle={`${range.presetLabel} · ${range.resolvedLabel} · FitFlow-tracked counts join contacts to campaigns by utm_campaign · columns follow "Displayed metrics"`}
             icon={Megaphone}
           />
-          <CampaignTable campaigns={ads.campaigns} previous={ads.previousCampaigns} comparisonLabel={cmpLabel} />
+          <CampaignTable campaigns={ads.campaigns} previous={ads.previousCampaigns} comparisonLabel={cmpLabel} displayed={display.enabled} awaitingStripe={revenue.awaitingStripe} />
         </Card>
 
         <Card padding="lg">

@@ -111,6 +111,10 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       impressions: adSpend.impressions,
       clicks: adSpend.clicks,
       leads: adSpend.leads,
+      reach: adSpend.reach,
+      linkClicks: adSpend.linkClicks,
+      landingPageViews: adSpend.landingPageViews,
+      purchases: adSpend.purchases,
     })
     .from(adSpend)
     .where(and(gte(adSpend.date, shiftDate(opts.start, -7)), lte(adSpend.date, shiftDate(opts.end, 7))));

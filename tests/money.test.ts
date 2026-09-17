@@ -129,11 +129,14 @@ const ADS: MetricsInput = {
   appointments: [],
   spend: [
     manualGoogle,
-    { date: '2026-08-03', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1000, clicks: 50, leads: 3 },
-    { date: '2026-08-04', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1200, clicks: 40, leads: 1 },
+    { date: '2026-08-03', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1000, clicks: 50, leads: 3, reach: 700, linkClicks: 30, landingPageViews: 20, purchases: 1 },
+    { date: '2026-08-04', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1200, clicks: 40, leads: 1, reach: 800, linkClicks: 20, landingPageViews: 15, purchases: 0 },
     { date: '2026-08-04', platform: 'meta', spendCents: 10_000, origin: 'meta', campaignId: 'c2', campaignName: 'Retarget', impressions: 300, clicks: 10, leads: 0 },
   ],
-  payments: [],
+  payments: [
+    { id: 'pi1', stripeId: 'ch_pi1', contactId: 'p1', kind: 'charge', amountCents: 150_000, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'pr1', stripeId: 'in_pr1', contactId: 'p1', kind: 'invoice', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
+  ],
 };
 
 describe('campaign table', () => {
@@ -145,6 +148,25 @@ describe('campaign table', () => {
       ['Retarget', 10_000, 300, 10, 0],
       ['Manual entry (google)', 7_000, 0, 0, 0],
     ]);
+  });
+
+  it('derives reach, frequency, CPM, link clicks, CPC, landing page views and purchases per campaign', () => {
+    const shred = rows[0];
+    expect(shred).toMatchObject({ reach: 1500, linkClicks: 50, landingPageViews: 35, purchases: 1 });
+    expect(shred.frequency).toBeCloseTo(2200 / 1500, 2);
+    expect(shred.cpmCents).toBe(Math.round((60_000 / 2200) * 1000)); // $27.27 per 1,000
+    expect(shred.cpcCents).toBe(1200); // 60,000 ÷ 50 link clicks
+    expect(rows[1]).toMatchObject({ reach: 0, frequency: null, linkClicks: 0, cpcCents: null, cpmCents: Math.round((10_000 / 300) * 1000) });
+    expect(rows[2]).toMatchObject({ reach: 0, frequency: null, cpmCents: null, cpcCents: null });
+  });
+
+  it('per-campaign ROAS = initial cash from tracked contacts ÷ campaign spend (recurring excluded)', () => {
+    expect(rows[0].initialCents).toBe(150_000);
+    expect(rows[0].roas).toBeCloseTo(2.5);
+    expect(rows[1]).toMatchObject({ initialCents: 0, roas: 0 });
+    expect(rows[2].roas).toBeNull(); // manual row: no campaign to attribute
+    const noStripe = computeCampaignTable({ ...ADS, payments: [] }, R);
+    expect(noStripe[0].roas).toBeNull();
   });
 
   it('joins FitFlow-tracked funnel counts by normalised utm_campaign and prices each stage', () => {
@@ -168,8 +190,8 @@ describe('ads KPIs', () => {
     expect(k.costPerConsultCents).toBe(Math.round(77_000 / 2));
     expect(k.cacCents).toBe(77_000);
     expect(k.apiConnected).toBe(true);
-    expect(k.awaitingStripe).toBe(true);
-    expect(k.roas).toBeNull();
+    expect(k.awaitingStripe).toBe(false);
+    expect(k.roas).toBe(0); // p1 has initial cash but no attribution class → not paid-attributed
     expect(k.byPlatform).toEqual([
       { platform: 'meta', spendCents: 70_000, apiCents: 70_000, manualCents: 0 },
       { platform: 'google', spendCents: 7_000, apiCents: 0, manualCents: 7_000 },
@@ -223,7 +245,7 @@ describe('revenue summary', () => {
   });
 
   it('awaiting Stripe when no stripe rows exist', () => {
-    expect(computeRevenueSummary(ADS, R)).toMatchObject({ awaitingStripe: true, collectedCents: 0, payments: [] });
+    expect(computeRevenueSummary({ ...ADS, payments: [] }, R)).toMatchObject({ awaitingStripe: true, collectedCents: 0, payments: [] });
   });
 });
 

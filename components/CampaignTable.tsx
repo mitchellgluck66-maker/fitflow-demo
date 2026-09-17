@@ -9,11 +9,27 @@ import { FilterBar, NoMatches } from './FilterBar';
 import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
 import { computeDelta, formatCents, formatDelta, type CampaignRow, type Delta, type FunnelStageKey } from '@/lib/metrics';
+import { DEFAULT_DISPLAYED_METRICS } from '@/lib/metrics/display';
 
-const TRACKED: Array<{ key: FunnelStageKey; label: string; unit: string }> = [
-  { key: 'applied', label: 'Applied', unit: 'lead' },
-  { key: 'consult_booked', label: 'Consults', unit: 'consult' },
-  { key: 'enrolled', label: 'Enrolled', unit: 'client' },
+/** Platform-reported columns, keyed by displayed-metric key. */
+const PLATFORM_COLS: Array<{ key: string; label: string; sortKey: string; value: (c: CampaignRow) => number | null; format: (v: number) => string }> = [
+  { key: 'impressions', label: 'Impr.', sortKey: 'impressions', value: (c) => c.impressions, format: (v) => v.toLocaleString() },
+  { key: 'reach', label: 'Reach', sortKey: 'reach', value: (c) => c.reach, format: (v) => v.toLocaleString() },
+  { key: 'frequency', label: 'Freq.', sortKey: 'frequency', value: (c) => c.frequency, format: (v) => v.toFixed(2) },
+  { key: 'cpm', label: 'CPM', sortKey: 'cpm', value: (c) => c.cpmCents, format: (v) => formatCents(v) },
+  { key: 'link_clicks', label: 'Link clicks', sortKey: 'link_clicks', value: (c) => c.linkClicks, format: (v) => v.toLocaleString() },
+  { key: 'clicks', label: 'Clicks', sortKey: 'clicks', value: (c) => c.clicks, format: (v) => v.toLocaleString() },
+  { key: 'cpc', label: 'CPC', sortKey: 'cpc', value: (c) => c.cpcCents, format: (v) => formatCents(v) },
+  { key: 'landing_page_views', label: 'LPV', sortKey: 'lpv', value: (c) => c.landingPageViews, format: (v) => v.toLocaleString() },
+  { key: 'platform_leads', label: 'Leads', sortKey: 'leads', value: (c) => c.platformLeads, format: (v) => v.toLocaleString() },
+  { key: 'purchases', label: 'Purch.', sortKey: 'purchases', value: (c) => c.purchases, format: (v) => v.toLocaleString() },
+];
+
+const TRACKED: Array<{ key: string; stage: FunnelStageKey; label: string; unit: string }> = [
+  { key: 'tracked_applied', stage: 'applied', label: 'Applied', unit: 'lead' },
+  { key: 'tracked_consults', stage: 'consult_booked', label: 'Consults', unit: 'consult' },
+  { key: 'tracked_roadmaps', stage: 'roadmap_booked', label: 'Roadmaps', unit: 'roadmap' },
+  { key: 'tracked_enrolled', stage: 'enrolled', label: 'Enrolled', unit: 'client' },
 ];
 
 const FACETS = ['platform', 'from', 'campaign'];
@@ -40,17 +56,27 @@ const DeltaChip: React.FC<{ delta: Delta; kind?: 'count' | 'cents'; label: strin
 /**
  * Hyros-style campaign table: platform-reported numbers on the left,
  * FitFlow-tracked funnel counts (joined by utm_campaign) on the right, each
- * priced per stage. Manual weekly spend shows as its own row per platform.
- * Filter/sort/search state lives in the URL under the `c_` prefix.
+ * priced per stage, plus per-campaign ROAS from initial cash. Manual weekly
+ * spend shows as its own row per platform. Which columns render is the
+ * CEO's choice (`displayed` — settings.displayed_metrics); everything is
+ * computed regardless. Filter/sort/search state lives in the URL under the
+ * `c_` prefix.
  */
 export const CampaignTable: React.FC<{
   campaigns: CampaignRow[];
   previous: CampaignRow[] | null;
   comparisonLabel: string | null;
-}> = ({ campaigns, previous, comparisonLabel }) => {
+  displayed?: Set<string>;
+  awaitingStripe?: boolean;
+}> = ({ campaigns, previous, comparisonLabel, displayed, awaitingStripe }) => {
+  const shown = displayed ?? new Set(DEFAULT_DISPLAYED_METRICS);
   const [drawer, setDrawer] = useState<{ title: string; subtitle: string; ids: string[] } | null>(null);
   const prevByKey = useMemo(() => new Map((previous ?? []).map((c) => [c.key, c])), [previous]);
   const t = useTableState({ prefix: 'c_', facetKeys: FACETS });
+
+  const platformCols = PLATFORM_COLS.filter((c) => shown.has(c.key));
+  const trackedCols = TRACKED.filter((c) => shown.has(c.key));
+  const showRoas = shown.has('tracked_roas');
 
   const rows = useMemo(
     () =>
@@ -64,12 +90,9 @@ export const CampaignTable: React.FC<{
         sorts: {
           campaign: (c) => c.campaignName,
           spend: (c) => c.spendCents,
-          impressions: (c) => (c.from === 'api' ? c.impressions : null),
-          clicks: (c) => (c.from === 'api' ? c.clicks : null),
-          leads: (c) => (c.from === 'api' ? c.platformLeads : null),
-          applied: (c) => (c.from === 'api' ? c.tracked.applied : null),
-          consult_booked: (c) => (c.from === 'api' ? c.tracked.consult_booked : null),
-          enrolled: (c) => (c.from === 'api' ? c.tracked.enrolled : null),
+          ...Object.fromEntries(PLATFORM_COLS.map((col) => [col.sortKey, (c: CampaignRow) => (c.from === 'api' ? col.value(c) : null)])),
+          ...Object.fromEntries(TRACKED.map((col) => [col.stage, (c: CampaignRow) => (c.from === 'api' ? c.tracked[col.stage] : null)])),
+          roas: (c) => c.roas,
         },
         defaultSort: { key: 'spend', dir: 'desc' },
       }),
@@ -83,6 +106,7 @@ export const CampaignTable: React.FC<{
   const activeSort = t.state.sort ?? 'spend';
   const dir = t.state.sort ? t.state.dir : 'desc';
   const hs = { color: 'var(--text-quaternary)' };
+  const trackedSpan = trackedCols.length + (showRoas ? 1 : 0);
 
   return (
     <div className="space-y-3">
@@ -110,25 +134,26 @@ export const CampaignTable: React.FC<{
             <thead>
               <tr style={{ background: 'var(--surface-sunken)' }}>
                 <SortableHeader label="Campaign" sortKey="campaign" activeKey={activeSort} dir={dir} onSort={t.setSort} rowSpan={2} style={hs} />
-                <th className={`${th} text-center`} colSpan={4} style={{ color: 'var(--text-tertiary)', borderLeft: '1px solid var(--border-subtle)' }}>
+                <th className={`${th} text-center`} colSpan={1 + platformCols.length} style={{ color: 'var(--text-tertiary)', borderLeft: '1px solid var(--border-subtle)' }}>
                   Platform-reported
                 </th>
-                <th className={`${th} text-center`} colSpan={3} style={{ color: 'var(--accent)', borderLeft: '1px solid var(--border-subtle)' }}>
-                  FitFlow-tracked
-                </th>
+                {trackedSpan > 0 && (
+                  <th className={`${th} text-center`} colSpan={trackedSpan} style={{ color: 'var(--accent)', borderLeft: '1px solid var(--border-subtle)' }}>
+                    FitFlow-tracked
+                  </th>
+                )}
               </tr>
               <tr style={{ background: 'var(--surface-sunken)' }}>
-                {[
-                  ['spend', 'Spend'],
-                  ['impressions', 'Impr.'],
-                  ['clicks', 'Clicks'],
-                  ['leads', 'Leads'],
-                ].map(([key, label], i) => (
-                  <SortableHeader key={key} label={label} sortKey={key} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }} />
+                <SortableHeader label="Spend" sortKey="spend" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: '1px solid var(--border-subtle)' }} />
+                {platformCols.map((col) => (
+                  <SortableHeader key={col.key} label={col.label} sortKey={col.sortKey} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={hs} />
                 ))}
-                {TRACKED.map((tr, i) => (
-                  <SortableHeader key={tr.key} label={tr.label} sortKey={tr.key} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }} />
+                {trackedCols.map((tr, i) => (
+                  <SortableHeader key={tr.key} label={tr.label} sortKey={tr.stage} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }} />
                 ))}
+                {showRoas && (
+                  <SortableHeader label="ROAS" sortKey="roas" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: trackedCols.length === 0 ? '1px solid var(--border-subtle)' : undefined }} />
+                )}
               </tr>
             </thead>
             <tbody>
@@ -155,18 +180,17 @@ export const CampaignTable: React.FC<{
                       <span className="font-semibold">{formatCents(c.spendCents)}</span>
                       <DeltaChip delta={spendDelta} kind="cents" label={comparisonLabel} />
                     </td>
-                    <td className={num} style={{ color: 'var(--text-secondary)' }}>
-                      {c.from === 'api' ? c.impressions.toLocaleString() : '—'}
-                    </td>
-                    <td className={num} style={{ color: 'var(--text-secondary)' }}>
-                      {c.from === 'api' ? c.clicks.toLocaleString() : '—'}
-                    </td>
-                    <td className={num} style={{ color: 'var(--text-secondary)' }}>
-                      {c.from === 'api' ? c.platformLeads.toLocaleString() : '—'}
-                    </td>
-                    {TRACKED.map((tr, i) => {
-                      const count = c.tracked[tr.key];
-                      const cost = c.costPer[tr.key];
+                    {platformCols.map((col) => {
+                      const v = c.from === 'api' ? col.value(c) : null;
+                      return (
+                        <td key={col.key} className={num} style={{ color: 'var(--text-secondary)' }}>
+                          {v === null ? '—' : col.format(v)}
+                        </td>
+                      );
+                    })}
+                    {trackedCols.map((tr, i) => {
+                      const count = c.tracked[tr.stage];
+                      const cost = c.costPer[tr.stage];
                       return (
                         <td key={tr.key} className={num} style={{ borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }}>
                           {c.from === 'manual' ? (
@@ -179,14 +203,14 @@ export const CampaignTable: React.FC<{
                                 type="button"
                                 disabled={count === 0}
                                 onClick={() =>
-                                  setDrawer({ title: `${c.campaignName} · ${tr.label}`, subtitle: `${count} ${count === 1 ? 'person' : 'people'} tracked to this campaign`, ids: c.contactIds[tr.key] })
+                                  setDrawer({ title: `${c.campaignName} · ${tr.label}`, subtitle: `${count} ${count === 1 ? 'person' : 'people'} tracked to this campaign`, ids: c.contactIds[tr.stage] })
                                 }
                                 className="font-semibold tabular rounded-[4px] px-1 -mx-1 transition-colors disabled:cursor-default enabled:hover:bg-[var(--surface-hover)] focus-ring"
-                                style={{ color: count > 0 ? (tr.key === 'enrolled' ? 'var(--positive-text, var(--accent))' : 'var(--accent)') : 'var(--text-quaternary)' }}
+                                style={{ color: count > 0 ? (tr.stage === 'enrolled' ? 'var(--positive-text, var(--accent))' : 'var(--accent)') : 'var(--text-quaternary)' }}
                               >
                                 {count}
                               </button>
-                              {tr.key === 'enrolled' && <DeltaChip delta={enrolledDelta} label={comparisonLabel} />}
+                              {tr.stage === 'enrolled' && <DeltaChip delta={enrolledDelta} label={comparisonLabel} />}
                               <div className="text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
                                 {cost !== null ? `${formatCents(cost)}/${tr.unit}` : '—'}
                               </div>
@@ -195,6 +219,26 @@ export const CampaignTable: React.FC<{
                         </td>
                       );
                     })}
+                    {showRoas && (
+                      <td className={num} style={{ borderLeft: trackedCols.length === 0 ? '1px solid var(--border-subtle)' : undefined }}>
+                        {c.from === 'manual' ? (
+                          <span style={{ color: 'var(--text-quaternary)' }}>—</span>
+                        ) : awaitingStripe ? (
+                          <span title="Connect Stripe for ROAS" style={{ color: 'var(--text-quaternary)' }}>
+                            awaiting Stripe
+                          </span>
+                        ) : (
+                          <>
+                            <span className="font-semibold" style={{ color: c.roas !== null && c.roas >= 1 ? 'var(--positive-text, var(--success))' : 'var(--text-primary)' }}>
+                              {c.roas !== null ? `${c.roas.toFixed(2)}×` : '—'}
+                            </span>
+                            <div className="text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
+                              {formatCents(c.initialCents, { compact: true })} initial
+                            </div>
+                          </>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
