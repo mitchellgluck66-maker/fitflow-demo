@@ -39,6 +39,40 @@ large changes. This file is the standing contract.
    parsed 0 opportunities because of it. Every numeric field in
    `lib/ghl/schemas.ts` is therefore coercive (`ghlNumber`: number or numeric
    string); put any new numeric field on that helper.
+8. **Metric definitions (Phase G, Sept 1 CEO meeting) — never present a computed
+   number whose inputs are missing; show the data-health warning instead.**
+   - *Payment classes* (`payments.payment_class`, `lib/stripe/classify.ts`): a
+     Stripe customer's FIRST successful, not-fully-refunded charge is `initial`
+     (new-client cash) whatever the rail (a subscription-only client's first
+     invoice is still initial); every later kept charge — subscription invoices
+     included — is `recurring`; failed / pending / fully refunded / refund rows /
+     plan rows are never cash and get no class. Customers group by Stripe id, then
+     normalised email, then the row alone. Recomputed after every Stripe sync,
+     webhook and demo seed; `npm run reclassify:payments` backfills.
+   - *Attribution classes* (`contacts.attribution_class`, `lib/attribution/`):
+     `paid` when the first touch carries an fbclid/gclid (field or landing-URL
+     param) or utm_source → source → utm_medium → session source contains a whole
+     token in facebook/fb/meta/instagram/google/paid/cpc/ppc without also saying
+     "organic"; else `organic`. `attribution_reason` names the deciding signal;
+     `attribution_class_source='manual'` (client profile override) is never
+     overwritten by sync. `npm run reclassify:attribution` backfills.
+   - *Marketing math uses ONLY initial cash and ONLY paid contacts where it says
+     paid.* ROAS = paid-attributed initial cash (net of refunds, failed excluded)
+     ÷ spend. **Paid CAC** = spend ÷ enrollments whose contact is `paid`.
+     **Blended CAC** = spend ÷ ALL enrollments (organic included). **LTV:CAC** =
+     Σ GHL opportunity value of the period's new clients ÷ spend (= avg contract
+     value ÷ Blended CAC); withheld, with the clients listed, while any new client
+     has no contract value. Cost per roadmap = spend ÷ roadmap_booked reached.
+     Organic, unclassified and unmatched never leak into the paid figures — they
+     surface as data-health counts (`MarketingMetrics`, `DataHealthNotice`).
+   - *Funnel modes*: "In period" = events inside the dates (default everywhere);
+     "By cohort" = everyone who applied inside the dates and every stage they
+     have reached since, no time cutoff. Chips are recomputed per mode against
+     the same-mode trailing-8-week baseline.
+   - *Roles* consult_rescheduled / roadmap_rescheduled are holding states whose
+     occupants appear in the daily to-do "awaiting rebook" bucket every day until
+     they leave; previous_lead is a parked row outside the stage chain, and a
+     contact whose first observed stage was previous_lead never enters the stages.
 
 ## Architecture (target)
 
@@ -63,14 +97,17 @@ External APIs → ingest crons → Supabase Postgres → pure metrics engine →
 - One global date picker per page (presets incl. This/Last week Sun–Sat with resolved
   dates shown) + comparison dropdown (prev period / last year / off). Delta chips
   everywhere; cost metrics invert green/red; tooltips name exact comparison dates.
-- Command Center above the fold: 5 KPI tiles (Revenue collected, Enrollments, Cost per
-  client, ROAS, Consults booked) → full-width funnel → trend + AI insight card.
+- Command Center above the fold: KPI row 1 (Initial cash collected, Enrollments,
+  Paid CAC, Blended CAC, ROAS) + row 2 (LTV:CAC, Consults booked, Cost per roadmap
+  booked) → data-health notice → funnel strip → trend + AI insight card + Ask card.
 - Funnel = horizontal proportional bars with ghost drop-off segments and stage→stage %
   chips colored vs trailing 8-week average. NEVER a tapered funnel shape. Bar click →
   drawer with the actual people.
 - Emails follow scorecard rules: one timeframe per digest; skip sending when empty.
 - Daily to-do email buckets: Day-1 and Day-3 × {applied-no-booking, consult no-show,
-  roadmap no-show}, names listed plainly. Recipients: Miranda + Jake.
+  roadmap no-show} plus the persistent "awaiting rebook" bucket (everyone in a
+  rescheduled role, every day until they rebook), names listed plainly.
+  Recipients: Miranda + Jake.
 
 ## Build phases (work in order, each shippable)
 
@@ -243,6 +280,71 @@ rows behind a toggle, "Resolve all" per group via `PATCH /api/incidents
 {ids}`. Pipelines: followed pinned on top expanded with stage mapping (only
 followed pipelines ever render mapping UI), unfollowed as one-line rows,
 "{ Off }" retirees and GHL-archived under a collapsed Archived group.
+
+## Phase G status (done 2026-09-17 — the CEO's September metric changes, Sept 1 meeting)
+
+Shipped in order, one commit each, `npm run check` green between items
+(26 test files / 243 tests). Migrations 0003–0007; run `npm run db:migrate`
+then `npm run reclassify` (payments + attribution) once on production.
+
+1. **Payment classes** — see rule 8. `computeRevenue` splits initial / recurring /
+   unclassified (unclassified succeeded cash = warning, never bucketed). Fully
+   refunded charges now net to zero (they used to subtract twice). Revenue tab:
+   Initial · Recurring · Subscriptions (MRR) · Failed · Refunds, class column +
+   filter. Command Center tile = "Initial cash collected".
+2. **Attribution** — see rule 8. Client profile "Attribution" card shows class,
+   reason, click ids, session source, landing URL and an Automatic / paid /
+   organic override (`PATCH /api/clients/[id]`, FitFlow-local). Clients index
+   has an attribution facet. GHL schema now reads `fbclid`/`gclid`/`url` from
+   `attributionSource` / `attributions[]`.
+3. **Marketing engine** — `lib/metrics#computeMarketing` (10 fixture tests in
+   `tests/marketing.test.ts`), surfaced on the Command Center, Ads tiles, the
+   weekly/monthly digest (two stat rows + a CAC explanation line) and the
+   insight JSON. `AdsKpis` gained cost per roadmap + both CACs.
+4. **Funnel pipeline + roles** — hard-default followed pipeline
+   `UR5P3vNTm9VPuYZFrb6c` "[new] Application Pipeline"
+   (`lib/ghl/followed.ts#DEFAULT_FOLLOWED_PIPELINE_ID`; migration 0005
+   unfollowed every other real pipeline; syncs follow it on first sight only —
+   a human's toggle is never overwritten). New roles consult_rescheduled,
+   roadmap_rescheduled, previous_lead with aliases; the suggester never maps a
+   "rescheduled/rebook" name to a plain booking (it proposes the rescheduled
+   role below threshold) and vice versa. `TodoBuckets.awaitingRebook` (dated
+   from the latest entry into the role, `daysWaiting`) is in the daily email;
+   `Funnel.previousLeads` is the dashed row on /funnel + a chip on the strip.
+5. **Cohort mode** — `cohortMembership`, `computeFunnel(input, range, mode)`,
+   `scorecard.cohort.{funnel,previousFunnel,conversions,sources}`,
+   `trendWeeklyCohort`. Funnel tab toggle lives in the URL (`?mode=cohort`).
+   Cross-week fixtures in `tests/cohort.test.ts`.
+6. **Backfill windows** — `backfill_from` = 2026-06-01 (GHL + Stripe + Google);
+   `meta_backfill_from` = 2026-07-16 (VSL launch) read ONLY by `lib/meta/ingest`
+   (`BACKFILL_DEFAULTS` in `lib/settings.ts`; migration 0006 wrote both and
+   cleared the Meta cursor). Meta card has its own date field. Earlier rows are
+   kept; earlier ranges are never fetched again.
+7. **Meta metrics + Displayed metrics** — `ad_spend` stores reach, frequency,
+   cpm/cpc (cents), link_clicks (Meta `inline_link_clicks`), landing_page_views,
+   purchases and the whole `actions` map; campaign rows re-derive frequency /
+   CPM / CPC from the aggregated row and carry per-campaign ROAS from initial
+   cash. `lib/metrics/display.ts` is the catalog (KPI tiles, platform columns,
+   tracked columns); `settings.displayed_metrics` (GET/POST
+   `/api/display-metrics`) holds the CEO's ticks; defaults on = spend, CPM, CPC,
+   link clicks, CPL, cost/consult, cost/roadmap, cost/client, ROAS. The gear is
+   on the Ads tab. Everything is pulled and stored regardless.
+8. **Ask the dashboard** — `lib/metrics/ask.ts#buildAskContext` (insight
+   snapshot + current/prior marketing + both funnel modes + selected weeks +
+   trailing 8 weeks + campaign table + data-health notes) →
+   `lib/anthropic/ask.ts#askDashboard` (prompt `ASK_SYSTEM` in `prompts.ts`:
+   every number must come from the context) → `verifyAnswerNumbers` discards
+   any answer whose prose/citations contain a number the context cannot have
+   produced → persisted in `ai_reports` kind `ask` with the context hash.
+   5 questions/min per warm instance (`checkAskRateLimit`). `AskCard` on the
+   Command Center (suggestions, citation chips, history drawer; connect state
+   without a key). `POST/GET /api/anthropic/ask`.
+
+Assumptions worth knowing: ROAS is return ÷ spend (the brief wrote "spend ÷
+cash", read as a slip); a subscription-only client's first invoice counts as
+initial cash (otherwise such clients would never reach ROAS); LTV:CAC is
+computed as Σ contract value ÷ spend, which equals the brief's "contract value
+÷ blended CAC" once you divide by the client count. `vercel.json` untouched.
 
 ## Working agreements
 
