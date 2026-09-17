@@ -16,8 +16,12 @@
  *                    (or who entered the roadmap_showed role in range)
  *   enrolled         contacts who entered the enrolled role in range
  *   previous leads   contacts who entered previous_lead in range — its own row,
- *                    never in the stage chain; contacts CURRENTLY parked there
- *                    are excluded from every stage above
+ *                    never in the stage chain; contacts whose FIRST observed
+ *                    stage was previous_lead (re-engaged old leads) are
+ *                    excluded from every stage above
+ *   cohort mode      the cohort is everyone who applied in range; each later
+ *                    stage counts cohort members who EVER reached it (no time
+ *                    cutoff). In-period mode is the default everywhere else.
  *   awaiting rebook  (daily to-do) everyone currently in consult_rescheduled /
  *                    roadmap_rescheduled, every day until they leave the role
  *   show rate        showed ÷ (showed + no-show), per appointment type
@@ -180,8 +184,17 @@ export interface FunnelStage {
   costPerCents: number | null;
 }
 
+export type FunnelMode = 'period' | 'cohort';
+
+export const FUNNEL_MODE_LABELS: Record<FunnelMode, { label: string; description: string }> = {
+  period: { label: 'In period', description: 'Each stage counts the people who reached it during the selected dates, whoever they are.' },
+  cohort: { label: 'By cohort', description: 'Everyone who APPLIED in the selected dates, and how many of them have reached each later stage since — no time cutoff.' },
+};
+
 export interface Funnel {
   range: Range;
+  /** period: events in range per stage. cohort: applied-in-range people, stages reached ever. */
+  mode: FunnelMode;
   stages: FunnelStage[];
   spendCents: number;
   /**
@@ -200,9 +213,24 @@ function uniq(ids: Iterable<string>): string[] {
   return Array.from(new Set(ids));
 }
 
-/** Contacts currently parked as previous leads — outside the active funnel. */
-function parkedIds(input: MetricsInput): Set<string> {
-  return new Set(input.contacts.filter((c) => c.role === 'previous_lead').map((c) => c.id));
+/**
+ * Re-engaged old leads: contacts whose FIRST observed stage was previous_lead
+ * (or who have no history and sit there now). They never entered the funnel
+ * as new applicants, so they are outside every active stage. A genuine
+ * applicant who is parked later still counts for everything they did.
+ */
+export function parkedIds(input: MetricsInput): Set<string> {
+  const first = new Map<string, TransitionRow>();
+  for (const t of input.transitions) {
+    const prev = first.get(t.contactId);
+    if (!prev || t.atMs < prev.atMs) first.set(t.contactId, t);
+  }
+  const out = new Set<string>();
+  for (const c of input.contacts) {
+    const f = first.get(c.id);
+    if (f ? f.toRole === 'previous_lead' : c.role === 'previous_lead') out.add(c.id);
+  }
+  return out;
 }
 
 /** Contact ids per funnel stage for the range (parked previous leads excluded). */
@@ -227,6 +255,37 @@ export function funnelMembership(input: MetricsInput, range: Range): Record<Funn
     roadmap_showed: active([...showed('Roadmap'), ...entered('roadmap_showed')]),
     enrolled: active(entered('enrolled')),
   };
+}
+
+/**
+ * Cohort (journey) membership: the cohort is everyone who APPLIED in range;
+ * each later stage counts cohort members who have EVER reached it, whatever
+ * the date. Someone applying in week 1 and enrolling in week 3 is week 1's
+ * enrollment here (and week 3's in period mode).
+ */
+export function cohortMembership(input: MetricsInput, range: Range): Record<FunnelStageKey, string[]> {
+  const parked = parkedIds(input);
+  const cohort = new Set(input.contacts.filter((c) => inRange(c.appliedOn, range) && !parked.has(c.id)).map((c) => c.id));
+
+  const everEntered = (role: SemanticRole) =>
+    input.transitions.filter((t) => t.toRole === role && cohort.has(t.contactId)).map((t) => t.contactId);
+  const everShowed = (type: string) =>
+    input.appointments
+      .filter((a) => a.contactId && cohort.has(a.contactId) && a.type === type && a.outcome === 'showed')
+      .map((a) => a.contactId as string);
+
+  return {
+    applied: Array.from(cohort),
+    consult_booked: uniq(everEntered('consult_booked')),
+    consult_showed: uniq(everShowed('Consult')),
+    roadmap_booked: uniq(everEntered('roadmap_booked')),
+    roadmap_showed: uniq([...everShowed('Roadmap'), ...everEntered('roadmap_showed')]),
+    enrolled: uniq(everEntered('enrolled')),
+  };
+}
+
+export function membershipFor(input: MetricsInput, range: Range, mode: FunnelMode): Record<FunnelStageKey, string[]> {
+  return mode === 'cohort' ? cohortMembership(input, range) : funnelMembership(input, range);
 }
 
 /** Contacts who entered `previous_lead` in range — the funnel's separate, non-converting row. */
@@ -332,8 +391,8 @@ function dayShift(date: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-export function computeFunnel(input: MetricsInput, range: Range): Funnel {
-  const members = funnelMembership(input, range);
+export function computeFunnel(input: MetricsInput, range: Range, mode: FunnelMode = 'period'): Funnel {
+  const members = membershipFor(input, range, mode);
   const spendCents = computeSpend(input.spend, range);
   const appliedCount = members.applied.length;
 
@@ -354,8 +413,12 @@ export function computeFunnel(input: MetricsInput, range: Range): Funnel {
     });
   }
 
-  const previous = previousLeadMembership(input, range);
-  return { range, stages, spendCents, previousLeads: { count: previous.length, contactIds: previous } };
+  // Cohort mode: cohort members who were parked as previous leads after applying.
+  const previous =
+    mode === 'cohort'
+      ? uniq(input.transitions.filter((t) => t.toRole === 'previous_lead' && members.applied.includes(t.contactId)).map((t) => t.contactId))
+      : previousLeadMembership(input, range);
+  return { range, mode, stages, spendCents, previousLeads: { count: previous.length, contactIds: previous } };
 }
 
 // ---------------------------------------------------------------------------
@@ -617,9 +680,9 @@ export interface SourceBreakdown {
   consultShowRate: number | null;
 }
 
-export function computeSourceBreakdown(input: MetricsInput, range: Range): SourceBreakdown[] {
+export function computeSourceBreakdown(input: MetricsInput, range: Range, mode: FunnelMode = 'period'): SourceBreakdown[] {
   const sourceOf = new Map(input.contacts.map((c) => [c.id, c.source?.trim() || 'Unknown']));
-  const members = funnelMembership(input, range);
+  const members = membershipFor(input, range, mode);
   const out = new Map<string, SourceBreakdown>();
 
   const bump = (source: string, key: FunnelStageKey) => {
@@ -764,9 +827,10 @@ export interface TrendPoint {
 export function computeTrend(
   input: MetricsInput,
   buckets: Array<{ start: string; end: string; label: string }>,
+  mode: FunnelMode = 'period',
 ): TrendPoint[] {
   return buckets.map((b) => {
-    const m = funnelMembership(input, b);
+    const m = membershipFor(input, b, mode);
     const spendCents = computeSpend(input.spend, b);
     const enrolled = m.enrolled.length;
     const rev = computeRevenue(input, b);
@@ -951,9 +1015,20 @@ export interface Scorecard {
     roadmapsBooked: Delta;
     applied: Delta;
   };
-  /** Stage→stage conversion deltas vs the comparison period. */
+  /** Stage→stage conversion deltas vs the comparison period (in-period mode). */
   conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone }>;
   sources: SourceBreakdown[];
+  /**
+   * The same funnel in cohort (journey) mode: the people who applied in
+   * range and every stage they have reached since. Chips are recomputed per
+   * mode against the cohort-mode comparison and baseline.
+   */
+  cohort: {
+    funnel: Funnel;
+    previousFunnel: Funnel | null;
+    conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone }>;
+    sources: SourceBreakdown[];
+  };
   timeInStage: TimeInStage[];
   /** True when every count in the funnel is zero — digests skip sending. */
   empty: boolean;
@@ -977,12 +1052,18 @@ export function computeScorecard(
 
   const count = (f: Funnel | null, key: FunnelStageKey) => (f ? f.stages.find((s) => s.key === key)!.count : null);
 
-  const conversions = funnel.stages.slice(1).map((s, i) => {
-    const from = funnel.stages[i].key;
-    const prev = previousFunnel?.stages[i + 1].conversionFromPrevious ?? null;
-    const base = baselineFunnel?.stages[i + 1].conversionFromPrevious ?? prev;
-    return { from, to: s.key, current: s.conversionFromPrevious, previous: prev, tone: conversionTone(s.conversionFromPrevious, base) };
-  });
+  const chips = (f: Funnel, prevF: Funnel | null, baseF: Funnel | null) =>
+    f.stages.slice(1).map((s, i) => {
+      const from = f.stages[i].key;
+      const prev = prevF?.stages[i + 1].conversionFromPrevious ?? null;
+      const base = baseF?.stages[i + 1].conversionFromPrevious ?? prev;
+      return { from, to: s.key, current: s.conversionFromPrevious, previous: prev, tone: conversionTone(s.conversionFromPrevious, base) };
+    });
+  const conversions = chips(funnel, previousFunnel, baselineFunnel);
+
+  const cohortFunnel = computeFunnel(input, range, 'cohort');
+  const cohortPrevious = comparisonRange ? computeFunnel(input, comparisonRange, 'cohort') : null;
+  const cohortBaseline = baselineRange ? computeFunnel(input, baselineRange, 'cohort') : null;
 
   return {
     range,
@@ -1009,6 +1090,12 @@ export function computeScorecard(
     },
     conversions,
     sources: computeSourceBreakdown(input, range),
+    cohort: {
+      funnel: cohortFunnel,
+      previousFunnel: cohortPrevious,
+      conversions: chips(cohortFunnel, cohortPrevious, cohortBaseline),
+      sources: computeSourceBreakdown(input, range, 'cohort'),
+    },
     timeInStage: computeTimeInStage(input, range),
     empty: funnel.stages.every((s) => s.count === 0),
   };

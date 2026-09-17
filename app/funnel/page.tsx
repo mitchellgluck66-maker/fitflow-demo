@@ -1,7 +1,8 @@
 'use client';
 
-import React, { Suspense } from 'react';
-import { Filter, Hourglass, Table2, CalendarCheck } from 'lucide-react';
+import React, { Suspense, useCallback } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Filter, Hourglass, Table2, CalendarCheck, Route, CalendarRange } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, SkeletonChart, SkeletonTable, Skeleton, RadialRing } from '@/components';
 import { SourceBreakdownTable } from '@/components/SourceBreakdownTable';
@@ -11,6 +12,7 @@ import { Funnel } from '@/components/Funnel';
 import { useScorecard } from '@/components/useScorecard';
 
 import { ROLE_LABELS } from '@/lib/ghl/roles';
+import { FUNNEL_MODE_LABELS, type FunnelMode } from '@/lib/metrics';
 
 function pct(n: number, d: number): number | null {
   return d > 0 ? Math.round((n / d) * 100) : null;
@@ -18,13 +20,28 @@ function pct(n: number, d: number): number | null {
 
 function FunnelTab() {
   const { data, loading, error } = useScorecard();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  // The mode lives in the URL (?mode=cohort) so a cohort view is a shareable link.
+  const mode: FunnelMode = params.get('mode') === 'cohort' ? 'cohort' : 'period';
+  const setMode = useCallback(
+    (next: FunnelMode) => {
+      const q = new URLSearchParams(params.toString());
+      if (next === 'cohort') q.set('mode', 'cohort');
+      else q.delete('mode');
+      router.replace(`${pathname}?${q.toString()}`, { scroll: false });
+    },
+    [params, pathname, router],
+  );
+  const cohort = mode === 'cohort';
 
   const multiples = (() => {
     if (!data) return [];
     // Conversion ratios are only meaningful over whole weeks; daily counts
     // of 1-vs-0 produce 400% spikes that say nothing.
-    const cur = data.trendWeekly.current;
-    const cmp = data.trendWeekly.comparison;
+    const cur = cohort ? data.trendWeeklyCohort.current : data.trendWeekly.current;
+    const cmp = cohort ? data.trendWeeklyCohort.comparison : data.trendWeekly.comparison;
     const series = (num: 'consultsBooked' | 'enrolled', den: 'applied' | 'consultsBooked') =>
       cur.map((p, i) => ({
         label: p.label,
@@ -80,7 +97,39 @@ function FunnelTab() {
   const showRate = (type: string) => scorecard.showRates.find((r) => r.type === type) ?? null;
   const consult = showRate('Consult');
   const roadmap = showRate('Roadmap');
-  const funnelEmpty = scorecard.funnel.stages.every((st) => st.count === 0);
+  const funnel = cohort ? scorecard.cohort.funnel : scorecard.funnel;
+  const conversions = cohort ? scorecard.cohort.conversions : scorecard.conversions;
+  const sources = cohort ? scorecard.cohort.sources : scorecard.sources;
+  const funnelEmpty = funnel.stages.every((st) => st.count === 0);
+  const modeInfo = FUNNEL_MODE_LABELS[mode];
+
+  const modeToggle = (
+    <div className="inline-flex items-center rounded-[8px] p-0.5" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }} role="tablist" aria-label="Funnel mode">
+      {(['period', 'cohort'] as FunnelMode[]).map((m) => {
+        const active = m === mode;
+        const Icon = m === 'cohort' ? Route : CalendarRange;
+        return (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => setMode(m)}
+            className="focus-ring inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] text-[12px] font-medium transition-colors"
+            style={{
+              background: active ? 'var(--surface)' : 'transparent',
+              color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              boxShadow: active ? 'var(--shadow-sm)' : undefined,
+            }}
+            title={FUNNEL_MODE_LABELS[m].description}
+          >
+            <Icon size={12.5} strokeWidth={2.3} />
+            {FUNNEL_MODE_LABELS[m].label}
+          </button>
+        );
+      })}
+    </div>
+  );
   const days = (h: number | null) => (h === null ? '—' : h < 48 ? `${h.toFixed(0)}h` : `${(h / 24).toFixed(1)} days`);
 
   return (
@@ -94,15 +143,20 @@ function FunnelTab() {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
           <Card padding="lg" className="lg:col-span-3">
-            <CardHeader title="Full funnel" subtitle={`${range.presetLabel} · ${range.resolvedLabel}`} icon={Filter} />
+            <CardHeader
+              title={`Full funnel · ${modeInfo.label}`}
+              subtitle={`${range.presetLabel} · ${range.resolvedLabel} — ${modeInfo.description}`}
+              icon={cohort ? Route : Filter}
+              action={modeToggle}
+            />
             {funnelEmpty ? (
               <EmptyState
                 compact
-                title="No one entered the funnel in this range"
-                description="Try Last 30 days, or run a sync from Setup to pull the latest opportunities."
+                title={cohort ? 'Nobody applied in this range' : 'No one entered the funnel in this range'}
+                description={cohort ? 'A cohort needs applicants in the selected dates. Try a wider range.' : 'Try Last 30 days, or run a sync from Setup to pull the latest opportunities.'}
               />
             ) : (
-              <Funnel scorecard={scorecard} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
+              <Funnel funnel={funnel} conversions={conversions} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} />
             )}
           </Card>
 
@@ -135,7 +189,8 @@ function FunnelTab() {
         {/* ---- Conversion over time ---- */}
         <div>
           <div className="text-[11.5px] font-semibold uppercase tracking-[0.06em] mb-3" style={{ color: 'var(--text-quaternary)' }}>
-            Conversion over time · Sun–Sat weeks
+            Conversion over time · Sun–Sat weeks · {modeInfo.label}
+            {cohort ? ' (each week = that week’s applicants, wherever they are now)' : ''}
             {comparison.range ? ` · faded = ${comparison.range.resolvedLabel}` : ''}
           </div>
           {multiples.every((m) => m.rows.every((r) => r.value === null)) ? (
@@ -167,11 +222,11 @@ function FunnelTab() {
 
         {/* ---- Per-source table ---- */}
         <Card padding="lg">
-          <CardHeader title="By source" subtitle="Volume says where leads come from; the last two columns say which ones are worth having." icon={Table2} />
-          {scorecard.sources.length === 0 ? (
+          <CardHeader title={`By source · ${modeInfo.label}`} subtitle="Volume says where leads come from; the last two columns say which ones are worth having." icon={Table2} />
+          {sources.length === 0 ? (
             <EmptyState compact title="No contacts in this period" description="Sources appear as soon as someone applies in the selected range." />
           ) : (
-            <SourceBreakdownTable sources={scorecard.sources} />
+            <SourceBreakdownTable sources={sources} />
           )}
         </Card>
 

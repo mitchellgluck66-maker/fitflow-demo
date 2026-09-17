@@ -334,11 +334,17 @@ describe('previous leads (parked)', () => {
     expect(f.stages.map((s) => s.key)).not.toContain('previous_lead');
   });
 
-  it('parked contacts are excluded from every active stage and from conversion math', () => {
+  it('a genuine applicant parked later still counts for what they did; an imported old lead never enters the stages', () => {
     const f = computeFunnel(parked, R);
     const base = computeFunnel(FIXTURE, R);
-    expect(f.stages.map((s) => [s.key, s.count])).toEqual(base.stages.map((s) => [s.key, s.count]));
-    expect(f.stages[1].conversionFromPrevious).toBe(base.stages[1].conversionFromPrevious);
+    // pl1 applied and booked a consult in R before being parked → +1 applied, +1 consult_booked.
+    // pl2 was parked from her first observed move → excluded everywhere.
+    expect(f.stages.map((s) => [s.key, s.count])).toEqual(base.stages.map((s) => [s.key, s.key === 'applied' || s.key === 'consult_booked' ? s.count + 1 : s.count]));
+  });
+
+  it('a contact with no history sitting in previous_lead is treated as parked', () => {
+    const noHistory: MetricsInput = { ...FIXTURE, contacts: [...FIXTURE.contacts, c('pl3', 'Pax', null, '2026-08-04', 'previous_lead')] };
+    expect(computeFunnel(noHistory, R).stages[0].count).toBe(computeFunnel(FIXTURE, R).stages[0].count);
   });
 
   it('nothing parked → empty row', () => {

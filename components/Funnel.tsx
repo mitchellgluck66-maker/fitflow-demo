@@ -2,9 +2,11 @@
 
 import React, { useState } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { formatCents, formatPct, FUNNEL_STAGES, type Scorecard, type ChipTone } from '@/lib/metrics';
+import { formatCents, formatPct, FUNNEL_STAGES, FUNNEL_MODE_LABELS, type Funnel as FunnelData, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
 import { formatRangeLabel } from '@/lib/dates';
 import { PeopleDrawer } from './PeopleDrawer';
+
+export type FunnelConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone };
 
 /**
  * The funnel — horizontal proportional bars, never a tapered cone.
@@ -14,19 +16,26 @@ import { PeopleDrawer } from './PeopleDrawer';
  * The chip between rows is the stage→stage conversion, coloured against the
  * trailing 8-week average so a slipping step turns amber before it becomes
  * a problem. Click any bar to see the actual people.
+ *
+ * `funnel.mode` decides what a bar means: in period (events in the dates) or
+ * by cohort (applicants in the dates, stages reached since). The chips passed
+ * in must be the ones computed for the same mode.
  */
 export const Funnel: React.FC<{
-  scorecard: Scorecard;
+  funnel: FunnelData;
+  conversions: FunnelConversion[];
   baseline: { start: string; end: string };
   rangeLabel: string;
   compact?: boolean;
   /** Bar height in px. The Funnel tab uses 44; compact = 22. */
   rowHeight?: number;
-}> = ({ scorecard, baseline, rangeLabel, compact, rowHeight }) => {
-  const stages = scorecard.funnel.stages;
+}> = ({ funnel, conversions, baseline, rangeLabel, compact, rowHeight }) => {
+  const stages = funnel.stages;
   const max = Math.max(...stages.map((s) => s.count), 1);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const baselineLabel = formatRangeLabel(baseline.start, baseline.end);
+  const cohort = funnel.mode === 'cohort';
+  const modeLabel = FUNNEL_MODE_LABELS[funnel.mode].label;
 
   const toneStyle = (tone: ChipTone): React.CSSProperties => {
     switch (tone) {
@@ -41,7 +50,12 @@ export const Funnel: React.FC<{
     }
   };
 
-  const open = openIndex === null ? null : openIndex === -1 ? { label: 'Previous leads', count: scorecard.funnel.previousLeads.count, contactIds: scorecard.funnel.previousLeads.contactIds, shareOfApplied: null } : stages[openIndex];
+  const open =
+    openIndex === null
+      ? null
+      : openIndex === -1
+        ? { label: 'Previous leads', count: funnel.previousLeads.count, contactIds: funnel.previousLeads.contactIds, shareOfApplied: null }
+        : stages[openIndex];
 
   return (
     <div className="space-y-0.5">
@@ -50,7 +64,7 @@ export const Funnel: React.FC<{
         const solidPct = (s.count / max) * 100;
         const ghostPct = prev ? (Math.max(0, prev.count - s.count) / max) * 100 : 0;
         const short = FUNNEL_STAGES[i].shortLabel;
-        const conv = i > 0 ? scorecard.conversions[i - 1] : null;
+        const conv = i > 0 ? conversions[i - 1] : null;
         const isEnrolled = s.key === 'enrolled';
         const barHeight = rowHeight ?? (compact ? 22 : 30);
 
@@ -62,12 +76,12 @@ export const Funnel: React.FC<{
                 <span
                   className="inline-flex items-center gap-1.5 h-[22px] px-2 rounded-[6px] text-[11.5px] font-medium tabular cursor-help"
                   style={toneStyle(conv.tone)}
-                  title={`${formatPct(conv.current)} of ${prev!.label.toLowerCase()} reached ${s.label.toLowerCase()} · vs trailing 8-week avg (${baselineLabel})${
+                  title={`${formatPct(conv.current)} of ${prev!.label.toLowerCase()} ${cohort ? 'have since reached' : 'reached'} ${s.label.toLowerCase()} (${modeLabel}) · vs trailing 8-week avg (${baselineLabel}, same mode)${
                     conv.previous !== null ? ` · comparison period ${formatPct(conv.previous)}` : ''
                   }`}
                 >
                   {formatPct(conv.current)} → {short === 'client' ? 'enrolled' : s.label.toLowerCase()}
-                  <span style={{ opacity: 0.75 }}>· {s.dropOff} dropped</span>
+                  <span style={{ opacity: 0.75 }}>· {s.dropOff} {cohort ? 'not yet' : 'dropped'}</span>
                 </span>
               </div>
             )}
@@ -107,11 +121,10 @@ export const Funnel: React.FC<{
                 {ghostPct > 0 && (
                   <div
                     className="h-full rounded-r-[5px] transition-[width] duration-500"
-                    title={`${s.dropOff} dropped since ${prev!.label}`}
+                    title={`${s.dropOff} ${cohort ? 'have not reached this stage yet' : `dropped since ${prev!.label}`}`}
                     style={{
                       width: `${ghostPct}%`,
-                      background:
-                        'repeating-linear-gradient(135deg, var(--negative-muted) 0 6px, transparent 6px 12px)',
+                      background: 'repeating-linear-gradient(135deg, var(--negative-muted) 0 6px, transparent 6px 12px)',
                       border: '1px dashed var(--negative-border)',
                       borderLeft: 'none',
                     }}
@@ -119,10 +132,7 @@ export const Funnel: React.FC<{
                 )}
               </div>
 
-              <div
-                className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular"
-                style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}
-              >
+              <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}>
                 {s.count}
               </div>
             </button>
@@ -130,13 +140,13 @@ export const Funnel: React.FC<{
         );
       })}
 
-      {scorecard.funnel.previousLeads.count > 0 && (
+      {funnel.previousLeads.count > 0 && (
         <button
           type="button"
           onClick={() => setOpenIndex(-1)}
           className="group focus-ring w-full flex items-center gap-3 rounded-[8px] px-1.5 py-1 mt-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
           style={{ borderTop: '1px dashed var(--border-subtle)' }}
-          title="Parked previous leads — counted here, never in the conversion chain above"
+          title={cohort ? 'Cohort members parked as previous leads after applying — outside the conversion chain' : 'Parked previous leads — counted here, never in the conversion chain above'}
         >
           <div className="w-[148px] shrink-0">
             <div className="text-[13px] font-medium leading-tight" style={{ color: 'var(--text-tertiary)' }}>
@@ -150,7 +160,7 @@ export const Funnel: React.FC<{
             <div
               className="h-full rounded-[5px]"
               style={{
-                width: `${Math.min(100, (scorecard.funnel.previousLeads.count / max) * 100)}%`,
+                width: `${Math.min(100, (funnel.previousLeads.count / max) * 100)}%`,
                 minWidth: 6,
                 background: 'repeating-linear-gradient(135deg, var(--surface-sunken) 0 6px, transparent 6px 12px)',
                 border: '1px dashed var(--border-default)',
@@ -158,14 +168,14 @@ export const Funnel: React.FC<{
             />
           </div>
           <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: 'var(--text-tertiary)' }}>
-            {scorecard.funnel.previousLeads.count}
+            {funnel.previousLeads.count}
           </div>
         </button>
       )}
 
-      <div className="flex items-center gap-4 pt-3 text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
+      <div className="flex flex-wrap items-center gap-4 pt-3 text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
         <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--accent)' }} /> at stage
+          <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--accent)' }} /> {cohort ? 'reached (ever)' : 'at stage'}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--positive)' }} /> enrolled
@@ -178,16 +188,24 @@ export const Funnel: React.FC<{
               border: '1px dashed var(--negative-border)',
             }}
           />{' '}
-          dropped since previous stage
+          {cohort ? 'not reached yet' : 'dropped since previous stage'}
         </span>
-        <span>chips vs trailing 8-week avg ({baselineLabel}) · click a bar for names</span>
+        <span>
+          {modeLabel} · chips vs trailing 8-week avg ({baselineLabel}) · click a bar for names
+        </span>
       </div>
 
       <PeopleDrawer
         open={open !== null}
         onClose={() => setOpenIndex(null)}
         title={open ? `${open.label} · ${open.count}` : ''}
-        subtitle={open ? (openIndex === -1 ? `${rangeLabel} · parked previous leads, outside conversion math` : `${rangeLabel} · ${formatPct(open.shareOfApplied)} of applied`) : undefined}
+        subtitle={
+          open
+            ? openIndex === -1
+              ? `${rangeLabel} · parked previous leads, outside conversion math`
+              : `${rangeLabel} · ${modeLabel} · ${formatPct(open.shareOfApplied)} of applied`
+            : undefined
+        }
         contactIds={open?.contactIds ?? []}
       />
     </div>
