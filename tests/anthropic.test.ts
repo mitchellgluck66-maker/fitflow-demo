@@ -56,6 +56,7 @@ function fakeResult(): ScorecardResult {
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: [], comparison: null },
     trendWeeklyCohort: { current: [], comparison: null },
+    trailingWeeks: [],
     ads: { kpis: computeAdsKpis(INPUT, R), previousKpis: null, campaigns: [], previousCampaigns: null },
     revenue: computeRevenueSummary(INPUT, R),
   };

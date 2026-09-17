@@ -48,6 +48,8 @@ export interface ScorecardResult {
   trendWeekly: { current: TrendPoint[]; comparison: TrendPoint[] | null };
   /** Same weeks in cohort mode: each week's applicants and what they reached since. */
   trendWeeklyCohort: { current: TrendPoint[]; comparison: TrendPoint[] | null };
+  /** The trailing 8 complete Sun–Sat weeks before the range, week by week (Ask-the-dashboard context). */
+  trailingWeeks: TrendPoint[];
   /** Ads tab: KPIs + campaign table (current and comparison period). */
   ads: { kpis: AdsKpis; previousKpis: AdsKpis | null; campaigns: CampaignRow[]; previousCampaigns: CampaignRow[] | null };
   /** Revenue tab. */
@@ -100,6 +102,7 @@ export async function getScorecard(params: {
       current: computeTrend(input, weekBuckets(range.start, range.end)),
       comparison: comparison.range ? computeTrend(input, weekBuckets(comparison.range.start, comparison.range.end)) : null,
     },
+    trailingWeeks: computeTrend(input, weekBuckets(baseline.start, baseline.end)),
     trendWeeklyCohort: {
       current: computeTrend(input, weekBuckets(range.start, range.end), 'cohort'),
       comparison: comparison.range ? computeTrend(input, weekBuckets(comparison.range.start, comparison.range.end), 'cohort') : null,

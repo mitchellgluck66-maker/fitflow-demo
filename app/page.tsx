@@ -7,6 +7,7 @@ import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck, Scale, Map } fro
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
 import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, Toast, SkeletonTile, SkeletonChart, Skeleton } from '@/components';
 import { InsightsCard } from '@/components/InsightsCard';
+import { AskCard } from '@/components/AskCard';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
@@ -299,7 +300,10 @@ function CommandCenter() {
             )}
           </Card>
 
-          <InsightsCard rangeKey={`${range.start}:${range.end}:${comparison.mode}`} />
+          <div className="space-y-3">
+            <InsightsCard rangeKey={`${range.start}:${range.end}:${comparison.mode}`} />
+            <AskCard />
+          </div>
         </div>
       </PageBody>
 
