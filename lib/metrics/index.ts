@@ -1014,6 +1014,8 @@ export interface Scorecard {
   /** Paid CAC, Blended CAC, ROAS (paid initial cash), LTV:CAC, cost per roadmap. */
   marketing: MarketingMetrics;
   showRates: ShowRate[];
+  /** Show rates for the comparison period (delta chips on the Scorecard view). */
+  previousShowRates: ShowRate[] | null;
   kpis: {
     /** Total net cash (all classes). The Revenue tab shows it; marketing tiles use initialCents. */
     revenueCents: Delta;
@@ -1091,6 +1093,7 @@ export function computeScorecard(
     revenue,
     marketing,
     showRates: computeShowRates(input, range),
+    previousShowRates: comparisonRange ? computeShowRates(input, comparisonRange) : null,
     kpis: {
       revenueCents: computeDelta(revenue.awaitingStripe ? null : revenue.collectedCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.collectedCents : null),
       initialCents: computeDelta(revenue.awaitingStripe ? null : revenue.initialCents, prevRevenue && !prevRevenue.awaitingStripe ? prevRevenue.initialCents : null),

@@ -17,6 +17,7 @@ const OUT = path.join(process.cwd(), 'docs', 'screens');
 
 const PAGES: Array<{ name: string; path: string; settle?: number }> = [
   { name: 'command-center', path: '/?range=last_30_days&compare=previous_period' },
+  { name: 'scorecard', path: '/scorecard?range=last_week&compare=previous_period' },
   { name: 'funnel', path: '/funnel?range=last_30_days&compare=previous_period' },
   { name: 'ads', path: '/ads?range=last_30_days&compare=previous_period' },
   { name: 'revenue', path: '/revenue?range=last_30_days&compare=previous_period' },

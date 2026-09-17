@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronRight } from 'lucide-react';
-import { formatPct, type Scorecard, type ChipTone } from '@/lib/metrics';
+import { formatPct, FUNNEL_MODE_LABELS, type Funnel, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
 
 /**
@@ -12,12 +12,18 @@ import { RadialRing } from './RadialRing';
  * summary, not the chart: the proportional bars, drop-off and people drawer
  * live on /funnel, which this whole strip links to.
  */
+export type StripConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone };
+
 export const FunnelStrip: React.FC<{
-  scorecard: Scorecard;
+  /** Either mode — the strip labels itself from `funnel.mode`. */
+  funnel: Funnel;
+  conversions: StripConversion[];
   href: string;
   rangeLabel: string;
-}> = ({ scorecard, href, rangeLabel }) => {
-  const stages = scorecard.funnel.stages;
+  title?: string;
+}> = ({ funnel, conversions, href, rangeLabel, title }) => {
+  const stages = funnel.stages;
+  const heading = title ?? (funnel.mode === 'cohort' ? `Funnel · ${FUNNEL_MODE_LABELS.cohort.label}` : 'Funnel');
 
   const chip = (tone: ChipTone): React.CSSProperties => {
     switch (tone) {
@@ -42,15 +48,15 @@ export const FunnelStrip: React.FC<{
       <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[11.5px] font-medium uppercase tracking-[0.045em]" style={{ color: 'var(--text-tertiary)' }}>
-            Funnel
+            {heading}
           </span>
           <span className="text-[11.5px] truncate" style={{ color: 'var(--text-quaternary)' }}>
             {rangeLabel}
           </span>
         </div>
-        {scorecard.funnel.previousLeads.count > 0 && (
+        {funnel.previousLeads.count > 0 && (
           <span className="text-[11px] shrink-0" style={{ color: 'var(--text-quaternary)' }} title="Parked previous leads — not in the conversion chain">
-            + {scorecard.funnel.previousLeads.count} previous lead{scorecard.funnel.previousLeads.count === 1 ? '' : 's'} parked
+            + {funnel.previousLeads.count} previous lead{funnel.previousLeads.count === 1 ? '' : 's'} parked
           </span>
         )}
         <span className="inline-flex items-center gap-1 text-[12px] font-medium shrink-0" style={{ color: 'var(--accent)' }}>
@@ -61,7 +67,7 @@ export const FunnelStrip: React.FC<{
 
       <div className="flex items-stretch gap-1 overflow-x-auto">
         {stages.map((s, i) => {
-          const conv = i > 0 ? scorecard.conversions[i - 1] : null;
+          const conv = i > 0 ? conversions[i - 1] : null;
           const isEnrolled = s.key === 'enrolled';
           return (
             <React.Fragment key={s.key}>

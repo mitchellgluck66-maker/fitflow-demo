@@ -248,7 +248,7 @@ function CommandCenter() {
         </div>
 
         {/* ---- Funnel summary strip (the deep-dive lives on /funnel) ---- */}
-        <FunnelStrip scorecard={scorecard} href={`/funnel?${search.toString()}`} rangeLabel={`${range.presetLabel} · ${range.resolvedLabel}`} />
+        <FunnelStrip funnel={scorecard.funnel} conversions={scorecard.conversions} href={`/funnel?${search.toString()}`} rangeLabel={`${range.presetLabel} · ${range.resolvedLabel}`} />
 
         {/* ---- Trend + insights ---- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

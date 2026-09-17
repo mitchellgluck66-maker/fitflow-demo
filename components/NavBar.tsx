@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
   LayoutDashboard,
+  ClipboardList,
   Filter,
   Megaphone,
   Banknote,
@@ -20,6 +21,7 @@ import { GlobalSearch } from './GlobalSearch';
 
 const LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard, exact: true },
+  { href: '/scorecard', label: 'Scorecard', icon: ClipboardList },
   { href: '/funnel', label: 'Funnel', icon: Filter },
   { href: '/ads', label: 'Ads', icon: Megaphone },
   { href: '/revenue', label: 'Revenue', icon: Banknote },
