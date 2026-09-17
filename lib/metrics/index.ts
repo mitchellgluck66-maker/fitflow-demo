@@ -15,6 +15,11 @@
  *   roadmap_showed   contacts with a Roadmap appointment that showed in range
  *                    (or who entered the roadmap_showed role in range)
  *   enrolled         contacts who entered the enrolled role in range
+ *   previous leads   contacts who entered previous_lead in range — its own row,
+ *                    never in the stage chain; contacts CURRENTLY parked there
+ *                    are excluded from every stage above
+ *   awaiting rebook  (daily to-do) everyone currently in consult_rescheduled /
+ *                    roadmap_rescheduled, every day until they leave the role
  *   show rate        showed ÷ (showed + no-show), per appointment type
  *   cost per client  spend in range ÷ enrolled in range (null when 0 enrolled)
  *   cash collected   succeeded payments net of refunds, split by payment class:
@@ -179,6 +184,12 @@ export interface Funnel {
   range: Range;
   stages: FunnelStage[];
   spendCents: number;
+  /**
+   * Contacts who entered the `previous_lead` role in range. Shown as its own
+   * row; never part of the stage chain or its conversion math. Contacts whose
+   * CURRENT role is previous_lead are also left out of every stage above.
+   */
+  previousLeads: { count: number; contactIds: string[] };
 }
 
 function inRange(on: string | null, range: Range): boolean {
@@ -189,8 +200,15 @@ function uniq(ids: Iterable<string>): string[] {
   return Array.from(new Set(ids));
 }
 
-/** Contact ids per funnel stage for the range. */
+/** Contacts currently parked as previous leads — outside the active funnel. */
+function parkedIds(input: MetricsInput): Set<string> {
+  return new Set(input.contacts.filter((c) => c.role === 'previous_lead').map((c) => c.id));
+}
+
+/** Contact ids per funnel stage for the range (parked previous leads excluded). */
 export function funnelMembership(input: MetricsInput, range: Range): Record<FunnelStageKey, string[]> {
+  const parked = parkedIds(input);
+  const active = (ids: string[]) => uniq(ids.filter((id) => !parked.has(id)));
   const applied = input.contacts.filter((c) => inRange(c.appliedOn, range)).map((c) => c.id);
 
   const entered = (role: SemanticRole) =>
@@ -202,13 +220,18 @@ export function funnelMembership(input: MetricsInput, range: Range): Record<Funn
       .map((a) => a.contactId as string);
 
   return {
-    applied: uniq(applied),
-    consult_booked: uniq(entered('consult_booked')),
-    consult_showed: uniq(showed('Consult')),
-    roadmap_booked: uniq(entered('roadmap_booked')),
-    roadmap_showed: uniq([...showed('Roadmap'), ...entered('roadmap_showed')]),
-    enrolled: uniq(entered('enrolled')),
+    applied: active(applied),
+    consult_booked: active(entered('consult_booked')),
+    consult_showed: active(showed('Consult')),
+    roadmap_booked: active(entered('roadmap_booked')),
+    roadmap_showed: active([...showed('Roadmap'), ...entered('roadmap_showed')]),
+    enrolled: active(entered('enrolled')),
   };
+}
+
+/** Contacts who entered `previous_lead` in range — the funnel's separate, non-converting row. */
+export function previousLeadMembership(input: MetricsInput, range: Range): string[] {
+  return uniq(input.transitions.filter((t) => t.toRole === 'previous_lead' && inRange(t.on, range)).map((t) => t.contactId));
 }
 
 export interface DailySpend {
@@ -331,7 +354,8 @@ export function computeFunnel(input: MetricsInput, range: Range): Funnel {
     });
   }
 
-  return { range, stages, spendCents };
+  const previous = previousLeadMembership(input, range);
+  return { range, stages, spendCents, previousLeads: { count: previous.length, contactIds: previous } };
 }
 
 // ---------------------------------------------------------------------------
@@ -777,10 +801,23 @@ export interface TodoPerson {
   on: string;
 }
 
+export type RebookKind = 'consult_rescheduled' | 'roadmap_rescheduled';
+
+export interface RebookPerson extends TodoPerson {
+  /** Whole days spent in the rescheduled role as of `today`. */
+  daysWaiting: number;
+}
+
 export interface TodoBuckets {
   today: string;
   day1: Record<TodoKind, TodoPerson[]>;
   day3: Record<TodoKind, TodoPerson[]>;
+  /**
+   * Persistent bucket: everyone whose CURRENT role is consult_rescheduled or
+   * roadmap_rescheduled, every day, until they leave the role (Miranda keeps
+   * following up until they rebook). `on` = the day they entered the role.
+   */
+  awaitingRebook: Record<RebookKind, RebookPerson[]>;
   total: number;
 }
 
@@ -788,6 +825,11 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   applied_no_booking: 'Applied, no consult booked',
   consult_noshow: 'Consult no-show',
   roadmap_noshow: 'Roadmap no-show',
+};
+
+export const REBOOK_LABELS: Record<RebookKind, string> = {
+  consult_rescheduled: 'Consult rescheduled — needs a new time',
+  roadmap_rescheduled: 'Roadmap rescheduled — needs a new time',
 };
 
 /**
@@ -843,8 +885,37 @@ export function computeTodoBuckets(input: MetricsInput, today: string): TodoBuck
 
   const day1 = bucketFor(1);
   const day3 = bucketFor(3);
-  const total = [...Object.values(day1), ...Object.values(day3)].reduce((s, l) => s + l.length, 0);
-  return { today, day1, day3, total };
+
+  // Awaiting rebook: current role is a rescheduled role. Dated by the latest
+  // transition INTO that role (fallback: applied date), so the email can say
+  // how long they have been waiting.
+  const awaitingRebook: Record<RebookKind, RebookPerson[]> = { consult_rescheduled: [], roadmap_rescheduled: [] };
+  const lastEntry = new Map<string, string>();
+  for (const t of input.transitions) {
+    if (t.toRole !== 'consult_rescheduled' && t.toRole !== 'roadmap_rescheduled') continue;
+    const key = `${t.contactId}:${t.toRole}`;
+    const prev = lastEntry.get(key);
+    if (!prev || t.on > prev) lastEntry.set(key, t.on);
+  }
+  for (const c of input.contacts) {
+    if (c.role !== 'consult_rescheduled' && c.role !== 'roadmap_rescheduled') continue;
+    const on = lastEntry.get(`${c.id}:${c.role}`) ?? c.appliedOn ?? today;
+    awaitingRebook[c.role].push({ ...person(c, on), daysWaiting: Math.max(0, daysBetween(on, today)) });
+  }
+  for (const k of Object.keys(awaitingRebook) as RebookKind[]) {
+    awaitingRebook[k].sort((a, b) => b.daysWaiting - a.daysWaiting || a.name.localeCompare(b.name));
+  }
+
+  const total =
+    [...Object.values(day1), ...Object.values(day3)].reduce((s, l) => s + l.length, 0) +
+    Object.values(awaitingRebook).reduce((s, l) => s + l.length, 0);
+  return { today, day1, day3, awaitingRebook, total };
+}
+
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 }
 
 // ---------------------------------------------------------------------------

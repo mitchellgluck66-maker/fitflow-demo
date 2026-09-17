@@ -15,10 +15,13 @@ const ROLE_DESCRIPTIONS: Record<SemanticRole, string> = {
   applied: 'Submitted an application / new lead at the top of the funnel',
   consult_booked: 'Has a consult (discovery/intro call) booked',
   consult_noshow: 'Missed the consult',
+  consult_rescheduled: 'Consult was rescheduled / needs to be rebooked — followed up daily until it is',
   roadmap_booked: 'Has the roadmap / strategy session booked',
   roadmap_showed: 'Attended the roadmap session (including objection/undecided outcomes)',
+  roadmap_rescheduled: 'Roadmap session was rescheduled / needs to be rebooked — followed up daily until it is',
   enrolled: 'Became a paying client',
-  other: 'Not part of the funnel (archive, nurture, lost, previous leads, etc.)',
+  previous_lead: 'Parked older lead being re-engaged; counted on its own row, excluded from conversion math',
+  other: 'Not part of the funnel (archive, nurture, lost, etc.)',
 };
 
 const RemapSchema = z.object({ role: z.string(), confidence: z.number().min(0).max(1), rationale: z.string().max(400) });

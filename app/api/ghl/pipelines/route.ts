@@ -3,7 +3,7 @@ import { db, stages, pipelines, syncIncidents } from '@/db';
 import { eq, isNull, and, desc } from 'drizzle-orm';
 import { listStages } from '@/lib/queries/contacts';
 import { isSemanticRole, ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
-import { isOffPipeline } from '@/lib/ghl/followed';
+import { isOffPipeline, isDefaultFollowedPipeline } from '@/lib/ghl/followed';
 import { resolveStageIncidents } from '@/lib/ghl/ingest';
 
 export const dynamic = 'force-dynamic';
@@ -40,6 +40,7 @@ export async function GET() {
         id: p.id,
         name: p.name,
         isTracked: p.isTracked,
+        isDefault: isDefaultFollowedPipeline(p.id),
         isOff: isOffPipeline(p.name),
         archived: p.archivedAt !== null,
         origin: p.origin,

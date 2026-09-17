@@ -64,6 +64,8 @@ interface PipelineRow {
   id: string;
   name: string;
   isTracked: boolean;
+  /** The hard-default funnel pipeline ("[new] Application Pipeline"). */
+  isDefault: boolean;
   /** Named "{ Off }..." in GHL — retired; sorted last, never suggested. */
   isOff: boolean;
   archived: boolean;
@@ -121,9 +123,12 @@ const ROLE_VARIANT: Record<string, 'info' | 'accent' | 'warning' | 'danger' | 's
   applied: 'info',
   consult_booked: 'accent',
   consult_noshow: 'warning',
+  consult_rescheduled: 'warning',
   roadmap_booked: 'accent',
   roadmap_showed: 'accent',
+  roadmap_rescheduled: 'warning',
   enrolled: 'success',
+  previous_lead: 'neutral',
   other: 'neutral',
 };
 
@@ -333,6 +338,11 @@ export default function SetupPage() {
       <span className="text-[12.5px] font-medium" style={{ color: 'var(--text-tertiary)' }}>
         {p.name}
       </span>
+      {p.isDefault && (
+        <Badge variant="accent" size="xs">
+          default funnel — unfollowed
+        </Badge>
+      )}
       {p.isOff && (
         <Badge variant="neutral" size="xs">
           retired
@@ -583,7 +593,7 @@ export default function SetupPage() {
                 ? 'No pipelines yet'
                 : `${followedPipelines.length} followed of ${pipelines.pipelines.length}${unmapped.length ? ` · ${unmapped.length} unmapped` : ''}`
           }
-          subtitle="Syncs mirror every pipeline; only followed ones drive dashboards, metrics and email digests."
+          subtitle="Syncs mirror every pipeline; only followed ones drive dashboards, metrics and email digests. The [new] Application Pipeline is followed by default."
           icon={GitBranch}
           defaultOpen={unmapped.length > 0 || ((pipelines?.pipelines.length ?? 0) > 0 && followedPipelines.length === 0)}
           action={stepBadge(
@@ -633,6 +643,13 @@ export default function SetupPage() {
                       <span className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
                         {p.name}
                       </span>
+                      {p.isDefault && (
+                        <span title="Followed by default — the CEO's funnel pipeline">
+                          <Badge variant="accent" size="xs">
+                            default funnel
+                          </Badge>
+                        </span>
+                      )}
                       {p.isOff && (
                         <Badge variant="neutral" size="xs">
                           retired

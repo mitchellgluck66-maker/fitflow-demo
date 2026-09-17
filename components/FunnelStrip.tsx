@@ -48,6 +48,11 @@ export const FunnelStrip: React.FC<{
             {rangeLabel}
           </span>
         </div>
+        {scorecard.funnel.previousLeads.count > 0 && (
+          <span className="text-[11px] shrink-0" style={{ color: 'var(--text-quaternary)' }} title="Parked previous leads — not in the conversion chain">
+            + {scorecard.funnel.previousLeads.count} previous lead{scorecard.funnel.previousLeads.count === 1 ? '' : 's'} parked
+          </span>
+        )}
         <span className="inline-flex items-center gap-1 text-[12px] font-medium shrink-0" style={{ color: 'var(--accent)' }}>
           Open funnel
           <ArrowRight size={13} strokeWidth={2.3} className="transition-transform duration-200 group-hover:translate-x-0.5" />

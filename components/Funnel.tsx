@@ -41,7 +41,7 @@ export const Funnel: React.FC<{
     }
   };
 
-  const open = openIndex !== null ? stages[openIndex] : null;
+  const open = openIndex === null ? null : openIndex === -1 ? { label: 'Previous leads', count: scorecard.funnel.previousLeads.count, contactIds: scorecard.funnel.previousLeads.contactIds, shareOfApplied: null } : stages[openIndex];
 
   return (
     <div className="space-y-0.5">
@@ -130,6 +130,39 @@ export const Funnel: React.FC<{
         );
       })}
 
+      {scorecard.funnel.previousLeads.count > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpenIndex(-1)}
+          className="group focus-ring w-full flex items-center gap-3 rounded-[8px] px-1.5 py-1 mt-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
+          style={{ borderTop: '1px dashed var(--border-subtle)' }}
+          title="Parked previous leads — counted here, never in the conversion chain above"
+        >
+          <div className="w-[148px] shrink-0">
+            <div className="text-[13px] font-medium leading-tight" style={{ color: 'var(--text-tertiary)' }}>
+              Previous leads
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-quaternary)' }}>
+              parked · not in conversion
+            </div>
+          </div>
+          <div className="flex-1 flex items-center" style={{ height: rowHeight ?? (compact ? 22 : 30) }}>
+            <div
+              className="h-full rounded-[5px]"
+              style={{
+                width: `${Math.min(100, (scorecard.funnel.previousLeads.count / max) * 100)}%`,
+                minWidth: 6,
+                background: 'repeating-linear-gradient(135deg, var(--surface-sunken) 0 6px, transparent 6px 12px)',
+                border: '1px dashed var(--border-default)',
+              }}
+            />
+          </div>
+          <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: 'var(--text-tertiary)' }}>
+            {scorecard.funnel.previousLeads.count}
+          </div>
+        </button>
+      )}
+
       <div className="flex items-center gap-4 pt-3 text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
         <span className="inline-flex items-center gap-1.5">
           <span className="w-3 h-2 rounded-[2px]" style={{ background: 'var(--accent)' }} /> at stage
@@ -154,7 +187,7 @@ export const Funnel: React.FC<{
         open={open !== null}
         onClose={() => setOpenIndex(null)}
         title={open ? `${open.label} · ${open.count}` : ''}
-        subtitle={open ? `${rangeLabel} · ${formatPct(open.shareOfApplied)} of applied` : undefined}
+        subtitle={open ? (openIndex === -1 ? `${rangeLabel} · parked previous leads, outside conversion math` : `${rangeLabel} · ${formatPct(open.shareOfApplied)} of applied`) : undefined}
         contactIds={open?.contactIds ?? []}
       />
     </div>

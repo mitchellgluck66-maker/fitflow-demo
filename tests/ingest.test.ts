@@ -11,6 +11,7 @@ import { db, pipelines, stages, contacts, appointments, stageTransitions, syncRu
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
 import { runGhlSync } from '@/lib/ghl/ingest';
+import { DEFAULT_FOLLOWED_PIPELINE_ID } from '@/lib/ghl/followed';
 
 type Json = Record<string, unknown>;
 
@@ -23,7 +24,7 @@ const account = {
       stages: [
         { id: 'st-applied', name: 'Applied', position: 0 },
         { id: 'st-consult', name: 'Consult Booked', position: 1 },
-        { id: 'st-weird', name: 'Previous Leads', position: 2 },
+        { id: 'st-weird', name: 'Nurture Bucket', position: 2 },
         { id: 'st-enrolled', name: 'Enrolled', position: 3 },
       ],
     },
@@ -119,7 +120,7 @@ describe('runGhlSync', () => {
     expect(stageRows.map((s) => [s.name, s.semanticRole, s.roleSource])).toEqual([
       ['Applied', 'applied', 'auto'],
       ['Consult Booked', 'consult_booked', 'auto'],
-      ['Previous Leads', null, 'unmapped'],
+      ['Nurture Bucket', null, 'unmapped'],
       ['Enrolled', 'enrolled', 'auto'],
     ]);
     expect(stageRows.every((s) => s.source === 'ghl' && s.backfilled && s.origin === 'ghl')).toBe(true);
@@ -255,6 +256,30 @@ describe('runGhlSync', () => {
 
     const [jane] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
     expect(jane.pipelineId).toBe('pipe-1');
+  });
+
+  it('the hard-default funnel pipeline is followed on first sight; a later unfollow is respected', async () => {
+    account.pipelines.push({
+      id: DEFAULT_FOLLOWED_PIPELINE_ID,
+      name: '[new] Application Pipeline',
+      stages: [
+        { id: 'st-new-applied', name: 'Applied', position: 0 },
+        { id: 'st-new-resched', name: 'Consult Rescheduled', position: 1 },
+        { id: 'st-new-prev', name: 'Previous Leads', position: 2 },
+      ],
+    });
+    const result = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(result.ok).toBe(true);
+    const [row] = await db.select().from(pipelines).where(eq(pipelines.id, DEFAULT_FOLLOWED_PIPELINE_ID));
+    expect(row.isTracked).toBe(true);
+    const roles = Object.fromEntries((await db.select().from(stages).where(eq(stages.pipelineId, DEFAULT_FOLLOWED_PIPELINE_ID))).map((s) => [s.name, s.semanticRole]));
+    expect(roles).toEqual({ Applied: 'applied', 'Consult Rescheduled': 'consult_rescheduled', 'Previous Leads': 'previous_lead' });
+
+    // A human unfollows it; the next sync must not re-follow.
+    await db.update(pipelines).set({ isTracked: false }).where(eq(pipelines.id, DEFAULT_FOLLOWED_PIPELINE_ID));
+    await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect((await db.select().from(pipelines).where(eq(pipelines.id, DEFAULT_FOLLOWED_PIPELINE_ID)))[0].isTracked).toBe(false);
+    account.pipelines.pop();
   });
 
   it('re-matches unmatched Stripe payments as soon as a sync lands contacts', async () => {

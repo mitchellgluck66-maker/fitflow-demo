@@ -275,6 +275,75 @@ describe('daily to-do buckets', () => {
   it('is empty when nothing happened', () => {
     expect(computeTodoBuckets(FIXTURE, '2026-09-30').total).toBe(0);
   });
+
+  it('awaiting rebook: everyone in a rescheduled role, every day, dated from when they entered it', () => {
+    const withResched: MetricsInput = {
+      ...FIXTURE,
+      contacts: [
+        ...FIXTURE.contacts,
+        c('r1', 'Ria', 'Facebook', '2026-08-01', 'consult_rescheduled'),
+        c('r2', 'Rob', 'Google', '2026-07-20', 'roadmap_rescheduled'),
+        c('r3', 'Rue', null, '2026-08-02', 'consult_rescheduled'),
+      ],
+      transitions: [
+        ...FIXTURE.transitions,
+        t('r1', 'consult_booked', 'consult_rescheduled', '2026-08-03'),
+        t('r2', 'roadmap_booked', 'roadmap_rescheduled', '2026-07-25'),
+        t('r2', 'roadmap_rescheduled', 'roadmap_booked', '2026-07-28'),
+        t('r2', 'roadmap_booked', 'roadmap_rescheduled', '2026-08-05'), // latest entry wins
+        // r3 has no transition into the role → falls back to applied date
+      ],
+    };
+    const day = (d: string) => computeTodoBuckets(withResched, d);
+    const b = day('2026-08-07');
+    expect(b.awaitingRebook.consult_rescheduled.map((p) => [p.name, p.on, p.daysWaiting])).toEqual([
+      ['Rue', '2026-08-02', 5],
+      ['Ria', '2026-08-03', 4],
+    ]);
+    expect(b.awaitingRebook.roadmap_rescheduled.map((p) => [p.name, p.on, p.daysWaiting])).toEqual([['Rob', '2026-08-05', 2]]);
+    expect(b.total).toBe(2 + 3); // Day-1/Day-3 (Bob, Hal) + 3 awaiting rebook
+    // Still there the next day — and the day after — until they leave the role.
+    expect(day('2026-08-08').awaitingRebook.consult_rescheduled).toHaveLength(2);
+    expect(day('2026-08-20').awaitingRebook.roadmap_rescheduled[0].daysWaiting).toBe(15);
+    // Leaving the role drops them immediately.
+    const rebooked: MetricsInput = { ...withResched, contacts: withResched.contacts.map((x) => (x.id === 'r1' ? { ...x, role: 'consult_booked' as never } : x)) };
+    expect(computeTodoBuckets(rebooked, '2026-08-08').awaitingRebook.consult_rescheduled.map((p) => p.name)).toEqual(['Rue']);
+  });
+});
+
+describe('previous leads (parked)', () => {
+  const parked: MetricsInput = {
+    ...FIXTURE,
+    contacts: [
+      ...FIXTURE.contacts,
+      c('pl1', 'Pat', 'Facebook', '2026-08-03', 'previous_lead'), // applied in R, then parked in R
+      c('pl2', 'Pam', 'Google', '2026-05-01', 'previous_lead'), // old lead parked in R
+    ],
+    transitions: [
+      ...FIXTURE.transitions,
+      t('pl1', null, 'applied', '2026-08-03'),
+      t('pl1', 'applied', 'consult_booked', '2026-08-04'),
+      t('pl1', 'consult_booked', 'previous_lead', '2026-08-06'),
+      t('pl2', 'applied', 'previous_lead', '2026-08-05'),
+    ],
+  };
+
+  it('counts entries into previous_lead as their own row, outside the stage chain', () => {
+    const f = computeFunnel(parked, R);
+    expect(f.previousLeads).toEqual({ count: 2, contactIds: ['pl1', 'pl2'] });
+    expect(f.stages.map((s) => s.key)).not.toContain('previous_lead');
+  });
+
+  it('parked contacts are excluded from every active stage and from conversion math', () => {
+    const f = computeFunnel(parked, R);
+    const base = computeFunnel(FIXTURE, R);
+    expect(f.stages.map((s) => [s.key, s.count])).toEqual(base.stages.map((s) => [s.key, s.count]));
+    expect(f.stages[1].conversionFromPrevious).toBe(base.stages[1].conversionFromPrevious);
+  });
+
+  it('nothing parked → empty row', () => {
+    expect(computeFunnel(FIXTURE, R).previousLeads).toEqual({ count: 0, contactIds: [] });
+  });
 });
 
 describe('scorecard (what tiles + emails render)', () => {

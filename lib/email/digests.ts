@@ -7,7 +7,7 @@
  */
 
 import { getScorecard, getTodoBuckets } from '../metrics/service';
-import { FUNNEL_STAGES, TODO_LABELS, formatCents, formatPct, formatDelta, type Delta, type TodoKind } from '../metrics';
+import { FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, formatCents, formatPct, formatDelta, type Delta, type TodoKind, type RebookKind } from '../metrics';
 import { formatLongDate, formatRangeLabel } from '../dates';
 import { shell, sectionTitle, note, statRow, table, peopleList, textHeader, textTable, escapeHtml } from './templates';
 import { getNarrative } from '../anthropic/narrative';
@@ -52,10 +52,21 @@ export async function buildDailyTodo(today?: string): Promise<Digest> {
     );
   };
 
+  const REBOOK_ORDER: RebookKind[] = ['consult_rescheduled', 'roadmap_rescheduled'];
+  const rebookCount = REBOOK_ORDER.reduce((s, k) => s + buckets.awaitingRebook[k].length, 0);
+  const rebookSection =
+    sectionTitle('Awaiting rebook', `${rebookCount} ${rebookCount === 1 ? 'person' : 'people'} · listed every day until they rebook`) +
+    REBOOK_ORDER.map(
+      (k) =>
+        `<div style="font-size:12.5px;font-weight:600;color:#55585e;margin-top:8px;">${REBOOK_LABELS[k]} (${buckets.awaitingRebook[k].length})</div>` +
+        peopleList(buckets.awaitingRebook[k].map((p) => ({ ...p, on: `${p.on} · waiting ${p.daysWaiting} day${p.daysWaiting === 1 ? '' : 's'}` }))),
+    ).join('');
+
   const bodyHtml =
     (buckets.total === 0 ? note('Nothing needs a call today.') : '') +
     section('Day-1 follow-ups', buckets.day1) +
-    section('Day-3 follow-ups', buckets.day3);
+    section('Day-3 follow-ups', buckets.day3) +
+    rebookSection;
 
   const textLines = textHeader('Daily to-do', title);
   for (const [label, bucket] of [
@@ -69,6 +80,14 @@ export async function buildDailyTodo(today?: string): Promise<Digest> {
     }
     textLines.push('');
   }
+  textLines.push('AWAITING REBOOK (every day until they rebook)', '-'.repeat(40));
+  for (const k of REBOOK_ORDER) {
+    textLines.push(`${REBOOK_LABELS[k]} (${buckets.awaitingRebook[k].length})`);
+    for (const p of buckets.awaitingRebook[k]) {
+      textLines.push(`  - ${p.name} — ${p.email ?? 'no email'} — ${p.source ?? 'source unknown'} — since ${p.on} (${p.daysWaiting} day${p.daysWaiting === 1 ? '' : 's'})`);
+    }
+  }
+  textLines.push('');
 
   return {
     kind: 'daily_todo',
@@ -78,9 +97,9 @@ export async function buildDailyTodo(today?: string): Promise<Digest> {
     html: shell({
       kicker: 'Daily to-do',
       title,
-      subtitle: 'Day-1 and Day-3 follow-ups',
+      subtitle: 'Day-1 and Day-3 follow-ups · awaiting rebook',
       bodyHtml,
-      footerNote: 'Day-1 = happened yesterday. Day-3 = three days ago and still not moved. Read-only mirror of GoHighLevel.',
+      footerNote: 'Day-1 = happened yesterday. Day-3 = three days ago and still not moved. Awaiting rebook = in a rescheduled stage; repeats daily until they leave it. Read-only mirror of GoHighLevel.',
     }),
     text: textLines.join('\n'),
     empty: buckets.total === 0,
@@ -158,6 +177,9 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
     s.conversionFromPrevious === null ? '—' : formatPct(s.conversionFromPrevious),
     s.costPerCents === null ? '—' : formatCents(s.costPerCents),
   ]);
+  if (scorecard.funnel.previousLeads.count > 0) {
+    funnelRows.push(['Previous leads (parked, not in conversion)', String(scorecard.funnel.previousLeads.count), '—', '—', '—']);
+  }
   const showRows = scorecard.showRates.map((s) => [s.type, String(s.showed), String(s.noShow), String(s.cancelled), formatPct(s.rate)]);
   const sourceRows = scorecard.sources
     .slice(0, 8)

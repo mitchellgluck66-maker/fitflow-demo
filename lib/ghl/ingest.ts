@@ -50,6 +50,7 @@ import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 import { runPaymentMatching } from '../stripe/matching';
 import { classifyAttribution } from '../attribution/classify';
+import { isDefaultFollowedPipeline } from './followed';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -177,6 +178,9 @@ export async function syncPipelines(options: { backfilled: boolean; now: Date })
         name: p.name || 'Untitled pipeline',
         locationId: p.locationId ?? null,
         position: pIndex,
+        // Followed on first sight only for the hard-default funnel pipeline;
+        // the conflict clause below never touches a stored (human) choice.
+        isTracked: isDefaultFollowedPipeline(p.id),
         archivedAt: null,
         source: 'ghl',
         origin: 'ghl',

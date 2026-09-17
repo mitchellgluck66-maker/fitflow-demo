@@ -22,8 +22,26 @@ describe('semantic role mapper', () => {
     expect(s.confidence).toBeLessThan(AUTO_THRESHOLD);
   });
 
+  it('Phase G roles: rescheduled and previous-lead stages map to their own roles', () => {
+    expect(suggestRole('Consult Rescheduled')).toMatchObject({ role: 'consult_rescheduled', confident: true });
+    expect(suggestRole('Consult Booked (Rescheduled)')).toMatchObject({ role: 'consult_rescheduled', confident: true });
+    expect(suggestRole('Roadmap Rescheduled')).toMatchObject({ role: 'roadmap_rescheduled', confident: true });
+    expect(suggestRole('Pre-Roadmap Rescheduled')).toMatchObject({ role: 'roadmap_rescheduled', confident: true });
+    expect(suggestRole('Previous Leads')).toMatchObject({ role: 'previous_lead', confident: true });
+    expect(suggestRole('Old Leads')).toMatchObject({ role: 'previous_lead', confident: true });
+  });
+
+  it('a rescheduled stage never auto-maps to a plain booking, and vice versa', () => {
+    const r = suggestRole('Consult Booked - Rescheduling');
+    expect(r.confident).toBe(false);
+    expect(r.role).not.toBe('consult_booked');
+    const b = suggestRole('Consult Booked');
+    expect(b).toMatchObject({ role: 'consult_booked', confident: true });
+    expect(suggestRole('Roadmap Booked').role).toBe('roadmap_booked');
+  });
+
   it('surfaces unknown stages instead of guessing', () => {
-    const s = suggestRole('Previous Leads');
+    const s = suggestRole('Some Random Parking Lot');
     expect(s.confident).toBe(false);
     const t = suggestRole('Zzz Totally Custom');
     expect(t.confident).toBe(false);

@@ -20,11 +20,17 @@ export const ROLE_LABELS: Record<SemanticRole, string> = {
   applied: 'Applied',
   consult_booked: 'Consult booked',
   consult_noshow: 'Consult no-show',
+  consult_rescheduled: 'Consult rescheduled (awaiting rebook)',
   roadmap_booked: 'Roadmap booked',
   roadmap_showed: 'Roadmap showed',
+  roadmap_rescheduled: 'Roadmap rescheduled (awaiting rebook)',
   enrolled: 'Enrolled',
+  previous_lead: 'Previous lead (parked, outside conversion math)',
   other: 'Other (excluded from funnel)',
 };
+
+/** Roles whose occupants must be chased every day until they rebook (daily to-do "awaiting rebook"). */
+export const RESCHEDULED_ROLES: readonly SemanticRole[] = ['consult_rescheduled', 'roadmap_rescheduled'];
 
 /** Funnel order used for display and stage→stage conversion. */
 export const FUNNEL_ROLE_ORDER: SemanticRole[] = [
@@ -34,6 +40,8 @@ export const FUNNEL_ROLE_ORDER: SemanticRole[] = [
   'roadmap_showed',
   'enrolled',
 ];
+// consult_rescheduled / roadmap_rescheduled are holding states (their
+// occupants are chased daily), previous_lead is parked — none is a funnel step.
 
 /** Known spellings per role. Order matters only for tie-breaks. */
 const ROLE_ALIASES: Record<Exclude<SemanticRole, 'other'>, string[]> = {
@@ -46,7 +54,24 @@ const ROLE_ALIASES: Record<Exclude<SemanticRole, 'other'>, string[]> = {
     'Intro Call Booked',
   ],
   consult_noshow: ['Consult No Show', 'Consultation No Show', 'Consult No-Show', 'Discovery No Show'],
+  consult_rescheduled: [
+    'Consult Rescheduled',
+    'Consult Reschedule',
+    'Consult Booked (Rescheduled)',
+    'Consult Rescheduling',
+    'Consult Needs Rebook',
+    'Consultation Rescheduled',
+    'Discovery Call Rescheduled',
+  ],
   roadmap_booked: ['Pre-Roadmap Booked', 'Roadmap Booked', 'Roadmap Scheduled', 'Strategy Session Booked'],
+  roadmap_rescheduled: [
+    'Roadmap Rescheduled',
+    'Roadmap Reschedule',
+    'Pre-Roadmap Rescheduled',
+    'Roadmap Booked (Rescheduled)',
+    'Roadmap Needs Rebook',
+    'Strategy Session Rescheduled',
+  ],
   roadmap_showed: [
     'Roadmap Showed',
     'Roadmap Completed',
@@ -55,6 +80,7 @@ const ROLE_ALIASES: Record<Exclude<SemanticRole, 'other'>, string[]> = {
     'Roadmap Done',
   ],
   enrolled: ['Enrolled', 'Closed Won', 'Won', 'Client', 'Signed'],
+  previous_lead: ['Previous Leads', 'Previous Lead', 'Old Leads', 'Past Leads', 'Previous Applicants', 'Re-engage Previous Leads'],
 };
 
 /** Below this the mapper does not commit; the stage is surfaced for review. */
@@ -129,6 +155,25 @@ export function suggestRole(stageName: string): RoleSuggestion {
   // booking. A no-show name never maps to a booked/showed role automatically.
   const isNoShow = tokens(stageName).has('noshow');
   if (isNoShow && best.role !== 'consult_noshow') {
+    best = { ...best, score: Math.min(best.score, AUTO_THRESHOLD - 0.01) };
+  }
+  // Same for reschedules: "Consult Booked (Rescheduled)" contains "Consult
+  // Booked" but is NOT a fresh booking — only a *_rescheduled role may win it.
+  const isRescheduled = /resched|rebook/i.test(stageName);
+  if (isRescheduled && best.role !== 'consult_rescheduled' && best.role !== 'roadmap_rescheduled') {
+    // Suggest the closest *_rescheduled role instead (still below threshold
+    // unless an alias matched outright — a human confirms).
+    let alt: { role: SemanticRole; score: number; alias: string | null } = { role: 'consult_rescheduled', score: 0, alias: null };
+    for (const role of ['consult_rescheduled', 'roadmap_rescheduled'] as const) {
+      for (const alias of ROLE_ALIASES[role]) {
+        const score = similarity(stageName, alias);
+        if (score > alt.score) alt = { role, score, alias };
+      }
+    }
+    best = { ...alt, score: Math.min(alt.score, AUTO_THRESHOLD - 0.01) };
+  }
+  // And a rescheduled role never wins a plain booking.
+  if (!isRescheduled && (best.role === 'consult_rescheduled' || best.role === 'roadmap_rescheduled')) {
     best = { ...best, score: Math.min(best.score, AUTO_THRESHOLD - 0.01) };
   }
 
