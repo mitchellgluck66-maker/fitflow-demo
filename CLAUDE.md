@@ -199,7 +199,12 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - Stripe (`lib/stripe/`): restricted key (rk_…) GET-only; charges/invoices,
   subscriptions (monthly-normalised), refunds, failed → `payments` keyed by
   stripe id, origin='stripe'. `/api/stripe/webhook` verifies the signature
-  (`stripe_webhook_secret`). Reconcile = last 7 days.
+  (`stripe_webhook_secret`). Reconcile = last 7 days. Webhook registration:
+  Stripe Dashboard → Developers → Webhooks → Add endpoint
+  `https://<app-url>/api/stripe/webhook`, events charge.succeeded,
+  charge.refunded, charge.failed, invoice.payment_succeeded,
+  invoice.payment_failed; signing secret → Vercel `STRIPE_WEBHOOK_SECRET`,
+  redeploy (see README).
 - Matching (`lib/stripe/matching.ts` over `lib/metrics#matchPayments`): email
   then phone via the normalisers in `lib/ghl/transitions.ts`; `match_source`
   'manual' (Setup → Sync health → Unmatched payments) is never overwritten.
@@ -468,6 +473,41 @@ computed as Σ contract value ÷ spend, which equals the brief's "contract value
 - **Stale banner**: `GET /api/sync/status` (no GHL call) + `StaleSyncBanner` in
   the layout on data pages when the last COMPLETED GHL cycle is older than
   26 h (or never): "Pipeline data last synced … — Sync now" (POST /api/sync).
+
+## Phase L status (done 2026-09-18 — ops hardening from the production audit)
+
+Findings: Stripe silently unsynced for 16 days because the dispatch chain died
+on GHL's timeout before later steps; 115 open incidents, mostly unmapped-stage
+noise from 14 unfollowed pipelines.
+
+- **Dispatch isolation** (`lib/dispatch.ts#runDispatch`, pure): every step has
+  its own try/catch and timeout race (25 s default; GHL 30 s around a 20 s sync
+  budget), a step that would start past the 52 s invocation budget is recorded
+  as skipped, and outcomes are recorded separately — sources own their
+  `sync_runs` rows, the rest get `dispatch:<step>` rows. Order: stripe → meta →
+  google → ghl → reconcile → sweep → insights → narratives → daily / weekly /
+  monthly. `tests/dispatch.test.ts`.
+- **Nightly reconciliation** (`lib/ghl/reconcile.ts`): one `limit=1` open-
+  opportunity search per followed stage (`client#countOpenOpportunities`,
+  read-only) vs the mirror's in-stage-now open count; drift beyond
+  max(2, 10%) → one open `reconcile_mismatch` incident per stage, refreshed
+  while drifting, resolved when it catches up. Summary in settings
+  (`ghl_reconcile_summary`), shown in Setup → Sync health ("last reconciled …
+  — mirror matches GHL: yes/no", Reconcile now) and in the banner.
+  `POST /api/ghl/reconcile`. Skipped while a GHL cycle is still partial.
+- **Stale banner** covers GHL, Meta and Stripe (`/api/sync/status`): a
+  connected source with no completed run in 26 h is named with its own Sync
+  now button; reconciliation drift is shown too.
+- **Incident hygiene** (`lib/incidents/noise.ts#sweepIncidentNoise`):
+  unmapped-stage incidents for mapped / archived / unfollowed stages, silence
+  notices older than 48 h and duplicate errors (all but the newest) auto-
+  resolve — at every GHL sync's phase 0, on unfollow, in the dispatch, via
+  Setup → Incidents "Resolve all noise" (`PATCH /api/incidents {noise:true}`)
+  and `npm run incidents:sweep` (the one-shot cleanup for the 115). Unmapped
+  incidents were already only raised for followed pipelines.
+- **Stripe webhook registration** is documented in README (endpoint
+  `/api/stripe/webhook`, five events, `STRIPE_WEBHOOK_SECRET`, redeploy).
+  Run `npm run incidents:sweep` once on production after deploying.
 
 ## Working agreements
 

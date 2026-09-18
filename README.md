@@ -59,6 +59,43 @@ Meta Ads and Stripe are connected the same way on **/setup** (token pasted, veri
 with one read call, masked). Until then the Ads tab runs on manual weekly spend and the
 Revenue tab shows a "Connect Stripe" state — never estimated numbers.
 
+## Stripe webhook (real-time payments between nightly reconciles)
+
+The nightly dispatch reconciles the last 7 days of Stripe activity; the
+webhook delivers payments the moment they happen.
+
+1. Stripe Dashboard → **Developers → Webhooks → Add endpoint**.
+2. Endpoint URL: `https://<app-url>/api/stripe/webhook`.
+3. Events: `charge.succeeded`, `charge.refunded`, `charge.failed`,
+   `invoice.payment_succeeded`, `invoice.payment_failed`.
+4. Copy the endpoint's **signing secret** (`whsec_…`) into the Vercel project
+   as `STRIPE_WEBHOOK_SECRET` (or paste it in Setup → Stripe) and **redeploy**.
+
+Every delivery is signature-verified; unverified requests are rejected with
+400. The endpoint is exempt from the login gate for that reason. A payment
+that arrives by webhook is classified (initial / recurring) and matched to
+its contact immediately; the nightly reconcile heals anything a webhook
+missed.
+
+## Ops: what runs when, and what to read
+
+- `/api/cron/dispatch` runs Stripe → Meta → Google → GHL (20 s budget,
+  resumable) → reconciliation → incident sweep → insights → narratives →
+  digests. Every step is isolated: one source failing or hanging never stops
+  the others, and each outcome is its own `sync_runs` row (`dispatch:<step>`
+  for steps without a source row).
+- **Reconciliation** compares live per-stage open counts in GoHighLevel with
+  this mirror for the followed pipeline every night; drift beyond max(2, 10%)
+  raises a `reconcile_mismatch` incident and shows in the amber banner and
+  Setup → Sync health ("last reconciled … — mirror matches GHL: yes/no").
+- **Stale banner**: any connected source (GHL, Meta, Stripe) whose last
+  completed sync is older than 26 h is named on every data page with its own
+  Sync now button.
+- **Incidents**: unmapped-stage incidents auto-resolve when the stage is
+  mapped or its pipeline unfollowed; stale silence notices and duplicate
+  errors are swept nightly; Setup → Incidents has "Resolve all noise";
+  `npm run incidents:sweep` is the one-shot cleanup.
+
 ## Demo mode
 
 FitFlow can run on a fabricated but internally consistent dataset for demos.
