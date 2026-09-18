@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eraser } from 'lucide-react';
 import { AccordionCard, Badge, Button, Toast } from '@/components';
 import { groupIncidents, type IncidentGroup, type IncidentRow } from './incidentGrouping';
 
@@ -88,6 +88,22 @@ export const IncidentLog: React.FC = () => {
     }
   };
 
+  const resolveNoise = async () => {
+    setBusy('noise');
+    try {
+      const res = await fetch('/api/incidents', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noise: true }) }).then((r) => r.json());
+      if (res.ok) {
+        setToast({ message: res.total ? `${res.total} noise incident${res.total === 1 ? '' : 's'} resolved — ${res.openAfter} open remain` : 'No noise to resolve', type: 'success' });
+        setResolved(null);
+        await load();
+      } else {
+        setToast({ message: res.error ?? 'Could not sweep', type: 'error' });
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const openGroups = useMemo(() => groupIncidents(open ?? []), [open]);
   const resolvedGroups = useMemo(() => (showResolved ? groupIncidents(resolved ?? []) : []), [showResolved, resolved]);
   const allGroups = useMemo(() => [...openGroups, ...resolvedGroups], [openGroups, resolvedGroups]);
@@ -107,9 +123,14 @@ export const IncidentLog: React.FC = () => {
       icon={AlertTriangle}
       defaultOpen={openCount > 0}
       action={
-        <Badge variant={openCount ? 'warning' : 'success'} dot>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" icon={Eraser} loading={busy === 'noise'} onClick={resolveNoise} title="Resolve unmapped-stage incidents from unfollowed / mapped / archived pipelines, stale silence notices and duplicate errors">
+            Resolve all noise
+          </Button>
+          <Badge variant={openCount ? 'warning' : 'success'} dot>
           {open === null ? '…' : openCount ? `${openCount} open` : 'All clear'}
-        </Badge>
+          </Badge>
+        </div>
       }
     >
       <div className="mb-2 flex items-center gap-2">

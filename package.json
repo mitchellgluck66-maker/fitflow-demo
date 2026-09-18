@@ -24,7 +24,8 @@
     "screenshots": "tsx scripts/screenshots.ts",
     "reclassify:payments": "tsx scripts/reclassify-payments.ts",
     "reclassify:attribution": "tsx scripts/reclassify-attribution.ts",
-    "reclassify": "npm run reclassify:payments && npm run reclassify:attribution"
+    "reclassify": "npm run reclassify:payments && npm run reclassify:attribution",
+    "incidents:sweep": "tsx scripts/sweep-incidents.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

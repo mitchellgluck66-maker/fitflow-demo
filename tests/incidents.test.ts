@@ -14,6 +14,8 @@ import { runGhlSync } from '@/lib/ghl/ingest';
 import { PATCH as pipelinesPatch } from '@/app/api/ghl/pipelines/route';
 import { PATCH as incidentsPatch, GET as incidentsGet } from '@/app/api/incidents/route';
 import { GET as healthGet } from '@/app/api/sync-health/route';
+import { sweepIncidentNoise } from '@/lib/incidents/noise';
+import { pipelines } from '@/db';
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 
@@ -153,5 +155,71 @@ describe('incident grouping (Setup log)', () => {
     expect(groups[0].id).toBe('b'); // newest first even though input was oldest-first
     expect(groups[0].resolved).toBe(true);
     expect(groups[1].resolved).toBe(false);
+  });
+});
+
+describe('incident hygiene (auto-resolve + noise sweep)', () => {
+  beforeAll(async () => {
+    // The lifecycle suite mapped the mystery stage; unmap it and let a sync raise a fresh incident.
+    await db.update(stages).set({ semanticRole: null, roleSource: 'unmapped' }).where(eq(stages.id, 'st-weird'));
+    await pipelinesPatch(patch('/api/ghl/pipelines', { pipelineId: 'pipe-1', isTracked: true }));
+    await runGhlSync({ mode: 'delta', trigger: 'cron' });
+  });
+
+  it('unfollowing a pipeline auto-resolves its unmapped-stage incidents; refollowing re-raises exactly one', async () => {
+    const openBefore = await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'));
+    expect(openBefore.some((i) => i.resolvedAt === null)).toBe(true);
+    await pipelinesPatch(patch('/api/ghl/pipelines', { pipelineId: 'pipe-1', isTracked: false }));
+    const afterUnfollow = await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'));
+    expect(afterUnfollow.every((i) => i.resolvedAt !== null)).toBe(true);
+    // A sync while unfollowed raises nothing.
+    await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect((await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'))).every((i) => i.resolvedAt !== null)).toBe(true);
+    // Follow again → one fresh incident.
+    await pipelinesPatch(patch('/api/ghl/pipelines', { pipelineId: 'pipe-1', isTracked: true }));
+    await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    const open = (await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'))).filter((i) => i.resolvedAt === null);
+    expect(open).toHaveLength(1);
+    expect(open[0].details?.stageId).toBe('st-weird');
+  });
+
+  it('mapping the stage (even directly in the DB) resolves the incident on the next sweep', async () => {
+    await db.update(stages).set({ semanticRole: 'other', roleSource: 'manual' }).where(eq(stages.id, 'st-weird'));
+    const r = await sweepIncidentNoise();
+    expect(r.unmappedResolved).toBe(1);
+    expect((await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'unmapped_stage'))).every((i) => i.resolvedAt !== null)).toBe(true);
+    await db.update(stages).set({ semanticRole: null, roleSource: 'unmapped' }).where(eq(stages.id, 'st-weird'));
+  });
+
+  it('the sweep retires stale silence notices and duplicate errors but keeps the newest error and anything real', async () => {
+    const old = new Date(Date.now() - 3 * 24 * 3_600_000);
+    await db.insert(syncIncidents).values([
+      { kind: 'silence', severity: 'info', message: 'Sync window contained zero calendar events.', createdAt: old },
+      { kind: 'silence', severity: 'info', message: 'Sync window contained zero calendar events.' }, // fresh — stays
+      { kind: 'error', severity: 'critical', message: 'Meta sync failed: 500', createdAt: old },
+      { kind: 'error', severity: 'critical', message: 'Meta sync failed: 500', createdAt: new Date(old.getTime() + 1000) },
+      { kind: 'error', severity: 'critical', message: 'Meta sync failed: 500' }, // newest — stays
+      { kind: 'error', severity: 'critical', message: 'Stripe sync failed: 401' }, // different — stays
+      { kind: 'unmapped_stage', severity: 'warning', message: 'orphan', details: { stageId: 'st-gone' } }, // stage no longer exists — noise
+    ]);
+    const r = await sweepIncidentNoise();
+    expect(r).toMatchObject({ silenceResolved: 1, duplicateErrorsResolved: 2, unmappedResolved: 1 });
+    const open = await db.select().from(syncIncidents).where(isNull(syncIncidents.resolvedAt));
+    const messages = open.map((i) => i.message).sort();
+    expect(messages.filter((m) => m === 'Meta sync failed: 500')).toHaveLength(1);
+    expect(messages).toContain('Stripe sync failed: 401');
+    expect(messages.filter((m) => m === 'Sync window contained zero calendar events.')).toHaveLength(1);
+    expect(r.openAfter).toBe(open.length);
+    // Idempotent.
+    expect((await sweepIncidentNoise()).total).toBe(0);
+  });
+
+  it('PATCH {noise:true} is the bulk action', async () => {
+    await db.insert(syncIncidents).values({ kind: 'unmapped_stage', severity: 'warning', message: 'orphan 2', details: { stageId: 'st-gone-2' } });
+    const res = await incidentsPatch(patch('/api/incidents', { noise: true }));
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, unmappedResolved: 1 });
+    expect(typeof body.openAfter).toBe('number');
+    expect((await db.select().from(pipelines)).length).toBeGreaterThan(0);
   });
 });

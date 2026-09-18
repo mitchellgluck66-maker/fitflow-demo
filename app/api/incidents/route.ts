@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db, syncIncidents } from '@/db';
+import { sweepIncidentNoise } from '@/lib/incidents/noise';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +28,19 @@ export async function GET(request: NextRequest) {
 /**
  * PATCH {id, resolved?} — mark one incident resolved (or reopen).
  * PATCH {ids: string[], resolved?} — same for a whole group ("Resolve all").
+ * PATCH {noise: true} — sweep incident noise (lib/incidents/noise.ts).
  */
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const resolvedFlag = body.resolved !== false;
+
+    // "Resolve all noise": unmapped stages of unfollowed / mapped / archived
+    // pipelines, stale silence notices, duplicate errors.
+    if (body.noise === true) {
+      const r = await sweepIncidentNoise();
+      return NextResponse.json({ ok: true, ...r });
+    }
 
     if (Array.isArray(body.ids)) {
       const ids = (body.ids as unknown[]).filter((x): x is string => typeof x === 'string');

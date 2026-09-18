@@ -59,6 +59,7 @@ import { sweepStaleRuns } from '../staleRuns';
 import { runPaymentMatching } from '../stripe/matching';
 import { classifyAttribution } from '../attribution/classify';
 import { isDefaultFollowedPipeline } from './followed';
+import { sweepIncidentNoise } from '../incidents/noise';
 
 export type SyncMode = 'delta' | 'backfill';
 export type SyncTrigger = 'cron' | 'manual' | 'cli';
@@ -512,6 +513,12 @@ export async function runGhlSync(options: {
       }
       roleOf = (stageId) => (stageId ? (pipelineSync.roleOf.get(stageId) ?? null) : null);
       trackedPipelineIds = new Set(pipelineSync.trackedPipelineIds);
+      // Stages mapped / unfollowed since last time no longer deserve an open incident.
+      try {
+        await sweepIncidentNoise(startedAt);
+      } catch (err) {
+        warnings.push(`Incident sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
       // Followed pipelines first (they drive dashboards), untracked mirrors last.
       const live = await db

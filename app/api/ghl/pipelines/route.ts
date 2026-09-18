@@ -5,6 +5,7 @@ import { listStages } from '@/lib/queries/contacts';
 import { isSemanticRole, ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
 import { isOffPipeline, isDefaultFollowedPipeline } from '@/lib/ghl/followed';
 import { resolveStageIncidents } from '@/lib/ghl/ingest';
+import { sweepIncidentNoise } from '@/lib/incidents/noise';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +88,8 @@ export async function PATCH(request: NextRequest) {
         .where(and(eq(pipelines.id, body.pipelineId)))
         .returning({ id: pipelines.id });
       if (!updated) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 });
+      // Unfollowing retires that pipeline's unmapped-stage incidents.
+      if (!body.isTracked) await sweepIncidentNoise();
       return NextResponse.json({ ok: true, pipelineId: body.pipelineId, isTracked: body.isTracked });
     }
 
