@@ -291,6 +291,26 @@ export async function listOpportunitiesPage(params: {
   return { opportunities: parsed.valid, rejected: parsed.rejected, warnings: parsed.warnings, done: result.data.opportunities.length < limit, next };
 }
 
+/**
+ * Live count of OPEN opportunities in one stage — one `limit=1` search whose
+ * `meta.total` is the answer. Read-only; used by nightly reconciliation.
+ */
+export async function countOpenOpportunities(params: { pipelineId: string; stageId: string }): Promise<{ total: number | null; error?: string }> {
+  const config = await getGhlConfig();
+  const result: GhlResult<z.infer<typeof GhlOpportunitySearchResponseSchema>> = await ghlRequest(
+    {
+      method: 'GET',
+      endpoint: '/opportunities/search',
+      family: 'opportunities',
+      query: { location_id: config.locationId, pipeline_id: params.pipelineId, pipeline_stage_id: params.stageId, status: 'open', limit: 1, page: 1 },
+    },
+    GhlOpportunitySearchResponseSchema,
+  );
+  if (!result.ok || !result.data) return { total: null, error: result.error };
+  const total = result.data.meta?.total;
+  return typeof total === 'number' ? { total } : { total: null, error: 'response had no meta.total' };
+}
+
 export async function listAllOpportunities(params: {
   pipelineId?: string;
   maxPages?: number;

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Activity, Sparkles, AlertTriangle, RefreshCw, GitCompareArrows } from 'lucide-react';
 import { AccordionCard, Button, Badge, Toast, Select } from '@/components';
 import { UnmatchedPayments } from './UnmatchedPayments';
 
@@ -47,6 +47,7 @@ interface Health {
   incidents: Incident[];
   recentRuns: Array<{ id: string; kind: string; trigger: string; status: string; startedAt: string; requestsUsed: number; stats: Record<string, number>; error: string | null }>;
   sentry: boolean;
+  reconcile: { at: string; ok: boolean; stagesChecked: number; mismatches: Array<{ stageName: string; pipelineName: string; live: number; mirror: number }>; skipped: string[] } | null;
 }
 interface Suggestion {
   role: string;
@@ -115,6 +116,22 @@ export const SyncHealth: React.FC = () => {
       else setSuggestions((s) => ({ ...s, [stageId]: { error: data.error ?? data.message ?? 'No suggestion' } }));
     } catch (err) {
       setSuggestions((s) => ({ ...s, [stageId]: { error: String(err) } }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reconcileNow = async () => {
+    setBusy('reconcile');
+    try {
+      const res = await fetch('/api/ghl/reconcile', { method: 'POST' });
+      const data = await res.json();
+      setToast({
+        message: data.ok ? (data.summary?.ok ? 'Mirror matches GoHighLevel' : `Mirror differs on ${data.summary?.mismatches?.length ?? 0} stage(s)`) : 'Could not reconcile',
+        detail: data.error,
+        type: data.ok ? (data.summary?.ok ? 'success' : 'info') : 'error',
+      });
+      await load();
     } finally {
       setBusy(null);
     }
@@ -198,6 +215,41 @@ export const SyncHealth: React.FC = () => {
             </div>
           );
         })}
+      </div>
+
+      {/* ---- Nightly reconciliation: live GHL stage counts vs the mirror ---- */}
+      <div
+        className="flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-[8px] mb-5"
+        style={{
+          background: health.reconcile && !health.reconcile.ok ? 'var(--warning-muted)' : 'var(--surface-sunken)',
+          border: `1px solid ${health.reconcile && !health.reconcile.ok ? 'var(--warning-border)' : 'var(--border-subtle)'}`,
+        }}
+      >
+        <GitCompareArrows size={14} strokeWidth={2.3} style={{ color: health.reconcile && !health.reconcile.ok ? 'var(--warning)' : 'var(--text-tertiary)' }} />
+        <span className="text-[12.5px]" style={{ color: 'var(--text-secondary)' }}>
+          {health.reconcile ? (
+            <>
+              Last reconciled <strong>{ago(health.reconcile.at)}</strong> — mirror matches GHL:{' '}
+              <strong style={{ color: health.reconcile.ok ? 'var(--success)' : 'var(--warning)' }}>{health.reconcile.ok ? 'yes' : 'no'}</strong> ({health.reconcile.stagesChecked} stages checked
+              {health.reconcile.skipped.length ? `, ${health.reconcile.skipped.length} skipped` : ''})
+            </>
+          ) : (
+            'Not reconciled yet — the nightly dispatch compares live per-stage counts in GoHighLevel with this mirror.'
+          )}
+        </span>
+        <div className="flex-1" />
+        <Button variant="ghost" icon={GitCompareArrows} loading={busy === 'reconcile'} onClick={reconcileNow}>
+          Reconcile now
+        </Button>
+        {health.reconcile && !health.reconcile.ok && (
+          <ul className="w-full mt-1 space-y-0.5 text-[12px]" style={{ color: 'var(--warning)' }}>
+            {health.reconcile.mismatches.map((m) => (
+              <li key={`${m.pipelineName}-${m.stageName}`}>
+                {m.stageName} ({m.pipelineName}): {m.live} open in GHL, {m.mirror} here
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* ---- Unmapped stages ---- */}

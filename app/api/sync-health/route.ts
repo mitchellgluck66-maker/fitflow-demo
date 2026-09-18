@@ -8,6 +8,7 @@ import { getGoogleAdsConfig } from '@/lib/googleads/config';
 import { ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
 import { sentryConfigured } from '@/lib/sentry';
 import { isStaleRun, STALE_RUN_ERROR } from '@/lib/staleRuns';
+import { readReconcileSummary } from '@/lib/ghl/reconcile';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,6 +113,7 @@ export async function GET() {
         error: r.error,
       })),
       sentry: sentryConfigured(),
+      reconcile: await readReconcileSummary(),
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to read sync health', detail: String(error) }, { status: 500 });
