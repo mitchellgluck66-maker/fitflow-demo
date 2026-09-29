@@ -459,11 +459,11 @@ computed as Σ contract value ÷ spend, which equals the brief's "contract value
   in the suggester, `NOSHOW_ROLES`, danger tone in Setup / client pages /
   timeline, remap prompt. Not a funnel bar (the chain is booked → showed).
 - **Resumable GHL sync** (`lib/ghl/ingest.ts`): a cycle = phase 0 (pipelines,
-  stages, users, order = followed first then mirrors) → phase 1 (one
-  50-opportunity page at a time per pipeline; contacts fetched only when new or
-  changed since the last COMPLETED cycle; cursor persisted after every page) →
-  phase 2 (calendar events, payment re-match, `ghl_last_sync_at` =
-  cycleStartedAt, cursor cleared). Runs stop STARTING pages at `budgetMs`
+  stages, users) → the followed pipelines' opportunity pages → appointments →
+  the untracked mirrors (order by value since Phase M — see below; contacts
+  fetched only when new or changed since the last COMPLETED cycle; cursor
+  persisted after every page; `ghl_last_sync_at` = cycleStartedAt and the
+  cursor cleared when the mirrors finish). Runs stop STARTING pages at `budgetMs`
   (default 40s; dispatch passes 20s) and finish as status `partial` with a
   progress string; the run that completes the cycle records `succeeded` with the
   cycle's totals (`stats.cycleRuns`). An explicit `since` starts a fresh cycle.
@@ -508,6 +508,58 @@ noise from 14 unfollowed pipelines.
 - **Stripe webhook registration** is documented in README (endpoint
   `/api/stripe/webhook`, five events, `STRIPE_WEBHOOK_SECRET`, redeploy).
   Run `npm run incidents:sweep` once on production after deploying.
+
+## Phase M status (done 2026-09-29 — the sync cycle ordered by value; staleness by data family)
+
+Production audit finding: 19 consecutive `partial` runs, zero completed cycles
+since Sep 18. The cycle walked ALL 15 pipelines' opportunities before ever
+reaching appointments, so appointments were 11 days stale, every run row read
+"partial — progressing", and `dispatch:reconcile` (which waited for a full
+cycle) had never run.
+
+- **Cycle by value** (`lib/ghl/ingest.ts`, cursor gains `phase` +
+  `trackedCount`): phase 0 → **tracked** (the FOLLOWED pipelines' opportunity
+  pages) → **appointments** (calendar events) → the family markers
+  `ghl_tracked_opps_completed_at`, `ghl_appointments_completed_at` and
+  `ghl_tracked_completed_at` (= that cycle's cycleStartedAt) + the Stripe
+  payment re-match → **mirrors** (untracked pipelines, history only, LAST) →
+  done (`ghl_last_sync_at`, cursor cleared, `succeeded`). A budget-limited run
+  refreshes everything the dashboard displays before spending a second on a
+  mirror. `SyncResult.trackedComplete` / `.phase` say where a run stands. A
+  cursor from before this phase (no `phase`) is read as: inside the followed
+  block → tracked; past it → appointments next, then the mirrors resume where
+  they were — so the first deploy run refreshes appointments immediately.
+- **Reconcile eligibility** = the tracked phases complete (the dispatch's
+  `ghl` step reports `trackedComplete`), not the 15-pipeline walk. Otherwise
+  the step is skipped with the reason "waiting for the tracked phases … —
+  paused at …".
+- **Staleness truth** (`lib/sync/freshness.ts` pure + tested,
+  `lib/sync/ghlFreshness.ts` the one reader): the stale banner and Sync
+  health key off "when did the TRACKED phases last complete" PER DATA FAMILY
+  (`stages_opportunities`, `appointments`) — never off run activity. A family
+  older than 26 h (or never) is stale; runs happening for more than 48 h with
+  no completion of a family = `partialOnly`, and the banner / the Sync health
+  summary name that family ("appointments: last completed 11 days ago — every
+  run since has been partial"). `GET /api/sync/status` carries
+  `sources[ghl].families` + `detail`; `GET /api/sync-health` carries
+  `families` on the GHL source and `ghlFreshness`. With no marker yet (a
+  database that predates this phase) a family falls back to the last completed
+  run — the old rule.
+- **Every step says why** (`lib/dispatch.ts#statsForOutcome` /
+  `outcomeReason`, pure + tested): a `dispatch:<step>` row's `stats` carries
+  `reason` for a skip ("not Monday", "waiting for the tracked phases…"), a
+  failure/timeout (the error), a stored digest ("stored, not sent —
+  RESEND_API_KEY / RESEND_FROM_EMAIL not configured"), an empty digest, a
+  not-configured source, a cached insight, a partial GHL run ("partial — paused
+  at pipeline 3/15 "Alumni", page 2 (phase mirrors)"). A partial / failed GHL
+  run's own row carries `stats.phase` and `stats.reason` ("budget exhausted
+  paused at pipeline X "Name", page Y (phase mirrors)"). `sync_runs.stats` is
+  typed `Record<string, number | string>` (jsonb; no migration).
+- Tests: `tests/ingest.test.ts` → "cycle by value" (the order, the markers,
+  the legacy cursor, no followed pipeline) and the moved "resumable cycle"
+  expectations; `tests/freshness.test.ts` (family staleness incl. the audit's
+  11-day case; the recorded reasons). `vercel.json` untouched; the GHL
+  read-only guarantee untouched (`npm run verify:readonly`).
 
 ## Working agreements
 
