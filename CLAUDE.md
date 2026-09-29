@@ -581,6 +581,18 @@ cycle) had never run.
   11-day case; the recorded reasons). `vercel.json` untouched; the GHL
   read-only guarantee untouched (`npm run verify:readonly`).
 
+## Audit fixes (2026-09-29 — `docs/audit-2026-09-29.md`)
+
+- **C1 currency** — see rule 8 "Currency". Migration 0008 (`fx_rates` + seed,
+  currency-label corrections for refund/subscription rows). Setup → Currency.
+- **C2 RLS deny-all** — migration 0009 enables ROW LEVEL SECURITY on every
+  `public` table with NO policies: the PostgREST API (anon / authenticated
+  keys) reads nothing. The app is unaffected because it connects as the table
+  OWNER and RLS is not FORCEd. **Every new table's migration must also
+  `ENABLE ROW LEVEL SECURITY`** — `tests/rls.test.ts` fails otherwise (it also
+  proves an anon-grant role sees 0 rows and the owner still reads). Never add
+  a policy or FORCE without revisiting this.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,

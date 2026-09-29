@@ -64,6 +64,13 @@
       "when": 1790689012220,
       "tag": "0008_c1_fx_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790690158026,
+      "tag": "0009_c2_rls_deny_all",
+      "breakpoints": true
     }
   ]
 }
