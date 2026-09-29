@@ -13,10 +13,25 @@
  * A sync is a CYCLE that may span several invocations: each run does what
  * fits in its time budget (Vercel Hobby kills a function at 60s; the daily
  * delta on 15 pipelines did not fit), persists a cursor
- * (settings.ghl_sync_cursor: pipeline index + page) after every processed
- * page, and exits cleanly as status 'partial'. The next invocation resumes at
- * the cursor; the run that finishes the cycle records 'succeeded' with the
- * cycle's totals and advances ghl_last_sync_at. No run is ever left 'running'.
+ * (settings.ghl_sync_cursor: phase + pipeline index + page) after every
+ * processed page, and exits cleanly as status 'partial'. The next invocation
+ * resumes at the cursor; the run that finishes the cycle records 'succeeded'
+ * with the cycle's totals and advances ghl_last_sync_at. No run is ever left
+ * 'running'.
+ *
+ * ORDER BY VALUE (2026-09-29 production audit — 19 consecutive partials, zero
+ * completed cycles, appointments 11 days stale, reconciliation never ran):
+ *   phase 0      pipelines, stages, users
+ *   tracked      the FOLLOWED pipelines' opportunity pages (what the dashboard shows)
+ *   appointments the calendar events
+ *   marker       ghl_tracked_opps_completed_at / ghl_appointments_completed_at /
+ *                ghl_tracked_completed_at — reconciliation is eligible from here,
+ *                and the stale banner keys off these per family; payments re-match
+ *   mirrors      the untracked pipelines' opportunity pages, LAST — history only
+ *   done         ghl_last_sync_at, cursor cleared, status succeeded
+ * A budget-limited run refreshes everything the dashboard displays before it
+ * spends a second on a mirror, and every partial run's stats say where it
+ * stopped and why.
  *
  * Every upsert is keyed by the GHL id, so re-running either mode is safe.
  * Demo rows (origin='demo') are never touched by a sync.
@@ -81,7 +96,13 @@ export interface SyncStats {
   pagesDone: number;
   /** Runs it took to complete the cycle (set on the run that finishes it). */
   cycleRuns: number;
+  /** Which phase this run ended in (partial runs) — tracked | appointments | mirrors | done. */
+  phase?: string;
+  /** Why this run did not complete the cycle — "budget exhausted at pipeline X page Y" — or what it skipped. */
+  reason?: string;
 }
+
+export type SyncPhase = 'tracked' | 'appointments' | 'mirrors';
 
 export interface SyncResult {
   ok: boolean;
@@ -89,6 +110,10 @@ export interface SyncResult {
   partial: boolean;
   /** Human-readable progress ("paused at pipeline 3/15, page 2" / "completed …"). */
   progress: string | null;
+  /** The TRACKED phases (followed pipelines' opportunities + appointments) of the current cycle are complete — reconciliation is eligible. */
+  trackedComplete: boolean;
+  /** Where the run ended: tracked | appointments | mirrors | done. */
+  phase: SyncPhase | 'done';
   cursor: SyncCursor | null;
   runId: string;
   mode: SyncMode;
@@ -351,6 +376,10 @@ export interface SyncCursor {
   since: string | null;
   /** Pipeline ids in processing order: followed first, then the rest. */
   order: string[];
+  /** How many of `order` are followed — the tracked phase covers order[0..trackedCount). */
+  trackedCount: number;
+  /** Which phase the cycle is in. A cursor written before 2026-09-29 has none; readSyncCursor derives it. */
+  phase: SyncPhase;
   index: number;
   page: number;
   startAfterId: string | null;
@@ -371,8 +400,17 @@ export async function readSyncCursor(): Promise<SyncCursor | null> {
   const raw = await getSetting(SETTING_KEYS.ghlSyncCursor);
   if (!raw) return null;
   try {
-    const c = JSON.parse(raw) as SyncCursor;
-    return c && Array.isArray(c.order) && typeof c.index === 'number' ? c : null;
+    const c = JSON.parse(raw) as Partial<SyncCursor>;
+    if (!c || !Array.isArray(c.order) || typeof c.index !== 'number') return null;
+    if (c.phase === 'tracked' || c.phase === 'appointments' || c.phase === 'mirrors') return c as SyncCursor;
+    // A cursor from before the order-by-value cycle (2026-09-29): its order was already followed-first, so
+    // the tracked count is the followed pipelines of today. Inside the followed block → still tracked; past it →
+    // the appointments have not run this cycle, so they run NEXT, before any more mirrors.
+    const tracked = await db.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.isTracked, true), isNull(pipelines.archivedAt)));
+    const followed = new Set(tracked.map((t) => t.id));
+    const trackedCount = c.order.filter((id) => followed.has(id)).length;
+    const phase: SyncPhase = c.index < trackedCount ? 'tracked' : 'appointments';
+    return { ...(c as SyncCursor), trackedCount, phase };
   } catch {
     return null;
   }
@@ -383,8 +421,11 @@ async function writeSyncCursor(cursor: SyncCursor | null): Promise<void> {
 }
 
 function addStats(into: SyncStats, from: SyncStats): SyncStats {
-  const out = { ...into };
-  for (const k of Object.keys(from) as Array<keyof SyncStats>) out[k] = (out[k] ?? 0) + (from[k] ?? 0);
+  const out: SyncStats = { ...into };
+  for (const k of Object.keys(from) as Array<keyof SyncStats>) {
+    const a = out[k], b = from[k];
+    if (typeof b === 'number') (out as unknown as Record<string, number>)[k] = (typeof a === 'number' ? a : 0) + b;
+  }
   return out;
 }
 
@@ -427,9 +468,12 @@ export async function runGhlSync(options: {
     await db.insert(syncIncidents).values({ syncRunId: runId, kind, severity, message, details });
   };
 
-  const finish = async (status: 'succeeded' | 'partial' | 'failed', since: Date | null, extra: { error?: string; cycleStats?: SyncStats; progress?: string; cursor?: SyncCursor | null } = {}): Promise<SyncResult> => {
+  const finish = async (status: 'succeeded' | 'partial' | 'failed', since: Date | null, extra: { error?: string; cycleStats?: SyncStats; progress?: string; cursor?: SyncCursor | null; trackedComplete?: boolean; phase?: SyncPhase | 'done' } = {}): Promise<SyncResult> => {
     const finishedAt = new Date();
-    const reported = extra.cycleStats ?? stats;
+    const reported: SyncStats = { ...(extra.cycleStats ?? stats) };
+    const phase: SyncPhase | 'done' = extra.phase ?? (extra.cursor ? extra.cursor.phase : 'done');
+    reported.phase = phase;
+    if (status !== 'succeeded' && (extra.progress || extra.error)) reported.reason = extra.error ? `failed: ${extra.error}` : `budget exhausted ${extra.progress}`;
     await db
       .update(syncRuns)
       .set({ status, finishedAt, since, requestsUsed, stats: reported as unknown as Record<string, number>, warnings, error: extra.error ?? null })
@@ -438,6 +482,8 @@ export async function runGhlSync(options: {
       ok: status !== 'failed',
       partial: status === 'partial',
       progress: extra.progress ?? null,
+      trackedComplete: extra.trackedComplete ?? (extra.cursor ? extra.cursor.phase === 'mirrors' : status === 'succeeded'),
+      phase,
       cursor: extra.cursor ?? null,
       runId,
       mode,
@@ -525,15 +571,17 @@ export async function runGhlSync(options: {
         .select({ id: pipelines.id, isTracked: pipelines.isTracked, position: pipelines.position })
         .from(pipelines)
         .where(and(eq(pipelines.origin, 'ghl'), isNull(pipelines.archivedAt)));
-      const order = [...live]
-        .sort((a, b) => Number(b.isTracked) - Number(a.isTracked) || (a.position ?? 0) - (b.position ?? 0))
-        .map((p) => p.id);
+      const sorted = [...live].sort((a, b) => Number(b.isTracked) - Number(a.isTracked) || (a.position ?? 0) - (b.position ?? 0));
+      const order = sorted.map((p) => p.id);
+      const trackedCount = sorted.filter((p) => p.isTracked).length;
 
       cursor = {
         mode,
         cycleStartedAt: startedAt.toISOString(),
         since: since?.toISOString() ?? null,
         order,
+        trackedCount,
+        phase: trackedCount > 0 ? 'tracked' : 'appointments',
         index: 0,
         page: 1,
         startAfterId: null,
@@ -550,19 +598,26 @@ export async function runGhlSync(options: {
     const previousSyncAt = backfilled ? null : since;
     cursor.runs += 1;
     let pagesThisRun = 0;
+    const pipelineLabel = async (id: string): Promise<string> => {
+      const [row] = await db.select({ name: pipelines.name }).from(pipelines).where(eq(pipelines.id, id)).limit(1);
+      return row?.name ? `"${row.name}"` : id;
+    };
+    // The one pause: persist the cycle's stats + where it stopped, say why, exit partial. The reason names the pipeline
+    // and page (or the phase) so a run row never reads as an empty "partial".
+    const pause = async (what: string) => {
+      cursor.stats = addStats(cursor.stats, stats);
+      cursor.warnings = [...cursor.warnings, ...warnings].slice(-50);
+      await writeSyncCursor(cursor);
+      const progress = `at ${what} (phase ${cursor.phase})`;
+      warnings.push(`Time budget reached — paused ${progress}. The next run continues from here.`);
+      return finish('partial', since, { progress: `paused ${progress}`, cursor });
+    };
+    const pageProgress = async () => `pipeline ${cursor.index + 1}/${cursor.order.length} ${await pipelineLabel(cursor.order[cursor.index])}, page ${cursor.page}`;
 
-    // ---- Phase 1: opportunities + contacts, one page at a time ----------
-    while (cursor.index < cursor.order.length) {
-      if (overBudget() || (options.maxPages !== undefined && pagesThisRun >= options.maxPages)) {
-        const merged = addStats(cursor.stats, stats);
-        cursor.stats = merged;
-        cursor.warnings = [...cursor.warnings, ...warnings].slice(-50);
-        await writeSyncCursor(cursor);
-        const progress = `paused at pipeline ${cursor.index + 1}/${cursor.order.length}, page ${cursor.page}`;
-        warnings.push(`Time budget reached — ${progress}. The next run continues from here.`);
-        return finish('partial', since, { progress, cursor });
-      }
-
+    const outOfRoom = () => overBudget() || (options.maxPages !== undefined && pagesThisRun >= options.maxPages);
+    // One opportunity page of the pipeline the cursor points at. Returns false when the cycle must stop (a read failed —
+    // the cursor stays on this page so the next run retries it).
+    const onePage = async (): Promise<SyncResult | null> => {
       const pipelineId = cursor.order[cursor.index];
       const pageRes = await listOpportunitiesPage({ pipelineId, page: cursor.page, startAfterId: cursor.startAfterId, startAfter: cursor.startAfter, limit: PAGE_LIMIT });
       requestsUsed += 1;
@@ -573,7 +628,7 @@ export async function runGhlSync(options: {
         await raise('error', 'critical', `Opportunity read failed (pipeline ${pipelineId}, page ${cursor.page}): ${pageRes.error}`);
         cursor.stats = addStats(cursor.stats, stats);
         await writeSyncCursor(cursor); // resume at the same page next time
-        return finish('failed', since, { error: pageRes.error, cursor });
+        return finish('failed', since, { error: pageRes.error, cursor, progress: `at ${await pageProgress()}` });
       }
 
       const processed = await processOpportunityPage({
@@ -608,16 +663,70 @@ export async function runGhlSync(options: {
         cursor.startAfter = pageRes.next.startAfter;
       }
       await writeSyncCursor(cursor);
+      return null;
+    };
+
+    // ---- Phase "tracked": the FOLLOWED pipelines' opportunities — what the dashboard shows ----
+    while (cursor.phase === 'tracked') {
+      if (cursor.index >= cursor.trackedCount) { cursor.phase = 'appointments'; await writeSyncCursor(cursor); break; }
+      if (outOfRoom()) return pause(await pageProgress());
+      const stop = await onePage();
+      if (stop) return stop;
     }
 
-    // ---- Phase 2: calendar events, re-match, bookkeeping ----------------
-    const cycleStats = addStats(cursor.stats, stats);
+    // ---- Phase "appointments": the calendar events, then the family markers (reconciliation is eligible from here) ----
+    if (cursor.phase === 'appointments') {
+      if (outOfRoom()) return pause('appointments (tracked opportunities complete)');
+      const appt = await syncAppointments();
+      if (appt.error) return finish('failed', since, { error: appt.error, cursor, progress: 'at appointments' });
+      // The tracked phases are complete for this cycle: the dashboard's data is fresh, whatever the mirrors do later.
+      const doneAt = new Date().toISOString();
+      if (!backfilled) {
+        await setSetting(SETTING_KEYS.ghlTrackedOppsCompletedAt, doneAt);
+        await setSetting(SETTING_KEYS.ghlAppointmentsCompletedAt, doneAt);
+        await setSetting(SETTING_KEYS.ghlTrackedCompletedAt, cursor.cycleStartedAt);
+      }
+      // Contacts that arrived this cycle may be the identities unmatched Stripe payments were waiting for; cheap and
+      // idempotent, manual matches never overwritten. Here, not after the mirrors — the dashboard shows payments too.
+      try {
+        const matching = await runPaymentMatching();
+        stats.paymentsMatched += matching.matched;
+      } catch (err) {
+        warnings.push(`Payment re-match after sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      cursor.phase = 'mirrors';
+      cursor.index = cursor.trackedCount;
+      cursor.page = 1;
+      cursor.startAfterId = null;
+      cursor.startAfter = null;
+      cursor.stats = addStats(cursor.stats, stats);
+      await writeSyncCursor(cursor);
+      // stats now live in the cursor; this run's own counters restart at zero so nothing is double-counted
+      for (const k of Object.keys(stats) as Array<keyof SyncStats>) if (typeof stats[k] === 'number') (stats as unknown as Record<string, number>)[k] = 0;
+    }
 
+    // ---- Phase "mirrors": the untracked pipelines, LAST — history only, never what the dashboard displays ----
+    while (cursor.phase === 'mirrors' && cursor.index < cursor.order.length) {
+      if (outOfRoom()) return pause(await pageProgress());
+      const stop = await onePage();
+      if (stop) return stop;
+    }
+
+    // ---- Done: bookkeeping ------------------------------------------------
+    const cycleStats = addStats(cursor.stats, stats);
+    cycleStats.cycleRuns = cursor.runs;
+    if (!backfilled) await setSetting(SETTING_KEYS.ghlLastSyncAt, cursor.cycleStartedAt);
+    await writeSyncCursor(null);
+    warnings.unshift(...cursor.warnings);
+    return finish('succeeded', since, { cycleStats, trackedComplete: true, phase: 'done', progress: `completed ${cursor.order.length} pipelines (${cursor.trackedCount} followed) in ${cursor.runs} run${cursor.runs === 1 ? '' : 's'}` });
+
+    // The calendar events for the cycle's window — one request per active calendar. Counts land in this run's stats.
+    async function syncAppointments(): Promise<{ error?: string }> {
     const calendarsRes = await listCalendars();
     requestsUsed += 1;
     const calendars = calendarsRes.ok && calendarsRes.data ? calendarsRes.data.calendars : [];
     if (!calendarsRes.ok) warnings.push(`Calendars: ${calendarsRes.error}`);
-    cycleStats.calendars = calendars.length;
+    stats.calendars = calendars.length;
 
     const followedRaw = await getSetting('ghl_followed_calendars');
     let followedCalendars: string[] = [];
@@ -635,7 +744,7 @@ export async function runGhlSync(options: {
     for (const cal of activeCalendars) {
       const res = await listAppointments({ startTimeMs: windowStartMs, endTimeMs: windowEndMs, calendarId: cal.id });
       requestsUsed += 1;
-      cycleStats.rejectedRows += res.rejected;
+      stats.rejectedRows += res.rejected;
       warnings.push(...res.warnings);
       if (res.error) {
         warnings.push(`Calendar "${cal.name}": ${res.error}`);
@@ -654,7 +763,7 @@ export async function runGhlSync(options: {
     for (const { event, calendarName } of events) {
       const start = toDate(event.startTime);
       if (!start) {
-        cycleStats.rejectedRows += 1;
+        stats.rejectedRows += 1;
         continue;
       }
       const c = byGhl.get(event.contactId);
@@ -683,31 +792,17 @@ export async function runGhlSync(options: {
         updatedAt: startedAt,
       };
       await db.insert(appointments).values(values).onConflictDoUpdate({ target: appointments.ghlEventId, set: values });
-      cycleStats.appointmentsUpserted += 1;
+      stats.appointmentsUpserted += 1;
     }
     if (events.length === 0 && activeCalendars.length > 0 && !backfilled) {
       await raise('silence', 'info', 'Sync window contained zero calendar events.');
     }
-    if (cycleStats.opportunities === 0 && cycleStats.pipelines > 0) {
-      await raise('silence', 'warning', 'Sync cycle returned zero opportunities across all pipelines.');
+    const soFar = addStats(cursor.stats, stats);
+    if (soFar.opportunities === 0 && soFar.pipelines > 0 && cursor.trackedCount > 0) {
+      await raise('silence', 'warning', 'Sync cycle returned zero opportunities across the followed pipelines.');
     }
-
-    // Contacts that arrived this cycle may be the identities unmatched Stripe
-    // payments were waiting for (and a Stripe reconcile may have landed
-    // payments since the last cycle). Cheap and idempotent, so every completed
-    // cycle re-matches; manual matches are never overwritten.
-    try {
-      const matching = await runPaymentMatching();
-      cycleStats.paymentsMatched = matching.matched;
-    } catch (err) {
-      warnings.push(`Payment re-match after sync failed: ${err instanceof Error ? err.message : String(err)}`);
+    return {};
     }
-
-    cycleStats.cycleRuns = cursor.runs;
-    if (!backfilled) await setSetting(SETTING_KEYS.ghlLastSyncAt, cursor.cycleStartedAt);
-    await writeSyncCursor(null);
-    warnings.unshift(...cursor.warnings);
-    return finish('succeeded', since, { cycleStats, progress: `completed ${cursor.order.length} pipelines in ${cursor.runs} run${cursor.runs === 1 ? '' : 's'}` });
   } catch (err) {
     captureException(err, { source: 'ghl' });
     const message = err instanceof Error ? err.message : String(err);

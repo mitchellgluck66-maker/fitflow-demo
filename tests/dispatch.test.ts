@@ -1,6 +1,6 @@
 /** Dispatch isolation: one step's failure, hang or ok=false never stops the others; every outcome is recorded. */
 import { describe, it, expect } from 'vitest';
-import { runDispatch, type StepOutcome } from '@/lib/dispatch';
+import { runDispatch, statsForOutcome, outcomeReason, type StepOutcome } from '@/lib/dispatch';
 
 describe('runDispatch', () => {
   it('runs every step in order; a throw, a hang and an ok=false result are recorded and the chain continues', async () => {
@@ -58,5 +58,25 @@ describe('runDispatch', () => {
     });
     expect(result.steps.x.status).toBe('succeeded');
     expect(result.steps.y.status).toBe('succeeded');
+  });
+});
+
+// 2026-09-29: an empty stats {} on a skipped step is not observability — every dispatch row's stats carry a reason
+describe('statsForOutcome — a skipped, stored or partial step says why', () => {
+  it('a skipped step records its reason; failed and timed-out steps their error', () => {
+    expect(statsForOutcome({ status: 'skipped', reason: 'waiting for the tracked phases of the GHL cycle — paused at pipeline 2/15 "Nurture", page 3 (phase mirrors)' })).toEqual({ reason: 'waiting for the tracked phases of the GHL cycle — paused at pipeline 2/15 "Nurture", page 3 (phase mirrors)' });
+    expect(statsForOutcome({ status: 'failed', durationMs: 120, error: 'boom' })).toEqual({ durationMs: 120, reason: 'boom' });
+    expect(statsForOutcome({ status: 'timed_out', durationMs: 25_000, error: 'no result after 25s' })).toEqual({ durationMs: 25_000, reason: 'no result after 25s' });
+  });
+
+  it('a step that "succeeded" by doing nothing says what it did not do', () => {
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { kind: 'daily_todo', status: 'stored' } })).toBe('stored, not sent — RESEND_API_KEY / RESEND_FROM_EMAIL not configured');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { status: 'skipped_empty' } })).toBe('skipped — the digest was empty');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: false, notConfigured: true } })).toBe('not configured — no credentials for this step');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, skipped: 'waiting for the tracked phases of the GHL cycle — the sync did not run' } })).toMatch(/^waiting for the tracked phases/);
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, partial: true, progress: 'paused at pipeline 3/15 "Alumni", page 2 (phase mirrors)' } })).toBe('partial — paused at pipeline 3/15 "Alumni", page 2 (phase mirrors)');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, cached: true } })).toBe('served from cache — inputs unchanged');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, stats: { charges: 3 } } })).toBeNull();
+    expect(statsForOutcome({ status: 'succeeded', durationMs: 3, result: { status: 'sent' } })).toEqual({ durationMs: 3 });
   });
 });

@@ -52,6 +52,45 @@ function failedResult(result: unknown): string | null {
   return null;
 }
 
+/**
+ * What a step's `sync_runs` row records in `stats` (2026-09-29): a skipped
+ * step carries its reason, a failed / timed-out one its error, and a step that
+ * "succeeded" by doing nothing says why — a digest stored for want of
+ * RESEND_API_KEY, a not-connected source, a reconcile waiting for the tracked
+ * phases, a partial GHL run's pause point. An empty {} is not observability.
+ */
+export function statsForOutcome(outcome: StepOutcome): Record<string, number | string> {
+  const out: Record<string, number | string> = {};
+  if ('durationMs' in outcome) out.durationMs = outcome.durationMs;
+  const reason = outcomeReason(outcome);
+  if (reason) out.reason = reason;
+  return out;
+}
+
+/** The one-line reason behind an outcome, read from the outcome itself or the step's own result. Null when it simply ran. */
+export function outcomeReason(outcome: StepOutcome): string | null {
+  if (outcome.status === 'skipped') return outcome.reason;
+  if (outcome.status === 'timed_out') return outcome.error;
+  if (outcome.status === 'failed') return outcome.error;
+  const r = outcome.result;
+  if (!r || typeof r !== 'object') return null;
+  const o = r as Record<string, unknown>;
+  if (typeof o.skipped === 'string' && o.skipped) return o.skipped;
+  if (typeof o.reason === 'string' && o.reason) return o.reason;
+  if (o.notConfigured) return 'not configured — no credentials for this step';
+  if (o.partial === true) return typeof o.progress === 'string' && o.progress ? `partial — ${o.progress}` : 'partial — the cycle continues next run';
+  if (typeof o.status === 'string' && o.status !== 'sent' && o.status !== 'succeeded' && o.status !== 'ok') {
+    const err = typeof o.error === 'string' && o.error ? ` — ${o.error}` : '';
+    if (o.status === 'stored') return `stored, not sent — RESEND_API_KEY / RESEND_FROM_EMAIL not configured${err}`;
+    if (o.status === 'skipped_empty') return 'skipped — the digest was empty';
+    if (o.status === 'already_sent') return 'already sent for this period';
+    if (o.status === 'disabled') return 'disabled on /reports';
+    return `${o.status}${err}`;
+  }
+  if (o.cached === true) return 'served from cache — inputs unchanged';
+  return null;
+}
+
 export async function runDispatch(
   steps: DispatchStep[],
   opts: { record?: (name: string, outcome: StepOutcome) => Promise<void>; now?: () => number; budgetMs?: number } = {},

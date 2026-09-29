@@ -489,7 +489,8 @@ export const syncRuns = pgTable(
     /** Delta window lower bound this run used. */
     since: timestamp('since', { withTimezone: true, mode: 'date' }),
     requestsUsed: integer('requests_used').notNull().default(0),
-    stats: jsonb('stats').$type<Record<string, number>>().notNull().default({}),
+    /** Counters, plus the string `reason` a skipped / partial / stored step records (2026-09-29: an empty {} is not observability). */
+    stats: jsonb('stats').$type<Record<string, number | string>>().notNull().default({}),
     warnings: jsonb('warnings').$type<string[]>().notNull().default([]),
     error: text('error'),
   },

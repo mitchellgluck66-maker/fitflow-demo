@@ -29,6 +29,17 @@ export const SETTING_KEYS = {
    * budget. Cleared when a cycle completes.
    */
   ghlSyncCursor: 'ghl_sync_cursor',
+  /**
+   * Cycle-by-value markers (2026-09-29): when each DATA FAMILY the dashboard
+   * displays last completed inside a cycle — stages/opportunities of the
+   * FOLLOWED pipelines, and appointments. Written by the phase that finishes
+   * them, whether or not the untracked mirrors ever complete. The stale banner
+   * and sync-health key off these, never off run activity.
+   */
+  ghlTrackedOppsCompletedAt: 'ghl_tracked_opps_completed_at',
+  ghlAppointmentsCompletedAt: 'ghl_appointments_completed_at',
+  /** ISO cycleStartedAt of the last cycle whose TRACKED phases completed — reconciliation is eligible from here. */
+  ghlTrackedCompletedAt: 'ghl_tracked_completed_at',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */
   backfillFrom: 'backfill_from',
   /**

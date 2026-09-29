@@ -11,7 +11,7 @@ import { runDigest } from '@/lib/email/send';
 import { localHour, SEND_HOUR_LOCAL } from '@/lib/email/cron';
 import { getTimezone } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
-import { runDispatch, type DispatchStep, type StepOutcome } from '@/lib/dispatch';
+import { runDispatch, statsForOutcome, type DispatchStep, type StepOutcome } from '@/lib/dispatch';
 import { sweepIncidentNoise } from '@/lib/incidents/noise';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,8 @@ export const maxDuration = 300;
  * (budgeted, resumable) after, digests last:
  *   stripe → meta → google → ghl (20s budget) → reconcile → incident sweep
  *   → insights → narratives → daily / weekly / monthly digests
+ * Reconcile runs when the GHL cycle's TRACKED phases are complete (its
+ * mirrors may still be walking); every dispatch row's stats carry a reason.
  * `?only=stripe,meta,google,ghl,reconcile,sweep,insights,narrative,daily,weekly,monthly`
  * limits the steps; `?force=1` bypasses the hour/day guards (never the secret).
  */
@@ -51,7 +53,9 @@ export async function GET(request: NextRequest) {
   const isSendHour = force || hour >= SEND_HOUR_LOCAL;
   const gate = (ok: boolean, reason: string) => (ok ? null : reason);
 
-  let ghlPartial = false;
+  // Reconciliation is eligible once the TRACKED phases of the current cycle are complete (followed pipelines'
+  // opportunities + appointments) — not once the 15-pipeline walk finishes, which under a 20 s budget it never did.
+  let ghlTracked: { complete: boolean; progress: string | null } = { complete: false, progress: null };
   const steps: DispatchStep[] = [
     { name: 'stripe', ownsRun: true, run: () => runStripeSync({ mode: 'reconcile', trigger: 'cron' }) },
     { name: 'meta', ownsRun: true, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
@@ -62,11 +66,11 @@ export async function GET(request: NextRequest) {
       timeoutMs: 30_000,
       run: async () => {
         const r = await runGhlSync({ mode: 'delta', trigger: 'cron', budgetMs: 20_000 });
-        ghlPartial = r.partial;
+        ghlTracked = { complete: r.trackedComplete, progress: r.progress };
         return r;
       },
     },
-    { name: 'reconcile', run: async () => (ghlPartial ? { ok: true, skipped: 'GHL cycle still in progress — reconciling after it completes' } : runReconcile({ trigger: 'cron' })) },
+    { name: 'reconcile', run: async () => (ghlTracked.complete ? runReconcile({ trigger: 'cron' }) : { ok: true, skipped: `waiting for the tracked phases of the GHL cycle — ${ghlTracked.progress ?? 'the sync did not run'}` }) },
     { name: 'sweep', run: () => sweepIncidentNoise() },
     { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period' }) },
     { name: 'narrative_weekly', skip: gate(force || dow === 1, 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
@@ -85,7 +89,7 @@ export async function GET(request: NextRequest) {
       status,
       startedAt: new Date(finishedAt.getTime() - ('durationMs' in outcome ? outcome.durationMs : 0)),
       finishedAt,
-      stats: 'durationMs' in outcome ? { durationMs: outcome.durationMs } : {},
+      stats: statsForOutcome(outcome),   // 2026-09-29: every skipped / stored / partial step says why
       warnings: outcome.status === 'skipped' ? [outcome.reason] : [],
       error: 'error' in outcome ? outcome.error : null,
     });
