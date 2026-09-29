@@ -62,6 +62,23 @@ and `/api/stripe/webhook` (Stripe signature).
   someone holding the anon key. The app connects as the table owner and is
   unaffected.
 
+## Backups (nightly, encrypted)
+
+Supabase's free tier keeps no backups, so `.github/workflows/backup.yml`
+`pg_dump`s the database every night (09:15 UTC), encrypts the dump with
+AES-256 and keeps it 90 days as a workflow artifact. Restoring:
+[`docs/restore-runbook.md`](docs/restore-runbook.md). Configure **two repo
+secrets** (GitHub → Settings → Secrets and variables → Actions, or `gh secret
+set NAME`):
+
+| Secret | Value |
+| --- | --- |
+| `DATABASE_URL` | the Supabase **session-pooler** connection string (port 5432 on `*.pooler.supabase.com`) — not the transaction pooler (6543) and not the direct IPv6 host |
+| `BACKUP_PASSPHRASE` | a long random passphrase (`openssl rand -base64 48`); keep a copy in the password manager — GitHub never shows it again, and without it the backups cannot be opened |
+
+Then run it once by hand (Actions → Nightly database backup → Run workflow,
+or `gh workflow run backup.yml`) and rehearse a restore (runbook section 3).
+
 ## Connecting GoHighLevel (read-only)
 
 1. In GHL: Settings → Private Integrations → create a token with only the

@@ -1,0 +1,104 @@
+# Nightly encrypted database backup (H3, 2026-09-29 audit).
+#
+# Supabase's free tier has no backups / PITR, so this job pg_dumps the app's
+# schemas every night, encrypts the dump with AES-256 (openssl, PBKDF2) using
+# a passphrase that lives only in repo secrets + a password manager, and keeps
+# it as a workflow artifact for 90 days. Restore: docs/restore-runbook.md.
+#
+# Repo secrets (Settings → Secrets and variables → Actions):
+#   DATABASE_URL       Supabase SESSION-pooler connection string (port 5432 on
+#                      *.pooler.supabase.com). Not the transaction pooler
+#                      (6543, breaks pg_dump) and not the direct host (IPv6
+#                      only; GitHub runners are IPv4).
+#   BACKUP_PASSPHRASE  long random passphrase (openssl rand -base64 48). Keep a
+#                      copy outside GitHub — without it the backups are noise.
+name: Nightly database backup
+
+on:
+  schedule:
+    # 09:15 UTC = 03:15 in Edmonton (MDT) / 02:15 (MST) — after the nightly dispatch settles.
+    - cron: '15 9 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PG_MAJOR: '17'
+    steps:
+      - name: Check secrets are configured
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          missing=0
+          [ -n "$DATABASE_URL" ] || { echo "::error::Repo secret DATABASE_URL is not set"; missing=1; }
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::Repo secret BACKUP_PASSPHRASE is not set"; missing=1; }
+          [ "${#BACKUP_PASSPHRASE}" -ge 20 ] || { echo "::error::BACKUP_PASSPHRASE is shorter than 20 characters"; missing=1; }
+          exit $missing
+
+      - name: Install pg_dump ${{ env.PG_MAJOR }} (must be >= the server's major version)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "postgresql-client-${PG_MAJOR}"
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" --version
+
+      - name: Dump (custom format, app schemas only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          STAMP=$(date -u +%Y-%m-%dT%H%MZ)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          mkdir -p backup
+          # public = every FitFlow table (RLS flags included); drizzle = the
+          # applied-migrations journal, so db:migrate knows where a restore stands.
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" "$DATABASE_URL" \
+            --format=custom --compress=9 --no-owner --no-privileges \
+            --schema=public --schema=drizzle \
+            --file="backup/fitflow-db-$STAMP.dump"
+          # Refuse to keep an empty or table-less dump.
+          TABLES=$("/usr/lib/postgresql/${PG_MAJOR}/bin/pg_restore" --list "backup/fitflow-db-$STAMP.dump" | grep -c ' TABLE DATA public ' || true)
+          echo "Tables with data in dump: $TABLES"
+          if [ "$TABLES" -lt 10 ]; then echo "::error::Dump has only $TABLES public tables — refusing to call this a backup"; exit 1; fi
+          ls -l backup
+
+      - name: Encrypt (AES-256-CBC, PBKDF2-SHA256, 200k iterations)
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          cd backup
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -md sha256 \
+            -pass env:BACKUP_PASSPHRASE \
+            -in "fitflow-db-$STAMP.dump" -out "fitflow-db-$STAMP.dump.enc"
+          # Prove it decrypts before the plaintext is deleted.
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 \
+            -pass env:BACKUP_PASSPHRASE \
+            -in "fitflow-db-$STAMP.dump.enc" | cmp - "fitflow-db-$STAMP.dump"
+          shred -u "fitflow-db-$STAMP.dump"
+          sha256sum "fitflow-db-$STAMP.dump.enc" > "fitflow-db-$STAMP.dump.enc.sha256"
+          ls -l
+
+      - name: Upload encrypted backup (kept 90 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fitflow-db-${{ env.STAMP }}
+          path: |
+            backup/*.dump.enc
+            backup/*.dump.enc.sha256
+          retention-days: 90
+          if-no-files-found: error
+          # Already compressed + encrypted; zipping again only costs time.
+          compression-level: 0

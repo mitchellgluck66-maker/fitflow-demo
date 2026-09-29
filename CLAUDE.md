@@ -612,6 +612,13 @@ cycle) had never run.
   expired / invalid → critical and the step fails; resolved automatically
   when a regenerated token checks out. Dispatch order is now stripe → meta →
   meta_token → google → ghl → … `tests/meta-token.test.ts`.
+- **H3 backups** — `.github/workflows/backup.yml` (nightly 09:15 UTC +
+  manual): pg_dump 17 of `public` + `drizzle` (custom format), refuses a dump
+  with < 10 tables of data, encrypts with `openssl enc -aes-256-cbc -pbkdf2
+  -iter 200000 -md sha256` (`BACKUP_PASSPHRASE`), proves it decrypts, uploads
+  `.dump.enc` + sha256 as an artifact kept 90 days. Repo secrets:
+  `DATABASE_URL` (session pooler) + `BACKUP_PASSPHRASE`. Restore:
+  `docs/restore-runbook.md`. Restores need the SAME `CREDENTIALS_KEY`.
 
 ## Working agreements
 
