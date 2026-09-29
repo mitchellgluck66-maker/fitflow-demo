@@ -12,6 +12,7 @@ interface SourceFreshness {
   configured: boolean;
   lastSuccessAt: string | null;
   stale: boolean;
+  detail?: string;
   syncEndpoint: string;
   syncBody: Record<string, string>;
 }
@@ -91,8 +92,16 @@ export const StaleSyncBanner: React.FC = () => {
         <span key={s.key} className="inline-flex items-center gap-2">
           <Clock size={13} strokeWidth={2.4} className="shrink-0" />
           <span>
-            {s.label} last synced <strong>{relativeAge(s.lastSuccessAt)}</strong>
-            {s.key === 'ghl' && status.inProgress ? ' · a sync cycle is in progress and will finish on the next run' : ''}
+            {s.detail ? (
+              <>
+                {s.label} — <strong>{s.detail}</strong>
+              </>
+            ) : (
+              <>
+                {s.label} last synced <strong>{relativeAge(s.lastSuccessAt)}</strong>
+              </>
+            )}
+            {s.key === 'ghl' && status.inProgress ? ' · a sync cycle is in progress and continues on the next run' : ''}
           </span>
           <Button variant="ghost" icon={RefreshCw} loading={busy === s.key} disabled={busy !== null && busy !== s.key} onClick={() => syncNow(s)} className="h-6 px-2 text-[12px]">
             Sync now

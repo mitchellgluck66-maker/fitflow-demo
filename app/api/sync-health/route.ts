@@ -9,6 +9,8 @@ import { ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
 import { sentryConfigured } from '@/lib/sentry';
 import { isStaleRun, STALE_RUN_ERROR } from '@/lib/staleRuns';
 import { readReconcileSummary } from '@/lib/ghl/reconcile';
+import { readGhlFreshness } from '@/lib/sync/ghlFreshness';
+import type { FamilyFreshness } from '@/lib/sync/freshness';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +20,8 @@ export interface SourceHealth {
   configured: boolean;
   pending?: boolean;
   cadence: string;
+  /** GHL only (2026-09-29): when each data family last completed — the truth about freshness, not the last run row. */
+  families?: FamilyFreshness[];
   lastRun: {
     id: string;
     kind: string;
@@ -53,15 +57,18 @@ export async function GET() {
     const runs = (await db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)).limit(300)).map((r) =>
       isStaleRun(r.status, r.startedAt, now) ? { ...r, status: 'failed', error: r.error ?? STALE_RUN_ERROR } : r,
     );
+    const ghlFreshness = await readGhlFreshness(now.getTime());
     const sources: SourceHealth[] = SOURCES.map((s) => {
       const r = runs.find((run) => s.kinds.includes(run.kind));
-      const stats = (r?.stats ?? {}) as Record<string, number>;
+      const stats = (r?.stats ?? {}) as Record<string, number | string>;
+      const num = (k: string) => (typeof stats[k] === 'number' ? (stats[k] as number) : 0);
       return {
         key: s.key,
         label: s.label,
         configured: configuredBy[s.key],
         pending: s.key === 'google' ? google.pending : undefined,
         cadence: s.cadence,
+        families: s.key === 'ghl' ? ghlFreshness.families : undefined,
         lastRun: r
           ? {
               id: r.id,
@@ -72,8 +79,8 @@ export async function GET() {
               finishedAt: r.finishedAt?.toISOString() ?? null,
               durationMs: r.finishedAt ? r.finishedAt.getTime() - r.startedAt.getTime() : null,
               requestsUsed: r.requestsUsed,
-              rowsUpserted: s.rowKeys.reduce((sum, k) => sum + (stats[k] ?? 0), 0),
-              rejectedRows: stats.rejectedRows ?? 0,
+              rowsUpserted: s.rowKeys.reduce((sum, k) => sum + num(k), 0),
+              rejectedRows: num('rejectedRows'),
               error: r.error,
               warnings: r.warnings ?? [],
             }
@@ -114,6 +121,7 @@ export async function GET() {
       })),
       sentry: sentryConfigured(),
       reconcile: await readReconcileSummary(),
+      ghlFreshness,
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to read sync health', detail: String(error) }, { status: 500 });

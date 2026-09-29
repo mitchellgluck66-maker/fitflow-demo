@@ -6,11 +6,12 @@ import { getMetaConfig } from '@/lib/meta/config';
 import { getStripeConfig } from '@/lib/stripe/config';
 import { getSetting, SETTING_KEYS } from '@/lib/settings';
 import { readReconcileSummary } from '@/lib/ghl/reconcile';
+import { readGhlFreshness } from '@/lib/sync/ghlFreshness';
+import { STALE_AFTER_HOURS, type FamilyFreshness } from '@/lib/sync/freshness';
 
 export const dynamic = 'force-dynamic';
 
-/** Data older than this is called out on every data page. */
-export const STALE_AFTER_HOURS = 26;
+export { STALE_AFTER_HOURS };
 
 export interface SourceFreshness {
   key: 'ghl' | 'meta' | 'stripe';
@@ -21,6 +22,10 @@ export interface SourceFreshness {
   lastRunStatus: string | null;
   ageHours: number | null;
   stale: boolean;
+  /** GHL only: freshness PER DATA FAMILY (stages/opportunities vs appointments) — the banner names the stale family. */
+  families?: FamilyFreshness[];
+  /** One line naming what is stale and since when (families for GHL). */
+  detail?: string;
   /** POST here to sync this source now. */
   syncEndpoint: string;
   syncBody: Record<string, string>;
@@ -47,6 +52,26 @@ export async function GET() {
 
     const sources: SourceFreshness[] = [];
     for (const s of SOURCES) {
+      if (s.key === 'ghl') {
+        // 2026-09-29: staleness is "when did the TRACKED phases last complete", per family — never run activity. Nineteen
+        // partial runs in a row kept the last completed cycle at Sep 18 while appointments quietly went 11 days stale.
+        const g = await readGhlFreshness(now);
+        const worst = g.families.reduce<FamilyFreshness | null>((a, f) => (!a || (f.ageHours ?? Infinity) > (a.ageHours ?? Infinity) ? f : a), null);
+        sources.push({
+          key: s.key,
+          label: s.label,
+          configured: configured[s.key],
+          lastSuccessAt: worst?.completedAt ?? g.lastSuccessAt,
+          lastRunStatus: g.lastRunStatus,
+          ageHours: worst?.ageHours ?? null,
+          stale: configured[s.key] && g.stale,
+          families: g.families,
+          detail: g.staleFamilies.length ? g.staleFamilies.map((f) => f.detail).join('; ') : undefined,
+          syncEndpoint: s.syncEndpoint,
+          syncBody: s.syncBody,
+        });
+        continue;
+      }
       const [success] = await db
         .select({ finishedAt: syncRuns.finishedAt, startedAt: syncRuns.startedAt })
         .from(syncRuns)

@@ -17,12 +17,23 @@ interface LastRun {
   error: string | null;
   warnings: string[];
 }
+interface Family {
+  key: string;
+  label: string;
+  completedAt: string | null;
+  ageHours: number | null;
+  stale: boolean;
+  partialOnly: boolean;
+  detail: string;
+}
 interface Source {
   key: string;
   label: string;
   configured: boolean;
   pending?: boolean;
   cadence: string;
+  /** GHL: when each data family last completed (stages/opportunities, appointments). */
+  families?: Family[];
   lastRun: LastRun | null;
 }
 interface Unmapped {
@@ -147,8 +158,11 @@ export const SyncHealth: React.FC = () => {
 
   const needsHuman = health.unmappedStages.length;
   const lastRunAt = health.recentRuns[0]?.startedAt ?? null;
+  // The summary says when the DASHBOARD's data last completed, not when a run last happened (2026-09-29).
+  const ghlFamilies = health.sources.find((s) => s.key === 'ghl')?.families ?? [];
+  const staleFamily = ghlFamilies.find((f) => f.stale);
   const summary = [
-    lastRunAt ? `Last sync ${ago(lastRunAt)}` : 'No runs yet',
+    staleFamily ? `GoHighLevel ${staleFamily.detail}` : lastRunAt ? `Last sync ${ago(lastRunAt)}` : 'No runs yet',
     needsHuman ? `${needsHuman} unmapped stage${needsHuman === 1 ? '' : 's'}` : null,
   ]
     .filter(Boolean)
@@ -193,6 +207,11 @@ export const SyncHealth: React.FC = () => {
               </div>
               <div className="text-[11.5px] space-y-0.5" style={{ color: 'var(--text-tertiary)' }}>
                 <div>Cadence: {s.cadence}</div>
+                {s.families?.map((f) => (
+                  <div key={f.key} style={{ color: f.stale ? 'var(--negative, var(--danger))' : undefined }} title={fmt(f.completedAt)}>
+                    {f.detail}
+                  </div>
+                ))}
                 {r ? (
                   <>
                     <div title={fmt(r.startedAt)}>
