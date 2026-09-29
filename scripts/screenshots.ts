@@ -15,12 +15,19 @@ import fs from 'fs';
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000';
 const OUT = path.join(process.cwd(), 'docs', 'screens');
 
-const PAGES: Array<{ name: string; path: string; settle?: number }> = [
+/** The GHL / Stripe backfill start (settings.backfill_from) → today: long enough to include failed / refunded rows. */
+const SINCE_BACKFILL = `start=2026-06-01&end=${new Date().toISOString().slice(0, 10)}`;
+
+const PAGES: Array<{ name: string; path: string; settle?: number; currency?: 'CAD' | 'USD' }> = [
   { name: 'command-center', path: '/?range=last_30_days&compare=previous_period' },
   { name: 'scorecard', path: '/scorecard?range=last_week&compare=previous_period' },
   { name: 'funnel', path: '/funnel?range=last_30_days&compare=previous_period' },
   { name: 'ads', path: '/ads?range=last_30_days&compare=previous_period' },
   { name: 'revenue', path: '/revenue?range=last_30_days&compare=previous_period' },
+  // C1 / M3: converted + original amounts, the FX note and the excluded-payments reconciliation footer.
+  { name: 'revenue-since-backfill', path: `/revenue?range=custom&${SINCE_BACKFILL}&compare=off` },
+  // 1b: the same view with the business-wide reporting currency flipped to USD (restored afterwards).
+  { name: 'revenue-usd', path: `/revenue?range=custom&${SINCE_BACKFILL}&compare=off`, currency: 'USD' },
   { name: 'clients', path: '/clients' },
   { name: 'client-profile', path: '__first_client__' },
   { name: 'reports', path: '/reports' },
@@ -39,6 +46,27 @@ async function main() {
   const first = (await res.json()) as { rows?: Array<{ id: string }> };
   const clientId = first.rows?.[0]?.id;
 
+  // The reporting currency is ONE business-wide setting: flip it only for the
+  // captures that ask, and always put the original back.
+  const setCurrency = (c: 'CAD' | 'USD') => page.request.post(`${BASE}/api/currency`, { data: { reportingCurrency: c } });
+  const original = ((await (await page.request.get(`${BASE}/api/currency`)).json()) as { reporting?: 'CAD' | 'USD' }).reporting ?? 'CAD';
+
+  try {
+    await capture(page, context, clientId, setCurrency, original);
+  } finally {
+    await setCurrency(original);
+  }
+
+  await browser.close();
+}
+
+async function capture(
+  page: import('playwright').Page,
+  context: import('playwright').BrowserContext,
+  clientId: string | undefined,
+  setCurrency: (c: 'CAD' | 'USD') => Promise<unknown>,
+  original: 'CAD' | 'USD',
+) {
   for (const theme of ['light', 'dark'] as const) {
     fs.mkdirSync(path.join(OUT, theme), { recursive: true });
     await context.addInitScript((t) => {
@@ -53,6 +81,7 @@ async function main() {
     for (const p of PAGES) {
       const url = p.path === '__first_client__' ? (clientId ? `/clients/${clientId}` : null) : p.path;
       if (!url) continue;
+      await setCurrency(p.currency ?? original);
       const isSearch = p.name === 'search';
       await page.goto(`${BASE}${isSearch ? '/' : url}`, { waitUntil: 'networkidle' });
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
@@ -67,8 +96,6 @@ async function main() {
       console.log(`✓ ${theme}/${p.name}.png`);
     }
   }
-
-  await browser.close();
 }
 
 main().catch((err) => {
