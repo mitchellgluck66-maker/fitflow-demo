@@ -10,7 +10,7 @@ async function main() {
   await runMigrations();
   const r = await runPaymentClassification();
   console.log(
-    `✓ Payments reclassified: ${r.scanned} scanned · ${r.initial} initial · ${r.recurring} recurring · ${r.unclassed} not cash (failed / refunded / plan rows) · ${r.updated} rows updated`,
+    `✓ Payments reclassified: ${r.scanned} scanned · ${r.initial} initial · ${r.recurring} recurring · ${r.excluded} excluded (failed / refunded / refund / plan rows — not cash) · ${r.updated} rows updated`,
   );
 }
 main()

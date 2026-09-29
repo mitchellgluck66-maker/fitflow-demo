@@ -10,7 +10,7 @@ import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { PaymentsTable } from '@/components/PaymentsTable';
 import { useScorecard } from '@/components/useScorecard';
-import { computeDelta, formatCents } from '@/lib/metrics';
+import { computeDelta, formatCents, EXCLUDED_REASON_LABELS } from '@/lib/metrics';
 
 function RevenueTab() {
   const { data, loading, error } = useScorecard();
@@ -213,7 +213,27 @@ function RevenueTab() {
             icon={Banknote}
           />
           <PaymentsTable payments={revenue.payments} unmatchedCount={revenue.unmatchedCount} />
-          <p className="mt-3 text-[11.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
+          {/* M3: the books reconcile to Stripe — every listed row is cash (initial / recurring / unclassified) or excluded. */}
+          <div className="mt-4 pt-3 space-y-1 text-[11.5px] tabular" style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}>
+            <p>
+              <strong style={{ color: 'var(--text-secondary)' }}>
+                {revenue.excluded.count} payment{revenue.excluded.count === 1 ? '' : 's'} excluded
+              </strong>
+              {revenue.excluded.count > 0 &&
+                ` (${(Object.keys(revenue.excluded.byReason) as Array<keyof typeof revenue.excluded.byReason>)
+                  .filter((k) => revenue.excluded.byReason[k] > 0)
+                  .map((k) => `${revenue.excluded.byReason[k]} ${EXCLUDED_REASON_LABELS[k]}`)
+                  .join(' · ')})`}{' '}
+              — not cash, so never in the totals above.
+            </p>
+            <p>
+              {revenue.payments.length} listed = {revenue.initialCount} initial + {revenue.recurringCount} recurring
+              {revenue.unclassifiedCount > 0 && ` + ${revenue.unclassifiedCount} unclassified`} + {revenue.excluded.count} excluded
+              {revenue.notYetClassifiedCount > 0 && ` + ${revenue.notYetClassifiedCount} not yet classified`} · charged{' '}
+              {formatCents(revenue.grossCents, ccy)} − refunded {formatCents(revenue.refundedCents, ccy)} = collected {formatCents(revenue.collectedCents, ccy)}
+            </p>
+          </div>
+          <p className="mt-1 text-[11.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
             {`Amounts ${data.money.fx.text} (each payment at its own date's rate — `}
             <Link href="/setup" style={{ color: 'var(--accent)' }}>
               Setup → Currency

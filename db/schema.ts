@@ -53,8 +53,8 @@ export type Origin = 'demo' | 'ghl' | 'meta' | 'google' | 'stripe' | 'manual';
 /** paid | organic — see contacts.attributionClass. */
 export type AttributionClass = 'paid' | 'organic';
 
-/** initial (new-client cash) | recurring — see payments.paymentClass. */
-export type PaymentClass = 'initial' | 'recurring';
+/** initial (new-client cash) | recurring | excluded (not cash) — see payments.paymentClass. */
+export type PaymentClass = 'initial' | 'recurring' | 'excluded';
 
 /** Provenance columns every externally-sourced row must carry. */
 const provenance = {
@@ -406,8 +406,10 @@ export const payments = pgTable(
      * Phase G new-client vs recurring cash (CLAUDE.md "Payment classes"):
      *   initial    the customer's FIRST successful, not-fully-refunded charge
      *   recurring  every later successful charge (subscription invoices included)
-     *   null       failed / pending / fully refunded / refund rows / subscription
-     *              plan rows — never counted as cash, so never classed.
+     *   excluded   failed / pending / fully refunded / refund rows / subscription
+     *              plan rows — never counted as cash (M3, 2026-09-29: explicit,
+     *              replacing null-as-meaning)
+     *   null       NOT YET CLASSIFIED — a data-health warning, never a meaning.
      * Derived by lib/stripe/classify.ts after every sync and by
      * `npm run reclassify:payments`; never entered by hand.
      */

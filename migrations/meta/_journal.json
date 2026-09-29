@@ -71,6 +71,13 @@
       "when": 1790690158026,
       "tag": "0009_c2_rls_deny_all",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790690995426,
+      "tag": "0010_m3_payment_class_excluded",
+      "breakpoints": true
     }
   ]
 }

@@ -42,7 +42,7 @@ describe('classifyPayments', () => {
       pay('second', { paidAtMs: ms('2026-08-05') }),
       pay('third', { paidAtMs: ms('2026-08-09') }),
     ];
-    expect(classOf(rows)).toEqual({ refunded: null, second: 'initial', third: 'recurring' });
+    expect(classOf(rows)).toEqual({ refunded: 'excluded', second: 'initial', third: 'recurring' });
   });
 
   it('a partially refunded first charge stays initial', () => {
@@ -57,7 +57,7 @@ describe('classifyPayments', () => {
       pay('in_3', { kind: 'invoice', paidAtMs: ms('2026-09-01'), amountCents: 19_900 }),
       pay('sub_1', { kind: 'subscription', status: 'active', amountCents: 19_900 }),
     ];
-    expect(classOf(rows)).toEqual({ in_1: 'initial', in_2: 'recurring', in_3: 'recurring', sub_1: null });
+    expect(classOf(rows)).toEqual({ in_1: 'initial', in_2: 'recurring', in_3: 'recurring', sub_1: 'excluded' });
   });
 
   it('failed and pending charges are never classed and never steal the initial slot', () => {
@@ -66,11 +66,11 @@ describe('classifyPayments', () => {
       pay('pending', { status: 'pending', paidAtMs: ms('2026-07-30') }),
       pay('ok', { paidAtMs: ms('2026-08-01') }),
     ];
-    expect(classOf(rows)).toEqual({ failed: null, pending: null, ok: 'initial' });
+    expect(classOf(rows)).toEqual({ failed: 'excluded', pending: 'excluded', ok: 'initial' });
   });
 
   it('refund rows are never classed', () => {
-    expect(classOf([pay('re_1', { kind: 'refund', amountCents: 5_000 })])).toEqual({ re_1: null });
+    expect(classOf([pay('re_1', { kind: 'refund', amountCents: 5_000 })])).toEqual({ re_1: 'excluded' });
   });
 
   it('customers are independent; a second customer gets its own initial', () => {
@@ -106,7 +106,7 @@ describe('classifyPayments', () => {
 describe('engine: initial vs recurring cash', () => {
   const R = { start: '2026-08-02', end: '2026-08-08' };
   const base: MetricsInput = { contacts: [], transitions: [], appointments: [], spend: [{ date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 100_000, origin: 'manual' }], payments: [] };
-  const p = (id: string, cls: 'initial' | 'recurring' | null, over: Partial<MetricsInput['payments'][number]> = {}) => ({
+  const p = (id: string, cls: 'initial' | 'recurring' | 'excluded' | null, over: Partial<MetricsInput['payments'][number]> = {}) => ({
     id,
     stripeId: id,
     contactId: null,
@@ -128,9 +128,9 @@ describe('engine: initial vs recurring cash', () => {
         p('i1', 'initial'),
         p('i2', 'initial', { refundedCents: 25_000 }), // partial refund → 75,000 kept
         p('r1', 'recurring', { kind: 'invoice', amountCents: 19_900 }),
-        p('f1', null, { status: 'failed' }),
-        p('x1', null, { status: 'refunded', refundedCents: 100_000 }), // fully refunded → nets to 0, no double subtraction
-        p('re', null, { kind: 'refund', amountCents: 25_000 }),
+        p('f1', 'excluded', { status: 'failed' }),
+        p('x1', 'excluded', { status: 'refunded', refundedCents: 100_000 }), // fully refunded → nets to 0, no double subtraction
+        p('re', 'excluded', { kind: 'refund', amountCents: 25_000 }),
       ],
     };
     const r = computeRevenue(input, R);
@@ -190,11 +190,11 @@ describe('runPaymentClassification (DB)', () => {
 
   it('writes classes and is idempotent', async () => {
     const first = await runPaymentClassification();
-    expect(first).toMatchObject({ scanned: 4, initial: 2, recurring: 1, unclassed: 1, updated: 3 });
+    expect(first).toMatchObject({ scanned: 4, initial: 2, recurring: 1, excluded: 1, updated: 4 }); // the failed row is written as 'excluded' (M3), no longer left null
     const by = async (id: string) => (await db.select().from(payments).where(eq(payments.stripeId, id)))[0].paymentClass;
     expect(await by('db_first')).toBe('initial');
     expect(await by('db_second')).toBe('recurring');
-    expect(await by('db_failed')).toBeNull();
+    expect(await by('db_failed')).toBe('excluded');
     expect(await by('db_other')).toBe('initial');
 
     const again = await runPaymentClassification();
@@ -206,6 +206,6 @@ describe('runPaymentClassification (DB)', () => {
     const r = await runPaymentClassification();
     expect(r.updated).toBe(2);
     const rows = await db.select({ id: payments.stripeId, cls: payments.paymentClass }).from(payments);
-    expect(Object.fromEntries(rows.map((x) => [x.id, x.cls]))).toMatchObject({ db_first: null, db_second: 'initial', db_other: 'initial', db_failed: null });
+    expect(Object.fromEntries(rows.map((x) => [x.id, x.cls]))).toMatchObject({ db_first: 'excluded', db_second: 'initial', db_other: 'initial', db_failed: 'excluded' });
   });
 });

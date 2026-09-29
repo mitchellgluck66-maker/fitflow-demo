@@ -71,9 +71,14 @@ large changes. This file is the standing contract.
      (new-client cash) whatever the rail (a subscription-only client's first
      invoice is still initial); every later kept charge — subscription invoices
      included — is `recurring`; failed / pending / fully refunded / refund rows /
-     plan rows are never cash and get no class. Customers group by Stripe id, then
-     normalised email, then the row alone. Recomputed after every Stripe sync,
-     webhook and demo seed; `npm run reclassify:payments` backfills.
+     plan rows are never cash and get the explicit class `excluded` (M3; `null`
+     now means only "not yet classified" — a data-health warning — and
+     `excludedReasonOf` names why a row is excluded). Customers group by Stripe
+     id, then normalised email, then the row alone. Recomputed after every
+     Stripe sync, webhook and demo seed; `npm run reclassify:payments`
+     backfills. The Revenue footer reconciles to Stripe: "N payments excluded
+     (…)", listed = initial + recurring + unclassified + excluded, and charged −
+     refunded = collected.
    - *Attribution classes* (`contacts.attribution_class`, `lib/attribution/`):
      `paid` when the first touch carries an fbclid/gclid (field or landing-URL
      param) or utm_source → source → utm_medium → session source contains a whole
@@ -620,6 +625,13 @@ cycle) had never run.
   `.dump.enc` + sha256 as an artifact kept 90 days. Repo secrets:
   `DATABASE_URL` (session pooler) + `BACKUP_PASSPHRASE`. Restore:
   `docs/restore-runbook.md`. Restores need the SAME `CREDENTIALS_KEY`.
+- **M3 explicit exclusions** — see rule 8 "Payment classes". Migration 0010
+  backfills `excluded` with SQL that mirrors `isCashPayment` (proved in
+  `tests/excluded.test.ts`); run `npm run reclassify:payments` after
+  migrating so any remaining null cash rows get initial / recurring.
+- **Test harness**: `vitest.config.ts` `hookTimeout: 30_000` — ~40 files each
+  boot PGlite and run every migration in their hooks; the 10 s default
+  flaked under parallel load.
 - **M1 winter clock** — the Hobby dispatch lands ~13:28 UTC = 6:28am MST from
   Nov 1; the old ≥ 7am guard would have skipped every digest all winter. The
   send window now opens at 6am local (`SEND_WINDOW_START_LOCAL`, one

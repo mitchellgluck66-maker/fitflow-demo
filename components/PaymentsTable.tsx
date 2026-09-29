@@ -8,7 +8,7 @@ import { EmptyState } from './PageHeader';
 import { FilterBar, NoMatches } from './FilterBar';
 import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
-import { formatCents, type PaymentDetail } from '@/lib/metrics';
+import { formatCents, EXCLUDED_REASON_LABELS, type PaymentDetail } from '@/lib/metrics';
 import { addDays, formatRangeLabel } from '@/lib/dates';
 import { formatRate } from '@/lib/money';
 
@@ -30,7 +30,7 @@ function fmtDate(on: string | null): string {
 }
 
 const kindLabel = (k: string) => (k === 'invoice' ? 'invoice' : k);
-const classLabel = (c: PaymentDetail['paymentClass']) => c ?? 'not cash';
+const classLabel = (c: PaymentDetail['paymentClass']) => c ?? 'unclassified';
 
 const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
   const failed = p.status === 'failed';
@@ -55,13 +55,21 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
         )}
       </td>
       <td className="px-3 py-2.5">
-        {p.paymentClass ? (
+        {p.paymentClass === 'initial' || p.paymentClass === 'recurring' ? (
           <Badge variant={p.paymentClass === 'initial' ? 'success' : 'accent'} size="xs">
             {p.paymentClass}
           </Badge>
+        ) : p.paymentClass === 'excluded' ? (
+          <span title={`Not cash (${p.excludedReason ? EXCLUDED_REASON_LABELS[p.excludedReason] : 'excluded'}) — never in the totals`}>
+            <Badge variant="neutral" size="xs">
+              excluded{p.excludedReason ? ` · ${EXCLUDED_REASON_LABELS[p.excludedReason]}` : ''}
+            </Badge>
+          </span>
         ) : (
-          <span className="text-[11.5px]" title="Failed, pending, fully refunded or a plan row — never counted as cash" style={{ color: 'var(--text-quaternary)' }}>
-            —
+          <span title="Not yet classified — run a Stripe sync or npm run reclassify:payments">
+            <Badge variant="warning" size="xs">
+              unclassified
+            </Badge>
           </span>
         )}
       </td>

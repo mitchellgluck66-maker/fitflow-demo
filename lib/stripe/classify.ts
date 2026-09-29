@@ -11,9 +11,10 @@
  *   - Every later successful charge — subscription invoices included — is
  *     `recurring`.
  *   - Failed, pending and fully refunded charges, refund rows and subscription
- *     plan rows are never cash, so they get NO class (null). The engine
- *     flags any succeeded cash that is still unclassed as a data-health
- *     warning rather than silently bucketing it.
+ *     plan rows are never cash: class `excluded` (M3, 2026-09-29 — explicit,
+ *     no longer null-as-meaning). After a classification run no row is null;
+ *     the engine flags any succeeded row that still is (not yet classified)
+ *     as a data-health warning rather than silently bucketing it.
  *
  * `classifyPayments` is pure and unit-tested; `runPaymentClassification` is
  * the DB wrapper that runs after every Stripe sync / webhook and from
@@ -75,14 +76,15 @@ export function classifyPayments(rows: ClassifiablePayment[]): PaymentClassifica
     sorted.forEach((p, i) => classOf.set(p.id, i === 0 ? 'initial' : 'recurring'));
   }
 
-  return rows.map((p) => ({ id: p.id, paymentClass: classOf.get(p.id) ?? null }));
+  return rows.map((p) => ({ id: p.id, paymentClass: classOf.get(p.id) ?? 'excluded' }));
 }
 
 export interface ClassificationRunResult {
   scanned: number;
   initial: number;
   recurring: number;
-  unclassed: number;
+  /** Not cash (failed / pending / fully refunded / refund / plan rows). */
+  excluded: number;
   /** Rows whose class changed this run. */
   updated: number;
 }
@@ -121,12 +123,12 @@ export async function runPaymentClassification(): Promise<ClassificationRunResul
   );
 
   const stored = new Map(rows.map((r) => [r.id, r.paymentClass ?? null]));
-  const out: ClassificationRunResult = { scanned: rows.length, initial: 0, recurring: 0, unclassed: 0, updated: 0 };
+  const out: ClassificationRunResult = { scanned: rows.length, initial: 0, recurring: 0, excluded: 0, updated: 0 };
   const now = new Date();
   for (const r of result) {
     if (r.paymentClass === 'initial') out.initial += 1;
     else if (r.paymentClass === 'recurring') out.recurring += 1;
-    else out.unclassed += 1;
+    else out.excluded += 1;
     if (stored.get(r.id) === r.paymentClass) continue;
     await db.update(payments).set({ paymentClass: r.paymentClass, updatedAt: now }).where(eq(payments.id, r.id));
     out.updated += 1;

@@ -162,11 +162,12 @@ export interface PaymentRow {
   description?: string | null;
   matchSource?: string | null;
   /**
-   * initial (new-client cash) | recurring | null (not cash / not yet
-   * classified). See lib/stripe/classify.ts. Marketing math (ROAS, revenue on
-   * the Command Center) uses ONLY initial cash.
+   * initial (new-client cash) | recurring | excluded (failed / pending / fully
+   * refunded / refund / plan rows — never cash) | null (NOT YET classified —
+   * a data-health warning). See lib/stripe/classify.ts. Marketing math (ROAS,
+   * revenue on the Command Center) uses ONLY initial cash.
    */
-  paymentClass?: 'initial' | 'recurring' | null;
+  paymentClass?: 'initial' | 'recurring' | 'excluded' | null;
 }
 
 export interface MetricsInput {
@@ -1501,8 +1502,29 @@ export interface PaymentDetail {
   /** Sun–Sat week the matched contact applied in, e.g. "2026-08-16". */
   cohortWeek: string | null;
   matchSource: string | null;
-  /** initial | recurring | null (not cash). */
-  paymentClass: 'initial' | 'recurring' | null;
+  /** initial | recurring | excluded (not cash) | null (not yet classified). */
+  paymentClass: 'initial' | 'recurring' | 'excluded' | null;
+  /** Why an excluded row is not cash; null for cash rows. */
+  excludedReason: ExcludedReason | null;
+}
+
+/** Why a payment row is not cash (M3): the Revenue footer counts these so totals reconcile to Stripe. */
+export type ExcludedReason = 'failed' | 'refund' | 'fully_refunded' | 'pending' | 'plan';
+
+export const EXCLUDED_REASON_LABELS: Record<ExcludedReason, string> = {
+  failed: 'failed',
+  refund: 'refunds',
+  fully_refunded: 'fully refunded',
+  pending: 'pending',
+  plan: 'subscription plans',
+};
+
+export function excludedReasonOf(p: Pick<PaymentRow, 'kind' | 'status' | 'amountCents' | 'refundedCents'>): ExcludedReason {
+  if (p.kind === 'refund') return 'refund';
+  if (p.kind === 'subscription') return 'plan';
+  if (p.status === 'failed') return 'failed';
+  if (p.status === 'refunded' || (p.amountCents > 0 && p.refundedCents >= p.amountCents)) return 'fully_refunded';
+  return 'pending';
 }
 
 export interface RevenueSummary {
@@ -1530,6 +1552,16 @@ export interface RevenueSummary {
   /** Payments in range, failed pinned first, then newest first. */
   payments: PaymentDetail[];
   unmatchedCount: number;
+  /**
+   * M3 — excluded (not-cash) rows in range, by reason, so the totals visibly
+   * reconcile to Stripe: every listed payment is initial + recurring +
+   * unclassified + excluded (+ notYetClassified non-cash rows, normally 0).
+   */
+  excluded: { count: number; byReason: Record<ExcludedReason, number> };
+  /** Rows listed but not yet classified and not cash (should be 0 after a classification run). */
+  notYetClassifiedCount: number;
+  /** Σ charged on cash-kind rows (charges / invoices that succeeded or were refunded) — gross before refunds. */
+  grossCents: number;
 }
 
 export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueSummary {
@@ -1564,6 +1596,7 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
       cohortWeek: c?.appliedOn ? weekOf(c.appliedOn) : null,
       matchSource: p.matchSource ?? null,
       paymentClass: p.paymentClass ?? null,
+      excludedReason: p.paymentClass === 'excluded' ? excludedReasonOf(p) : null,
     };
   };
 
@@ -1573,6 +1606,16 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
     if (fa !== fb) return fa - fb;
     return (b.on ?? '') < (a.on ?? '') ? -1 : (b.on ?? '') > (a.on ?? '') ? 1 : 0;
   });
+
+  const byReason: Record<ExcludedReason, number> = { failed: 0, refund: 0, fully_refunded: 0, pending: 0, plan: 0 };
+  let excludedCount = 0;
+  for (const p of inR) {
+    if (p.paymentClass !== 'excluded') continue;
+    byReason[excludedReasonOf(p)] += 1;
+    excludedCount += 1;
+  }
+  const grossRows = inR.filter((p) => p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded'));
+  const notYetClassifiedCount = inR.filter((p) => (p.paymentClass ?? null) === null && !(grossRows.includes(p) && netCents(p) > 0)).length;
 
   return {
     currency: ccy,
@@ -1592,6 +1635,9 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
     refundCount: inR.filter((p) => p.refundedCents > 0).length,
     payments: list,
     unmatchedCount: inR.filter((p) => !p.contactId && p.status === 'succeeded').length,
+    excluded: { count: excludedCount, byReason },
+    notYetClassifiedCount,
+    grossCents: sumCents(grossRows.map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),
   };
 }
 
