@@ -149,7 +149,7 @@ export async function runMetaSync(options: { mode: MetaSyncMode; trigger: 'cron'
           adName: row.ad_name ?? null,
           date: row.date_start,
           spendCents,
-          currency: row.account_currency ?? 'USD',
+          currency: (row.account_currency ?? 'USD').toUpperCase(),
           impressions: Math.round(row.impressions),
           clicks: Math.round(row.clicks),
           leads: Math.round(leadsFromActions(row.actions)),

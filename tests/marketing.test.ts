@@ -29,6 +29,7 @@ const pay = (id: string, contactId: string | null, cents: number, cls: 'initial'
   stripeId: id,
   contactId,
   kind: 'charge',
+  currency: 'CAD' as const,
   amountCents: cents,
   refundedCents: 0,
   status: 'succeeded',
@@ -46,7 +47,7 @@ const BASE: MetricsInput = {
   ],
   transitions: [enrolled('pa'), enrolled('pb'), enrolled('og'), roadmap('pa'), roadmap('pb'), roadmap('og'), roadmap('x1')],
   appointments: [],
-  spend: [{ date: '2026-08-02', platform: 'meta', spendCents: 100_000, origin: 'manual' }],
+  spend: [{ date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 100_000, origin: 'manual' }],
   payments: [
     pay('p-pa', 'pa', 300_000), // paid initial
     pay('p-pb', 'pb', 200_000, 'initial', { refundedCents: 50_000 }), // paid initial, net 150,000

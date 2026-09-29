@@ -129,7 +129,8 @@ export async function upsertSubscription(sub: StripeSubscription, meta: UpsertMe
     status: sub.status,
     amountCents,
     refundedCents: 0,
-    currency: 'USD',
+    // Stripe's own code (was hard-coded USD until 2026-09-29 — C1).
+    currency: (sub.currency ?? sub.items.data[0]?.price?.currency ?? 'usd').toUpperCase(),
     email: customer?.email ?? null,
     emailNormalized: normalizeEmail(customer?.email),
     phoneNormalized: normalizePhone(customer?.phone),
@@ -153,7 +154,7 @@ export async function upsertRefund(refund: StripeRefund, meta: UpsertMeta): Prom
     status: refund.status ?? 'succeeded',
     amountCents: refund.amount,
     refundedCents: 0,
-    currency: 'USD',
+    currency: (refund.currency ?? 'usd').toUpperCase(),
     description: refund.reason ?? null,
     paidAt: unixToDate(refund.created),
     metadata: { charge: chargeId },

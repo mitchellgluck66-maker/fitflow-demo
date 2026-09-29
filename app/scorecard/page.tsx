@@ -8,7 +8,7 @@ import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, T
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
-import { formatCents } from '@/lib/metrics';
+import { formatCents, type Currency } from '@/lib/metrics';
 import { periodFamily, rangeFromParams, todayInTimezone } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import type { ScorecardView, ScorecardStat, CampaignPick } from '@/lib/scorecard/assemble';
@@ -33,12 +33,13 @@ const ACCENT: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'info
   cost_client: 'warning',
 };
 
-const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; maturity: DataMaturity }> = ({ stat, comparisonLabel, maturity }) => (
+const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; maturity: DataMaturity; currency: Currency }> = ({ stat, comparisonLabel, maturity, currency }) => (
   <KpiDeltaTile
     label={stat.label}
     value={stat.value}
     delta={stat.delta}
     deltaKind={stat.deltaKind}
+    currency={currency}
     comparisonLabel={comparisonLabel}
     accent={ACCENT[stat.key] ?? 'accent'}
     subtext={stat.sub}
@@ -50,7 +51,7 @@ const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; 
   />
 );
 
-const CampaignCard: React.FC<{ pick: CampaignPick | null; kind: 'top' | 'worst'; note: string }> = ({ pick, kind, note }) => {
+const CampaignCard: React.FC<{ pick: CampaignPick | null; kind: 'top' | 'worst'; note: string; ccy: Currency }> = ({ pick, kind, note, ccy }) => {
   const Icon = kind === 'top' ? Trophy : Frown;
   const good = kind === 'top';
   return (
@@ -70,10 +71,10 @@ const CampaignCard: React.FC<{ pick: CampaignPick | null; kind: 'top' | 'worst';
           </div>
           <div className="flex items-baseline gap-2 mt-1.5">
             <span className="text-[22px] font-semibold tabular tracking-[-0.02em]" style={{ color: good ? 'var(--positive-text)' : 'var(--negative-text)' }}>
-              {formatCents(pick.costPerEnrollmentCents)}
+              {formatCents(pick.costPerEnrollmentCents, ccy)}
             </span>
             <span className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
-              per client · {pick.enrolled} enrolled from {formatCents(pick.spendCents, { compact: true })} · {pick.platform}
+              per client · {pick.enrolled} enrolled from {formatCents(pick.spendCents, ccy, { compact: true })} · {pick.platform}
             </span>
           </div>
         </>
@@ -229,7 +230,7 @@ function ScorecardPage() {
         </div>
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${cols} gap-3 stagger`}>
           {stats.map((st) => (
-            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} maturity={view.maturity} />
+            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} maturity={view.maturity} currency={view.currency} />
           ))}
           {extra}
         </div>
@@ -260,8 +261,8 @@ function ScorecardPage() {
         {section('Ads', Megaphone, view.sections.ads, 'xl:grid-cols-5')}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <CampaignCard pick={view.campaigns.top} kind="top" note={view.campaigns.note} />
-          <CampaignCard pick={view.campaigns.worst} kind="worst" note={view.campaigns.top && !view.campaigns.worst ? view.campaigns.note : view.campaigns.note} />
+          <CampaignCard pick={view.campaigns.top} kind="top" note={view.campaigns.note} ccy={view.currency} />
+          <CampaignCard pick={view.campaigns.worst} kind="worst" note={view.campaigns.top && !view.campaigns.worst ? view.campaigns.note : view.campaigns.note} ccy={view.currency} />
         </div>
 
         <FunnelStrip

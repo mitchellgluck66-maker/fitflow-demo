@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { MessageSquareText, ArrowRight, Send, History, X } from 'lucide-react';
 import { Card, CardHeader, Button, Badge } from '@/components';
-import { formatCents } from '@/lib/metrics';
+import { formatCents, type Currency } from '@/lib/metrics';
 
 interface Citation {
   label: string;
@@ -17,6 +17,8 @@ interface QA {
   question: string;
   answer: string;
   citations: Citation[];
+  /** Null on answers saved before currencies were recorded. */
+  currency: Currency | null;
   period: { start: string; end: string; label: string } | null;
   model: string | null;
   generatedAt: string | null;
@@ -25,9 +27,9 @@ interface QA {
 const SUGGESTIONS = ['What changed since last week?', 'Where should we put more money?', 'Which campaign has the best cost per client?', 'Why is Paid CAC different from Blended CAC?'];
 
 /** Render a citation value the way the prompt told the model to (cents → $, ratio → %, multiples → ×). */
-function fmtCitation(c: Citation): string {
+function fmtCitation(c: Citation, currency: Currency | null): string {
   const p = c.path.toLowerCase();
-  if (p.endsWith('cents')) return formatCents(c.value);
+  if (p.endsWith('cents')) return currency ? formatCents(c.value, currency) : `$${(c.value / 100).toLocaleString('en-US')} (currency not recorded)`;
   if (/roas|ltvtocac|frequency/.test(p)) return `${c.value.toFixed(2)}×`;
   if (/rate|share|conversion|pct|changepct/.test(p) && Math.abs(c.value) <= 1) return `${(c.value * 100).toFixed(0)}%`;
   return Number.isInteger(c.value) ? c.value.toLocaleString() : String(c.value);
@@ -81,7 +83,7 @@ export const AskCard: React.FC = () => {
         setError(d.error ?? d.detail ?? 'Could not answer');
         return;
       }
-      const qa: QA = { id: d.reportId, question: d.question, answer: d.answer, citations: d.citations ?? [], period: d.period, model: d.model, generatedAt: d.generatedAt };
+      const qa: QA = { id: d.reportId, question: d.question, answer: d.answer, citations: d.citations ?? [], currency: d.currency ?? null, period: d.period, model: d.model, generatedAt: d.generatedAt };
       setLatest(qa);
       setHistory((h) => [qa, ...h]);
       setQuestion('');
@@ -182,7 +184,7 @@ export const AskCard: React.FC = () => {
                 {latest.citations.map((c, i) => (
                   <span key={i} title={c.path}>
                     <Badge variant="neutral" size="xs">
-                      {c.label}: {fmtCitation(c)}
+                      {c.label}: {fmtCitation(c, latest.currency)}
                     </Badge>
                   </span>
                 ))}

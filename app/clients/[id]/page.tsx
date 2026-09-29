@@ -7,6 +7,7 @@ import { ArrowLeft, ExternalLink, User, GitBranch, History, Eye, Megaphone } fro
 import { Card, CardHeader, PageHeader, PageBody, EmptyState, Badge, Button, Skeleton, SkeletonText, SkeletonTable, Select } from '@/components';
 import { ClientTimeline } from '@/components/ClientTimeline';
 import type { ClientProfile } from '@/lib/queries/clients';
+import { formatMoney } from '@/lib/money';
 
 function roleVariant(role: string | null): 'success' | 'danger' | 'neutral' | 'accent' {
   if (role === 'enrolled') return 'success';
@@ -252,7 +253,7 @@ export default function ClientProfilePage() {
             <Row label="Opportunity" value={profile.opportunityStatus} />
             <Row
               label="Value"
-              value={profile.monetaryValueCents ? (profile.monetaryValueCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : null}
+              value={profile.monetaryValueCents ? formatMoney(profile.monetaryValueCents, profile.contractCurrency) : null}
             />
             <Row label="Applied" value={fmtDate(profile.appliedAt)} />
             <Row label="Last activity" value={fmtDate(profile.lastActivityAt)} />

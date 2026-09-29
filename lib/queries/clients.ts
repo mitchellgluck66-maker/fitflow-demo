@@ -11,6 +11,8 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, payments } from '@/db';
 import type { SemanticRole, AttributionClass } from '@/db/schema';
 import { getGhlConfig } from '../ghl/config';
+import { formatMoney, parseCurrency, type Currency } from '../money';
+import { getContractCurrency } from '../money/store';
 
 export type TimelineTone = 'positive' | 'negative' | 'neutral';
 
@@ -59,6 +61,8 @@ export interface ClientProfile {
   stageEnteredAt: string | null;
   opportunityStatus: string | null;
   monetaryValueCents: number;
+  /** Currency the GHL opportunity value is entered in (settings.contract_value_currency). */
+  contractCurrency: Currency;
   appliedAt: string | null;
   lastActivityAt: string | null;
   timeline: TimelineItem[];
@@ -157,14 +161,17 @@ export async function getClientProfile(id: string): Promise<ClientProfile | null
 
   for (const p of pays) {
     const at = p.paidAt ?? p.failedAt ?? p.createdAt;
-    const amount = (p.amountCents / 100).toLocaleString('en-US', { style: 'currency', currency: p.currency || 'USD' });
+    // A single client's raw Stripe rows: shown in the currency they were charged in.
+    const ccy = parseCurrency(p.currency);
+    const money = (cents: number) => (ccy ? formatMoney(cents, ccy) : `${(cents / 100).toFixed(2)} ${p.currency}`);
+    const amount = money(p.amountCents);
     const kind = p.kind === 'subscription' ? 'Subscription' : p.kind === 'invoice' ? 'Invoice payment' : p.kind === 'refund' ? 'Refund' : 'Payment';
     timeline.push({
       id: p.id,
       at: at.toISOString(),
       type: 'payment',
       title: `${kind} ${amount} · ${p.status}`,
-      detail: [p.description, p.refundedCents > 0 ? `refunded ${(p.refundedCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}` : null, p.matchSource ? `matched ${p.matchSource}` : null]
+      detail: [p.description, p.refundedCents > 0 ? `refunded ${money(p.refundedCents)}` : null, p.matchSource ? `matched ${p.matchSource}` : null]
         .filter(Boolean)
         .join(' · ') || null,
       tone: p.status === 'succeeded' || p.status === 'active' ? 'positive' : p.status === 'failed' || p.status === 'refunded' || p.kind === 'refund' ? 'negative' : 'neutral',
@@ -210,6 +217,7 @@ export async function getClientProfile(id: string): Promise<ClientProfile | null
     stageEnteredAt: stageEnteredAt?.toISOString() ?? null,
     opportunityStatus: c.opportunityStatus,
     monetaryValueCents: c.monetaryValueCents ?? 0,
+    contractCurrency: await getContractCurrency(),
     appliedAt: appliedAt.toISOString(),
     lastActivityAt: timeline[0]?.at ?? null,
     timeline,

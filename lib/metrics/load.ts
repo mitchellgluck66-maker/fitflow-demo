@@ -9,7 +9,9 @@
 import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments } from '@/db';
 import { localDate, rangeToInstants } from '../dates';
-import type { MetricsInput } from './index';
+import { parseCurrency, type Currency } from '../money';
+import { loadMoneyContext } from '../money/store';
+import type { MetricsInput, PaymentRow, SpendRow } from './index';
 
 export interface LoadOptions {
   /** Widest calendar window needed (YYYY-MM-DD, inclusive). */
@@ -102,6 +104,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       date: adSpend.date,
       platform: adSpend.platform,
       spendCents: adSpend.spendCents,
+      currency: adSpend.currency,
       origin: adSpend.origin,
       level: adSpend.level,
       campaignId: adSpend.campaignId,
@@ -127,6 +130,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       kind: payments.kind,
       amountCents: payments.amountCents,
       refundedCents: payments.refundedCents,
+      currency: payments.currency,
       status: payments.status,
       paidAt: payments.paidAt,
       failedAt: payments.failedAt,
@@ -139,7 +143,25 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     })
     .from(payments);
 
+  const money = await loadMoneyContext();
+  // Amounts keep their stored currency; the engine converts at read time.
+  // A code the business does not report in (only CAD / USD exist today) is
+  // dropped and counted, never summed as if it were either.
+  let unsupported = 0;
+  const withCurrency = <T extends { currency: string }>(rows: T[]): Array<Omit<T, 'currency'> & { currency: Currency }> => {
+    const out: Array<Omit<T, 'currency'> & { currency: Currency }> = [];
+    for (const r of rows) {
+      const currency = parseCurrency(r.currency);
+      if (currency) out.push({ ...r, currency });
+      else unsupported += 1;
+    }
+    return out;
+  };
+  const spend: SpendRow[] = withCurrency(spendRows);
+  const paymentList = withCurrency(paymentRows);
+
   return {
+    money: { ...money, unsupportedRows: unsupported },
     contacts: contactRows.map((c) => ({
       id: c.id,
       name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown',
@@ -169,14 +191,15 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       on: localDate(a.startTime, tz),
       atMs: a.startTime.getTime(),
     })),
-    spend: spendRows,
-    payments: paymentRows.map((p) => ({
+    spend,
+    payments: paymentList.map((p): PaymentRow => ({
       id: p.id,
       stripeId: p.stripeId,
       contactId: p.contactId,
       kind: p.kind,
       amountCents: p.amountCents,
       refundedCents: p.refundedCents,
+      currency: p.currency,
       status: p.status,
       on: p.paidAt ? localDate(p.paidAt, tz) : p.failedAt ? localDate(p.failedAt, tz) : null,
       origin: p.origin,

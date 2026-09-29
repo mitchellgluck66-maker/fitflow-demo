@@ -15,11 +15,16 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ScorecardResult } from './service';
 import { buildInsightInput, type InsightInput } from './insights';
-import type { CampaignRow, Funnel, MarketingMetrics, TrendPoint } from './index';
+import type { CampaignRow, Currency, Funnel, MarketingMetrics, TrendPoint } from './index';
 import { dataCaveats } from './maturity';
 
 export interface AskContext {
   note: string;
+  /** The reporting currency of every *Cents value below (each money-bearing block repeats it). */
+  currency: Currency;
+  fxNote: string;
+  /** Today's rate for the non-reporting currency (so a cited "1.36" is grounded). */
+  fxRate: number | null;
   snapshot: InsightInput;
   marketing: { current: MarketingMetrics; previous: MarketingMetrics | null };
   /** The period funnel (and comparison) in both modes. */
@@ -41,6 +46,7 @@ export interface AskContext {
 interface FunnelSlice {
   mode: Funnel['mode'];
   range: Funnel['range'];
+  currency: Currency;
   spendCents: number;
   stages: Array<{ stage: string; count: number; shareOfApplied: number | null; conversionFromPrevious: number | null; dropOff: number; costPerCents: number | null }>;
   previousLeads: number;
@@ -52,6 +58,7 @@ interface WeekSlice {
   applied: number;
   consultsBooked: number;
   enrolled: number;
+  currency: Currency;
   spendCents: number;
   blendedCacCents: number | null;
   initialCents: number;
@@ -61,6 +68,7 @@ interface CampaignSlice {
   campaign: string;
   platform: string;
   from: 'api' | 'manual';
+  currency: Currency;
   spendCents: number;
   impressions: number;
   reach: number;
@@ -80,6 +88,7 @@ function funnelSlice(f: Funnel): FunnelSlice {
   return {
     mode: f.mode,
     range: f.range,
+    currency: f.currency,
     spendCents: f.spendCents,
     stages: f.stages.map((s) => ({
       stage: s.key,
@@ -101,6 +110,7 @@ function weekSlice(p: TrendPoint): WeekSlice {
     applied: p.applied,
     consultsBooked: p.consultsBooked,
     enrolled: p.enrolled,
+    currency: p.currency,
     spendCents: p.spendCents,
     blendedCacCents: p.cacCents,
     initialCents: p.initialCents,
@@ -113,6 +123,7 @@ function campaignSlice(c: CampaignRow): CampaignSlice {
     campaign: c.campaignName,
     platform: c.platform,
     from: c.from,
+    currency: c.currency,
     spendCents: c.spendCents,
     impressions: c.impressions,
     reach: c.reach,
@@ -143,7 +154,10 @@ export function buildAskContext(result: ScorecardResult): AskContext {
   if (scorecard.revenue.unclassifiedCount) dataHealth.push(`${scorecard.revenue.unclassifiedCount} succeeded payment(s) have no payment class.`);
 
   return {
-    note: 'Money is integer cents. Ratios are 0–1. "period" funnel = events inside the dates; "cohort" funnel = people who applied inside the dates and every stage they reached since. Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend.',
+    currency: scorecard.currency,
+    fxNote: result.money.fx.text,
+    fxRate: result.money.fx.rate === null ? null : Math.round(result.money.fx.rate * 10_000) / 10_000,
+    note: `Money is integer cents in ${scorecard.currency} (the business's reporting currency; ${result.money.fx.text}) — write every amount with the code, e.g. "$1,605 ${scorecard.currency}". Ratios are 0–1. "period" funnel = events inside the dates; "cohort" funnel = people who applied inside the dates and every stage they reached since. Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend.`,
     snapshot: buildInsightInput(result),
     marketing: {
       current: roundMarketing(m),

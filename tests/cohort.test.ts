@@ -60,7 +60,7 @@ const INPUT: MetricsInput = {
     a('stall', 'Consult', 'no_show', '2026-08-14'),
     a('w2', 'Consult', 'showed', '2026-08-14'),
   ],
-  spend: [{ date: '2026-08-02', platform: 'meta', spendCents: 60_000, origin: 'manual' }],
+  spend: [{ date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 60_000, origin: 'manual' }],
   payments: [],
 };
 

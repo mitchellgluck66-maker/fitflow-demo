@@ -78,7 +78,7 @@ describe('getClientProfile', () => {
     expect(p!.stageRole).toBe('enrolled');
     expect(p!.timeline.map((t) => t.type)).toEqual(['payment', 'transition', 'appointment', 'transition', 'transition']);
     expect(p!.timeline.map((t) => t.at)).toEqual([...p!.timeline.map((t) => t.at)].sort().reverse());
-    expect(p!.timeline[0]).toMatchObject({ tone: 'positive', title: 'Payment $2,999.00 · succeeded' });
+    expect(p!.timeline[0]).toMatchObject({ tone: 'positive', title: 'Payment $2,999 USD · succeeded' });
     expect(p!.timeline[1]).toMatchObject({ tone: 'positive', title: 'Consult Booked → Enrolled' });
     expect(p!.timeline[2]).toMatchObject({ tone: 'positive', title: 'Consult · Showed' });
     expect(p!.timeline[4]).toMatchObject({ tone: 'neutral', title: 'Entered Applied' });

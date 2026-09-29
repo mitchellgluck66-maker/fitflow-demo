@@ -41,7 +41,7 @@ export function marketingWarnings(m: MarketingMetrics, r: Revenue): React.ReactN
   if (m.unattributedInitialCount > 0) {
     out.push(
       <span key="cash">
-        <strong>{formatCents(m.unattributedInitialCents)}</strong> of initial cash ({m.unattributedInitialCount} payment{m.unattributedInitialCount === 1 ? '' : 's'}) is not
+        <strong>{formatCents(m.unattributedInitialCents, m.currency)}</strong> of initial cash ({m.unattributedInitialCount} payment{m.unattributedInitialCount === 1 ? '' : 's'}) is not
         matched to a classified contact and is excluded from ROAS —{' '}
         <Link href="/setup" className="underline">
           match payments in Setup → Sync health
@@ -53,7 +53,7 @@ export function marketingWarnings(m: MarketingMetrics, r: Revenue): React.ReactN
   if (r.unclassifiedCount > 0) {
     out.push(
       <span key="cls">
-        <strong>{r.unclassifiedCount} succeeded payment{r.unclassifiedCount === 1 ? '' : 's'}</strong> ({formatCents(r.unclassifiedCents)}) ha{r.unclassifiedCount === 1 ? 's' : 've'}{' '}
+        <strong>{r.unclassifiedCount} succeeded payment{r.unclassifiedCount === 1 ? '' : 's'}</strong> ({formatCents(r.unclassifiedCents, r.currency)}) ha{r.unclassifiedCount === 1 ? 's' : 've'}{' '}
         no payment class and {r.unclassifiedCount === 1 ? 'is' : 'are'} excluded from initial cash. Run <code>npm run reclassify:payments</code>.
       </span>,
     );

@@ -10,9 +10,9 @@ import { EmptyState } from './PageHeader';
 import { computeDelta, formatCents, formatDelta, formatPct } from '@/lib/metrics';
 import type { MetricTrend } from '@/lib/metrics/trendMetrics';
 
-function fmtValue(v: number | null, kind: MetricTrend['kind']): string {
+function fmtValue(v: number | null, kind: MetricTrend['kind'], currency: MetricTrend['currency']): string {
   if (v === null) return '—';
-  if (kind === 'cents') return formatCents(v);
+  if (kind === 'cents') return formatCents(v, currency);
   if (kind === 'pct') return formatPct(v);
   if (kind === 'ratio') return `${v.toFixed(2)}×`;
   return String(v);
@@ -77,11 +77,11 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
       />
       <div className="flex items-baseline gap-2 mb-3">
         <span className="text-[26px] font-semibold tabular tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>
-          {fmtValue(trend.spanValue, trend.kind)}
+          {fmtValue(trend.spanValue, trend.kind, trend.currency)}
         </span>
         {delta.direction !== 'none' && (
           <span className="inline-flex items-center gap-1 text-[12px] font-semibold tabular" style={{ color: deltaColor }}>
-            <DeltaIcon size={12} strokeWidth={2.4} /> {formatDelta(delta, trend.kind)} vs {trend.previousSpan.label}
+            <DeltaIcon size={12} strokeWidth={2.4} /> {formatDelta(delta, trend.kind, trend.currency)} vs {trend.previousSpan.label}
           </span>
         )}
       </div>

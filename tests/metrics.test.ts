@@ -89,9 +89,9 @@ const FIXTURE: MetricsInput = {
     a('c6', 'Consult', 'cancelled', '2026-08-02'),
   ],
   spend: [
-    { date: '2026-08-02', platform: 'meta', spendCents: 100_000, origin: 'manual' },
-    { date: '2026-08-02', platform: 'google', spendCents: 20_000, origin: 'manual' },
-    { date: '2026-07-26', platform: 'meta', spendCents: 50_000, origin: 'manual' },
+    { date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 100_000, origin: 'manual' },
+    { date: '2026-08-02', platform: 'google', currency: 'CAD' as const, spendCents: 20_000, origin: 'manual' },
+    { date: '2026-07-26', platform: 'meta', currency: 'CAD' as const, spendCents: 50_000, origin: 'manual' },
   ],
   payments: [],
 };
@@ -139,7 +139,7 @@ describe('spend, CAC and revenue', () => {
   it('an API row replaces the manual fallback for its date only', () => {
     const spend = [
       ...FIXTURE.spend,
-      { date: '2026-08-04', platform: 'meta', spendCents: 90_000, origin: 'meta' }, // real Meta row, one day
+      { date: '2026-08-04', platform: 'meta', currency: 'CAD' as const, spendCents: 90_000, origin: 'meta' }, // real Meta row, one day
     ];
     // manual meta 100,000 ÷ 7 = 14,285 r5 → Sunday 14,290; Tue Aug 4 replaced by 90,000
     // meta: 100,000 − 14,285 + 90,000 = 175,715; google manual 20,000 untouched
@@ -147,7 +147,7 @@ describe('spend, CAC and revenue', () => {
   });
 
   it('CAC = spend ÷ enrollments; null when no enrollments', () => {
-    expect(computeCac(FIXTURE, R)).toEqual({ spendCents: 120_000, enrollments: 2, cacCents: 60_000, noSpendData: false });
+    expect(computeCac(FIXTURE, R)).toEqual({ spendCents: 120_000, enrollments: 2, cacCents: 60_000, noSpendData: false, currency: 'CAD' });
     expect(computeCac(FIXTURE, P)).toMatchObject({ spendCents: 50_000, enrollments: 0, cacCents: null });
   });
 
@@ -160,12 +160,12 @@ describe('spend, CAC and revenue', () => {
     const withStripe: MetricsInput = {
       ...FIXTURE,
       payments: [
-        { contactId: 'c1', amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-05', origin: 'stripe', paymentClass: 'initial' },
+        { contactId: 'c1', currency: 'CAD' as const, amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-05', origin: 'stripe', paymentClass: 'initial' },
         // Fully refunded: the 50,000 was never kept, so it nets to 0 (not −50,000).
-        { contactId: 'c7', amountCents: 50_000, refundedCents: 50_000, status: 'refunded', on: '2026-08-06', origin: 'stripe', paymentClass: null },
-        { contactId: 'c1', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', kind: 'invoice', paymentClass: 'recurring' },
-        { contactId: null, amountCents: 99_900, refundedCents: 0, status: 'failed', on: '2026-08-07', origin: 'stripe' },
-        { contactId: null, amountCents: 999_900, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe', paymentClass: 'initial' }, // out of range
+        { contactId: 'c7', currency: 'CAD' as const, amountCents: 50_000, refundedCents: 50_000, status: 'refunded', on: '2026-08-06', origin: 'stripe', paymentClass: null },
+        { contactId: 'c1', currency: 'CAD' as const, amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', kind: 'invoice', paymentClass: 'recurring' },
+        { contactId: null, currency: 'CAD' as const, amountCents: 99_900, refundedCents: 0, status: 'failed', on: '2026-08-07', origin: 'stripe' },
+        { contactId: null, currency: 'CAD' as const, amountCents: 999_900, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe', paymentClass: 'initial' }, // out of range
       ],
     };
     const r = computeRevenue(withStripe, R);
@@ -405,12 +405,15 @@ describe('scorecard (what tiles + emails render)', () => {
 
 describe('formatting shared by UI and email', () => {
   it('formats cents, percentages and deltas consistently', () => {
-    expect(formatCents(60_000)).toBe('$600');
-    expect(formatCents(123_456)).toBe('$1,234.56');
-    expect(formatCents(1_250_000, { compact: true })).toBe('$12.5k');
-    expect(formatCents(null)).toBe('—');
+    // Money is never rendered without its currency (C1).
+    expect(formatCents(60_000, 'CAD')).toBe('$600 CAD');
+    expect(formatCents(123_456, 'USD')).toBe('$1,234.56 USD');
+    expect(formatCents(1_250_000, 'CAD', { compact: true })).toBe('$12.5k CAD');
+    expect(formatCents(-5_000, 'CAD')).toBe('-$50 CAD');
+    expect(formatCents(null, 'CAD')).toBe('—');
     expect(formatDelta(computeDelta(3, 2))).toBe('+1 (+50%)');
-    expect(formatDelta(computeDelta(60_000, 80_000, true), 'cents')).toBe('−$200 (−25%)');
+    expect(formatDelta(computeDelta(60_000, 80_000, true), 'cents', 'CAD')).toBe('−$200 CAD (−25%)');
+    expect(() => formatDelta(computeDelta(1, 2), 'cents', undefined as unknown as 'CAD')).toThrow(/currency/);
     expect(formatDelta(computeDelta(2, 0))).toBe('+2');
     expect(formatDelta(computeDelta(null, 1))).toBe('—');
   });

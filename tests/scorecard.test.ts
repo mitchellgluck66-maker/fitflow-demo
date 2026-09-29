@@ -38,14 +38,14 @@ const INPUT: MetricsInput = {
     { contactId: 'p1', type: 'Consult', outcome: 'no_show', on: '2026-08-13', atMs: noon('2026-08-13') },
   ],
   spend: [
-    { date: '2026-08-16', platform: 'meta', spendCents: 60_000, origin: 'meta', campaignId: 'c1', campaignName: 'Broad', impressions: 4000, clicks: 100 },
-    { date: '2026-08-17', platform: 'meta', spendCents: 40_000, origin: 'meta', campaignId: 'c2', campaignName: 'Retarget', impressions: 1000, clicks: 50 },
-    { date: '2026-08-10', platform: 'meta', spendCents: 50_000, origin: 'meta', campaignId: 'c1', campaignName: 'Broad', impressions: 3000, clicks: 80 },
+    { date: '2026-08-16', platform: 'meta', currency: 'CAD' as const, spendCents: 60_000, origin: 'meta', campaignId: 'c1', campaignName: 'Broad', impressions: 4000, clicks: 100 },
+    { date: '2026-08-17', platform: 'meta', currency: 'CAD' as const, spendCents: 40_000, origin: 'meta', campaignId: 'c2', campaignName: 'Retarget', impressions: 1000, clicks: 50 },
+    { date: '2026-08-10', platform: 'meta', currency: 'CAD' as const, spendCents: 50_000, origin: 'meta', campaignId: 'c1', campaignName: 'Broad', impressions: 3000, clicks: 80 },
   ],
   payments: [
-    { id: 'p-a1', stripeId: 'ch_a1', contactId: 'a1', kind: 'charge', amountCents: 300_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' },
-    { id: 'p-a2', stripeId: 'ch_a2', contactId: 'a2', kind: 'charge', amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-08-22', origin: 'stripe', paymentClass: 'initial' },
-    { id: 'p-p1', stripeId: 'ch_p1', contactId: 'p1', kind: 'charge', amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-14', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'p-a1', stripeId: 'ch_a1', contactId: 'a1', kind: 'charge', currency: 'CAD' as const, amountCents: 300_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'p-a2', stripeId: 'ch_a2', contactId: 'a2', kind: 'charge', currency: 'CAD' as const, amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-08-22', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'p-p1', stripeId: 'ch_p1', contactId: 'p1', kind: 'charge', currency: 'CAD' as const, amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-14', origin: 'stripe', paymentClass: 'initial' },
   ],
 };
 
@@ -68,6 +68,7 @@ function build(rangeParams: { range: string; start?: string }): ScorecardResult 
     ads: { kpis: computeAdsKpis(INPUT, range), previousKpis: computeAdsKpis(INPUT, P), campaigns: computeCampaignTable(INPUT, range), previousCampaigns: computeCampaignTable(INPUT, P) },
     revenue: computeRevenueSummary(INPUT, range),
     maturity: computeMaturity({ range, today: TODAY, historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
+    money: { currency: 'CAD' as const, fx: { reporting: 'CAD' as const, from: 'USD' as const, rate: 1.36, text: 'displayed in CAD · USD converted at 1.36' }, unsupportedRows: 0 },
   };
 }
 
@@ -88,11 +89,11 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
 
   it('Money: every stat is the engine value formatted, with the engine delta', () => {
     expect(view.sections.money.map((s) => s.key)).toEqual(['initial_cash', 'enrollments', 'paid_cac', 'blended_cac', 'roas', 'ltv_cac']);
-    expect(byKey('money', 'initial_cash')).toMatchObject({ value: '$5,000', sub: '+$2,500 (+100%)', tone: 'good' });
+    expect(byKey('money', 'initial_cash')).toMatchObject({ value: '$5,000 CAD', sub: '+$2,500 CAD (+100%)', tone: 'good' });
     expect(byKey('money', 'enrollments')).toMatchObject({ value: '2', sub: '+1 (+100%)', tone: 'good' });
     // Spend Aug 16–22 = 100,000; 2 paid enrollments → $500; previous $500 (50,000 ÷ 1) → flat
-    expect(byKey('money', 'paid_cac')).toMatchObject({ value: '$500', tone: 'neutral' });
-    expect(byKey('money', 'blended_cac').value).toBe('$500');
+    expect(byKey('money', 'paid_cac')).toMatchObject({ value: '$500 CAD', tone: 'neutral' });
+    expect(byKey('money', 'blended_cac').value).toBe('$500 CAD');
     expect(byKey('money', 'roas')).toMatchObject({ value: '5.00×', tone: 'neutral' }); // 500,000 ÷ 100,000 vs 250,000 ÷ 50,000
     expect(byKey('money', 'ltv_cac')).toMatchObject({ value: '10.0×' }); // 1,000,000 contract ÷ 100,000 spend
     expect(byKey('money', 'ltv_cac').delta.current).toBe(10);
@@ -111,24 +112,24 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
 
   it('Ads: spend and cost per stage (lower is better), top and worst campaign by cost per client', () => {
     expect(view.sections.ads.map((s) => s.key)).toEqual(['spend', 'cpl', 'cost_consult', 'cost_roadmap', 'cost_client']);
-    expect(byKey('ads', 'spend')).toMatchObject({ value: '$1,000', sub: '+$500 (+100%)', tone: 'bad' });
+    expect(byKey('ads', 'spend')).toMatchObject({ value: '$1,000 CAD', sub: '+$500 CAD (+100%)', tone: 'bad' });
     expect(byKey('ads', 'cpl').value).toBe(formatCentsLike(100_000 / 3));
-    expect(byKey('ads', 'cost_client').value).toBe('$500');
+    expect(byKey('ads', 'cost_client').value).toBe('$500 CAD');
     expect(view.campaigns.top).toMatchObject({ campaignName: 'Retarget', costPerEnrollmentCents: 40_000, enrolled: 1 });
     expect(view.campaigns.worst).toMatchObject({ campaignName: 'Broad', costPerEnrollmentCents: 60_000, enrolled: 1 });
     expect(view.campaigns.note).toBe('');
   });
 
   it('funnel / show / source tables and the CAC line are the email’s tables', () => {
-    expect(view.funnelRows[0]).toEqual(['Applied', '3', '100%', '—', '$333.33']);
-    expect(view.funnelRows[5]).toEqual(['Enrolled', '2', '67%', '200%', '$500']);
+    expect(view.funnelRows[0]).toEqual(['Applied', '3', '100%', '—', '$333.33 CAD']);
+    expect(view.funnelRows[5]).toEqual(['Enrolled', '2', '67%', '200%', '$500 CAD']);
     expect(view.showRows).toEqual([
       ['Consult', '2', '1', '0', '67%'],
       ['Roadmap', '1', '0', '0', '100%'],
     ]);
     expect(view.sourceRows[0]).toEqual(['Facebook', '2', '2', '2', '100%']);
-    expect(view.cacLine).toContain('Paid CAC: $1,000 spend ÷ 2 paid-attributed enrollments = $500.');
-    expect(view.cacLine).toContain('LTV:CAC: $10,000 contract value ÷ $1,000 spend = 10.0×.');
+    expect(view.cacLine).toContain('Paid CAC: $1,000 CAD spend ÷ 2 paid-attributed enrollments = $500 CAD.');
+    expect(view.cacLine).toContain('LTV:CAC: $10,000 CAD contract value ÷ $1,000 CAD spend = 10.0×.');
     expect(view.empty).toBe(false);
   });
 
@@ -190,12 +191,12 @@ describe('renderScorecardDigest renders the assembled model verbatim', () => {
     expect(money).toBeGreaterThan(-1);
     expect(pipeline).toBeGreaterThan(money);
     expect(adsIdx).toBeGreaterThan(pipeline);
-    expect(digest.text).toMatch(/Initial cash collected\s+\$5,000\s+\+\$2,500 \(\+100%\)/);
+    expect(digest.text).toMatch(/Initial cash collected\s+\$5,000 CAD\s+\+\$2,500 CAD \(\+100%\)/);
     expect(digest.text).toMatch(/ROAS\s+5\.00×\s+no change/);
   });
 });
 
 function formatCentsLike(cents: number): string {
   const dollars = Math.round(cents) / 100;
-  return dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: dollars % 1 === 0 ? 0 : 2 });
+  return `${dollars.toLocaleString('en-US', { minimumFractionDigits: dollars % 1 === 0 ? 0 : 2, maximumFractionDigits: dollars % 1 === 0 ? 0 : 2 })}`.replace(/^/, '$') + ' CAD';
 }

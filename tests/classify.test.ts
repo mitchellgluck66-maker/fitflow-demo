@@ -105,12 +105,13 @@ describe('classifyPayments', () => {
 
 describe('engine: initial vs recurring cash', () => {
   const R = { start: '2026-08-02', end: '2026-08-08' };
-  const base: MetricsInput = { contacts: [], transitions: [], appointments: [], spend: [{ date: '2026-08-02', platform: 'meta', spendCents: 100_000, origin: 'manual' }], payments: [] };
+  const base: MetricsInput = { contacts: [], transitions: [], appointments: [], spend: [{ date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 100_000, origin: 'manual' }], payments: [] };
   const p = (id: string, cls: 'initial' | 'recurring' | null, over: Partial<MetricsInput['payments'][number]> = {}) => ({
     id,
     stripeId: id,
     contactId: null,
     kind: 'charge',
+    currency: 'CAD' as const,
     amountCents: 100_000,
     refundedCents: 0,
     status: 'succeeded',

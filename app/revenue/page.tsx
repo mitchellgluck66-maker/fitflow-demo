@@ -37,6 +37,7 @@ function RevenueTab() {
   }
 
   const { revenue, scorecard, comparison, range, trend } = data;
+  const ccy = data.money.currency;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
   const weekly = trend.grain === 'week';
   const prevRev = scorecard.kpis;
@@ -104,7 +105,7 @@ function RevenueTab() {
             <AlertTriangle size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--warning)' }} />
             <p className="text-[12.5px] leading-snug" style={{ color: 'var(--warning)' }}>
               <strong>{revenue.unclassifiedCount}</strong> succeeded payment{revenue.unclassifiedCount === 1 ? '' : 's'} (
-              {formatCents(revenue.unclassifiedCents)}) in this period {revenue.unclassifiedCount === 1 ? 'has' : 'have'} no payment class yet, so{' '}
+              {formatCents(revenue.unclassifiedCents, ccy)}) in this period {revenue.unclassifiedCount === 1 ? 'has' : 'have'} no payment class yet, so{' '}
               {revenue.unclassifiedCount === 1 ? 'it is' : 'they are'} excluded from Initial and Recurring below. Run <code>npm run reclassify:payments</code> or
               a Stripe sync to classify.
             </p>
@@ -115,9 +116,10 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Initial cash"
             trendMetric="initial_cash"
-            value={formatCents(revenue.initialCents, { compact: true })}
+            value={formatCents(revenue.initialCents, ccy, { compact: true })}
             delta={scorecard.kpis.initialCents}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Sparkles}
             accent="success"
@@ -127,9 +129,10 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Recurring cash"
             trendMetric="recurring_cash"
-            value={formatCents(revenue.recurringCents, { compact: true })}
+            value={formatCents(revenue.recurringCents, ccy, { compact: true })}
             delta={computeDelta(revenue.recurringCents, prevRecurring)}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Repeat}
             accent="accent"
@@ -138,9 +141,10 @@ function RevenueTab() {
           />
           <KpiDeltaTile
             label="Subscriptions"
-            value={formatCents(revenue.mrrCents, { compact: true })}
+            value={formatCents(revenue.mrrCents, ccy, { compact: true })}
             delta={computeDelta(null, null)}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={null}
             icon={CalendarClock}
             accent="info"
@@ -154,14 +158,15 @@ function RevenueTab() {
             comparisonLabel={cmpLabel}
             icon={AlertTriangle}
             accent="danger"
-            subtext={revenue.failedCount > 0 ? `${formatCents(revenue.failedCents)} not collected` : 'nothing failed in period'}
+            subtext={revenue.failedCount > 0 ? `${formatCents(revenue.failedCents, ccy)} not collected` : 'nothing failed in period'}
           />
           <KpiDeltaTile
             label="Refunds"
             trendMetric="refunds"
-            value={formatCents(revenue.refundedCents, { compact: true })}
+            value={formatCents(revenue.refundedCents, ccy, { compact: true })}
             delta={computeDelta(revenue.refundedCents, null, true)}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Undo2}
             accent="warning"
@@ -176,8 +181,8 @@ function RevenueTab() {
             action={
               <ChartLegend
                 items={[
-                  { label: 'Initial ($)', color: 'var(--success)' },
-                  { label: 'Recurring ($)', color: 'var(--accent)' },
+                  { label: `Initial (${ccy})`, color: 'var(--success)' },
+                  { label: `Recurring (${ccy})`, color: 'var(--accent)' },
                 ]}
               />
             }
@@ -194,8 +199,8 @@ function RevenueTab() {
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="initial" name="Initial ($)" stroke="var(--success)" strokeWidth={2} fill="url(#revInitial)" />
-              <Line type="monotone" dataKey="recurring" name="Recurring ($)" stroke="var(--accent)" strokeWidth={2} dot={false} />
+              <Area type="monotone" dataKey="initial" name={`Initial (${ccy})`} stroke="var(--success)" strokeWidth={2} fill="url(#revInitial)" />
+              <Line type="monotone" dataKey="recurring" name={`Recurring (${ccy})`} stroke="var(--accent)" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="initialPrev" name="Initial (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
@@ -208,6 +213,14 @@ function RevenueTab() {
             icon={Banknote}
           />
           <PaymentsTable payments={revenue.payments} unmatchedCount={revenue.unmatchedCount} />
+          <p className="mt-3 text-[11.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
+            {`Amounts ${data.money.fx.text} (each payment at its own date's rate — `}
+            <Link href="/setup" style={{ color: 'var(--accent)' }}>
+              Setup → Currency
+            </Link>
+            {')'}
+            {data.money.unsupportedRows > 0 && ` · ${data.money.unsupportedRows} row(s) in another currency excluded`}
+          </p>
         </Card>
       </PageBody>
 

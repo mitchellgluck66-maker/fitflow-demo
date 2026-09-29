@@ -37,10 +37,30 @@
  *                    warning while any new client has no contract value
  *   cost per roadmap spend ÷ roadmap_booked reached in range
  *
- * Money is integer cents everywhere.
+ * Money is integer cents everywhere, and every amount carries its currency.
+ * Each public function first puts its input into the REPORTING currency
+ * (`inReportingCurrency`: every payment / spend / contract value converted at
+ * its own date's rate from `input.money.rates`; the converted row is labelled
+ * with the reporting currency, so converting again is identity and can never
+ * double-convert). Sums go through lib/money's `CentsTally`, which throws on
+ * any amount still in another currency. Every money figure a function returns
+ * is in `result.currency`.
  */
 
 import type { SemanticRole } from '@/db/schema';
+import {
+  CentsTally,
+  CurrencyMismatchError,
+  DEFAULT_MONEY_CONTEXT,
+  convertCents,
+  formatMoney,
+  rateFor,
+  sumCents,
+  type Currency,
+  type MoneyContext,
+} from '../money';
+
+export type { Currency, MoneyContext } from '../money';
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -66,6 +86,8 @@ export interface ContactRow {
    * contacts classed `paid`; organic/direct must never leak into them.
    */
   attribution?: 'paid' | 'organic' | null;
+  /** Currency of monetaryValueCents. Absent = `money.contractCurrency` (the GHL location's). */
+  contractCurrency?: Currency;
 }
 
 export interface TransitionRow {
@@ -95,6 +117,10 @@ export interface SpendRow {
   date: string;
   platform: string;
   spendCents: number;
+  /** Currency spendCents is in (Meta bills USD). */
+  currency: Currency;
+  /** Set by inReportingCurrency: the amount as stored, before conversion. */
+  original?: { spendCents: number; currency: Currency; rate: number };
   /** 'manual' weekly rows are a per-day fallback wherever an API row exists (see expandSpend). */
   origin: string;
   /** campaign | adset | ad | manual */
@@ -122,6 +148,10 @@ export interface PaymentRow {
   kind?: string;
   amountCents: number;
   refundedCents: number;
+  /** Currency amountCents / refundedCents are in (as Stripe charged it). */
+  currency: Currency;
+  /** Set by inReportingCurrency: the amounts as stored, before conversion. */
+  original?: { amountCents: number; refundedCents: number; currency: Currency; rate: number };
   /** succeeded | failed | refunded | pending | active | canceled … */
   status: string;
   /** Local calendar date. */
@@ -145,6 +175,81 @@ export interface MetricsInput {
   appointments: AppointmentRow[];
   spend: SpendRow[];
   payments: PaymentRow[];
+  /** Reporting currency + stored rates. Absent = CAD with no rates (any non-CAD row then throws FxRateMissingError). */
+  money?: MoneyContext;
+}
+
+/** An input whose every amount is in `money.reporting`. */
+export type ReportingInput = MetricsInput & { money: MoneyContext };
+
+// ---------------------------------------------------------------------------
+// Currency: read-time conversion (C1)
+// ---------------------------------------------------------------------------
+
+/** Dates for rows with no date of their own: the latest stored rate applies. */
+const LATEST = '9999-12-31';
+
+export function convertSpendRow(s: SpendRow, money: MoneyContext): SpendRow {
+  if (s.currency === money.reporting) return s;
+  const rate = rateFor(money.rates, s.currency, money.reporting, s.date);
+  return {
+    ...s,
+    spendCents: convertCents(s.spendCents, s.currency, money.reporting, s.date, money.rates),
+    currency: money.reporting,
+    original: s.original ?? { spendCents: s.spendCents, currency: s.currency, rate },
+  };
+}
+
+export function convertPaymentRow(p: PaymentRow, money: MoneyContext): PaymentRow {
+  if (p.currency === money.reporting) return p;
+  const on = p.on ?? LATEST;
+  const rate = rateFor(money.rates, p.currency, money.reporting, on);
+  return {
+    ...p,
+    amountCents: convertCents(p.amountCents, p.currency, money.reporting, on, money.rates),
+    refundedCents: convertCents(p.refundedCents, p.currency, money.reporting, on, money.rates),
+    currency: money.reporting,
+    original: p.original ?? { amountCents: p.amountCents, refundedCents: p.refundedCents, currency: p.currency, rate },
+  };
+}
+
+function convertContactRow(c: ContactRow, money: MoneyContext): ContactRow {
+  const from = c.contractCurrency ?? money.contractCurrency;
+  if (from === money.reporting) return c.contractCurrency ? c : { ...c, contractCurrency: from };
+  return {
+    ...c,
+    monetaryValueCents: convertCents(c.monetaryValueCents, from, money.reporting, c.appliedOn ?? LATEST, money.rates),
+    contractCurrency: money.reporting,
+  };
+}
+
+const converted = new WeakMap<MetricsInput, ReportingInput>();
+
+/**
+ * The input with every amount in the reporting currency — converted at READ
+ * time from the stored originals, never written back. Cached per input
+ * object. Idempotent by construction: a converted row is labelled with the
+ * reporting currency, and converting X→X is identity.
+ */
+export function inReportingCurrency(input: MetricsInput): ReportingInput {
+  const hit = converted.get(input);
+  if (hit) return hit;
+  const money = input.money ?? DEFAULT_MONEY_CONTEXT;
+  const out: ReportingInput = {
+    ...input,
+    money,
+    contacts: input.contacts.map((c) => convertContactRow(c, money)),
+    spend: input.spend.map((s) => convertSpendRow(s, money)),
+    payments: input.payments.map((p) => convertPaymentRow(p, money)),
+  };
+  converted.set(input, out);
+  converted.set(out, out);
+  return out;
+}
+
+/** Throws unless `got` is the currency a running total is kept in. */
+function assertCurrency(expected: Currency, got: string): void {
+  if (got !== expected) throw new CurrencyMismatchError(expected, got);
 }
 
 export interface Range {
@@ -202,6 +307,8 @@ export interface Funnel {
   mode: FunnelMode;
   stages: FunnelStage[];
   spendCents: number;
+  /** Currency of spendCents / costPerCents. */
+  currency: Currency;
   /**
    * Contacts who entered the `previous_lead` role in range. Shown as its own
    * row; never part of the stage chain or its conversion math. Contacts whose
@@ -302,6 +409,8 @@ export interface DailySpend {
   date: string;
   platform: string;
   spendCents: number;
+  /** Always the reporting currency (expandSpend converts). */
+  currency: Currency;
   /** 'api' when an API row covers the day, 'manual' when the weekly fallback does. */
   from: 'api' | 'manual';
   origin: string;
@@ -333,7 +442,8 @@ function isManualLike(s: SpendRow): boolean {
   return false;
 }
 
-export function expandSpend(spend: SpendRow[]): DailySpend[] {
+export function expandSpend(rawSpend: SpendRow[], money: MoneyContext = DEFAULT_MONEY_CONTEXT): DailySpend[] {
+  const spend = rawSpend.map((s) => convertSpendRow(s, money));
   const apiDays = new Set<string>();
   const out: DailySpend[] = [];
 
@@ -344,6 +454,7 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
       date: s.date,
       platform: s.platform,
       spendCents: s.spendCents,
+      currency: s.currency,
       from: 'api',
       origin: s.origin,
       campaignId: s.campaignId ?? null,
@@ -370,6 +481,7 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
         date,
         platform: s.platform,
         spendCents: base + (i === 0 ? remainder : 0),
+        currency: s.currency,
         from: 'manual',
         origin: s.origin,
         campaignId: null,
@@ -387,10 +499,14 @@ export function expandSpend(spend: SpendRow[]): DailySpend[] {
   return out;
 }
 
-export function computeSpend(spend: SpendRow[], range: Range): number {
-  return expandSpend(spend)
-    .filter((d) => inRange(d.date, range))
-    .reduce((sum, d) => sum + d.spendCents, 0);
+/** Spend in range, in `money.reporting`. */
+export function computeSpend(spend: SpendRow[], range: Range, money: MoneyContext = DEFAULT_MONEY_CONTEXT): number {
+  return sumCents(
+    expandSpend(spend, money)
+      .filter((d) => inRange(d.date, range))
+      .map((d) => ({ cents: d.spendCents, currency: d.currency })),
+    money.reporting,
+  );
 }
 
 /** Sunday of the Sun–Sat week containing a YYYY-MM-DD (duplicated here to stay dependency-free). */
@@ -408,9 +524,10 @@ function dayShift(date: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-export function computeFunnel(input: MetricsInput, range: Range, mode: FunnelMode = 'period'): Funnel {
+export function computeFunnel(raw: MetricsInput, range: Range, mode: FunnelMode = 'period'): Funnel {
+  const input = inReportingCurrency(raw);
   const members = membershipFor(input, range, mode);
-  const spendCents = computeSpend(input.spend, range);
+  const spendCents = computeSpend(input.spend, range, input.money);
   const appliedCount = members.applied.length;
 
   const stages: FunnelStage[] = [];
@@ -435,7 +552,7 @@ export function computeFunnel(input: MetricsInput, range: Range, mode: FunnelMod
     mode === 'cohort'
       ? uniq(input.transitions.filter((t) => t.toRole === 'previous_lead' && members.applied.includes(t.contactId)).map((t) => t.contactId))
       : previousLeadMembership(input, range);
-  return { range, mode, stages, spendCents, previousLeads: { count: previous.length, contactIds: previous } };
+  return { range, mode, stages, spendCents, currency: input.money.reporting, previousLeads: { count: previous.length, contactIds: previous } };
 }
 
 // ---------------------------------------------------------------------------
@@ -473,16 +590,19 @@ export interface Cac {
   cacCents: number | null;
   /** True when there is no spend data at all for the range. */
   noSpendData: boolean;
+  currency: Currency;
 }
 
-export function computeCac(input: MetricsInput, range: Range): Cac {
-  const spendCents = computeSpend(input.spend, range);
+export function computeCac(raw: MetricsInput, range: Range): Cac {
+  const input = inReportingCurrency(raw);
+  const spendCents = computeSpend(input.spend, range, input.money);
   const enrollments = funnelMembership(input, range).enrolled.length;
   return {
     spendCents,
     enrollments,
     cacCents: enrollments > 0 && spendCents > 0 ? Math.round(spendCents / enrollments) : null,
     noSpendData: !input.spend.some((s) => inRange(s.date, range)),
+    currency: input.money.reporting,
   };
 }
 
@@ -508,6 +628,8 @@ export interface Revenue {
   roas: number | null;
   /** No Stripe data has ever been synced → show "awaiting Stripe", never 0. */
   awaitingStripe: boolean;
+  /** Currency of every *Cents field above. */
+  currency: Currency;
 }
 
 /** Net cash a single payment row contributed: amount minus refunds, for succeeded/refunded rows. */
@@ -522,32 +644,39 @@ function netCents(p: PaymentRow): number {
  * zero (its amount was never kept), a partial refund reduces the class it
  * belongs to. Failed payments are counted, never summed.
  */
-export function computeRevenue(input: MetricsInput, range: Range): Revenue {
+export function computeRevenue(raw: MetricsInput, range: Range): Revenue {
+  const input = inReportingCurrency(raw);
+  const ccy = input.money.reporting;
   const awaitingStripe = !input.payments.some((p) => p.origin === 'stripe');
   const rows = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
   const cash = rows.filter((p) => p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded'));
 
-  let initialCents = 0;
-  let recurringCents = 0;
-  let unclassifiedCents = 0;
+  const initial = new CentsTally(ccy);
+  const recurring = new CentsTally(ccy);
+  const unclassified = new CentsTally(ccy);
+  const refunded = new CentsTally(ccy);
   let initialCount = 0;
   let recurringCount = 0;
   let unclassifiedCount = 0;
   for (const p of cash) {
     const net = netCents(p);
+    refunded.add(p.refundedCents, p.currency);
     if (p.paymentClass === 'initial') {
-      initialCents += net;
+      initial.add(net, p.currency);
       initialCount += 1;
     } else if (p.paymentClass === 'recurring') {
-      recurringCents += net;
+      recurring.add(net, p.currency);
       recurringCount += 1;
     } else if (net > 0) {
-      unclassifiedCents += net;
+      unclassified.add(net, p.currency);
       unclassifiedCount += 1;
     }
   }
+  const initialCents = initial.total;
+  const recurringCents = recurring.total;
+  const unclassifiedCents = unclassified.total;
   const collectedCents = initialCents + recurringCents + unclassifiedCents;
-  const spendCents = computeSpend(input.spend, range);
+  const spendCents = computeSpend(input.spend, range, input.money);
   return {
     collectedCents,
     initialCents,
@@ -558,9 +687,10 @@ export function computeRevenue(input: MetricsInput, range: Range): Revenue {
     recurringCount,
     paymentCount: cash.filter((p) => p.status === 'succeeded').length,
     failedCount: rows.filter((p) => p.status === 'failed').length,
-    refundedCents: cash.reduce((s, p) => s + p.refundedCents, 0),
+    refundedCents: refunded.total,
     roas: !awaitingStripe && spendCents > 0 ? initialCents / spendCents : null,
     awaitingStripe,
+    currency: ccy,
   };
 }
 
@@ -569,6 +699,8 @@ export function computeRevenue(input: MetricsInput, range: Range): Revenue {
 // ---------------------------------------------------------------------------
 
 export interface MarketingMetrics {
+  /** Currency of every *Cents field (spend, cash, CACs, contract value). */
+  currency: Currency;
   spendCents: number;
   noSpendData: boolean;
   awaitingStripe: boolean;
@@ -617,8 +749,10 @@ export interface MarketingMetrics {
  * unclassified or unmatched is reported as a data-health figure, not folded
  * into either side.
  */
-export function computeMarketing(input: MetricsInput, range: Range): MarketingMetrics {
-  const spendCents = computeSpend(input.spend, range);
+export function computeMarketing(raw: MetricsInput, range: Range): MarketingMetrics {
+  const input = inReportingCurrency(raw);
+  const ccy = input.money.reporting;
+  const spendCents = computeSpend(input.spend, range, input.money);
   const members = funnelMembership(input, range);
   const revenue = computeRevenue(input, range);
   const contactById = new Map(input.contacts.map((c) => [c.id, c]));
@@ -626,7 +760,7 @@ export function computeMarketing(input: MetricsInput, range: Range): MarketingMe
   let paidEnrollments = 0;
   let organicEnrollments = 0;
   let unattributedEnrollments = 0;
-  let contractValueCents = 0;
+  const contract = new CentsTally(ccy);
   const contractValueMissing: Array<{ contactId: string; name: string }> = [];
   for (const id of members.enrolled) {
     const c = contactById.get(id);
@@ -635,33 +769,38 @@ export function computeMarketing(input: MetricsInput, range: Range): MarketingMe
     else if (att === 'organic') organicEnrollments += 1;
     else unattributedEnrollments += 1;
     const value = c?.monetaryValueCents ?? 0;
-    if (value > 0) contractValueCents += value;
+    if (c && value > 0) contract.add(value, c.contractCurrency ?? input.money.contractCurrency);
     else contractValueMissing.push({ contactId: id, name: c?.name ?? id });
   }
+  const contractValueCents = contract.total;
   const enrollments = members.enrolled.length;
 
-  let paidInitialCents = 0;
-  let organicInitialCents = 0;
-  let unattributedInitialCents = 0;
+  const paidInitial = new CentsTally(ccy);
+  const organicInitial = new CentsTally(ccy);
+  const unattributedInitial = new CentsTally(ccy);
   let unattributedInitialCount = 0;
   for (const p of input.payments) {
     if (p.paymentClass !== 'initial' || p.kind === 'subscription' || !inRange(p.on, range)) continue;
     const net = netCents(p);
     if (net <= 0) continue;
     const att = p.contactId ? (contactById.get(p.contactId)?.attribution ?? null) : null;
-    if (att === 'paid') paidInitialCents += net;
-    else if (att === 'organic') organicInitialCents += net;
+    if (att === 'paid') paidInitial.add(net, p.currency);
+    else if (att === 'organic') organicInitial.add(net, p.currency);
     else {
-      unattributedInitialCents += net;
+      unattributedInitial.add(net, p.currency);
       unattributedInitialCount += 1;
     }
   }
+  const paidInitialCents = paidInitial.total;
+  const organicInitialCents = organicInitial.total;
+  const unattributedInitialCents = unattributedInitial.total;
 
   const per = (n: number) => (n > 0 && spendCents > 0 ? Math.round(spendCents / n) : null);
   const blendedCacCents = per(enrollments);
   const ltvOk = enrollments > 0 && spendCents > 0 && contractValueMissing.length === 0 && contractValueCents > 0;
 
   return {
+    currency: ccy,
     spendCents,
     noSpendData: !input.spend.some((s) => inRange(s.date, range)),
     awaitingStripe: revenue.awaitingStripe,
@@ -839,16 +978,18 @@ export interface TrendPoint {
   initialCents: number;
   /** Recurring cash in the bucket (class recurring). */
   recurringCents: number;
+  currency: Currency;
 }
 
 export function computeTrend(
-  input: MetricsInput,
+  raw: MetricsInput,
   buckets: Array<{ start: string; end: string; label: string }>,
   mode: FunnelMode = 'period',
 ): TrendPoint[] {
+  const input = inReportingCurrency(raw);
   return buckets.map((b) => {
     const m = membershipFor(input, b, mode);
-    const spendCents = computeSpend(input.spend, b);
+    const spendCents = computeSpend(input.spend, b, input.money);
     const enrolled = m.enrolled.length;
     const rev = computeRevenue(input, b);
     return {
@@ -863,6 +1004,7 @@ export function computeTrend(
       revenueCents: rev.collectedCents,
       initialCents: rev.initialCents,
       recurringCents: rev.recurringCents,
+      currency: input.money.reporting,
     };
   });
 }
@@ -1021,6 +1163,8 @@ function daysBetween(from: string, to: string): number {
 // ---------------------------------------------------------------------------
 
 export interface Scorecard {
+  /** The reporting currency every money figure below is in. */
+  currency: Currency;
   range: Range;
   comparisonRange: Range | null;
   funnel: Funnel;
@@ -1071,11 +1215,12 @@ export interface Scorecard {
 }
 
 export function computeScorecard(
-  input: MetricsInput,
+  raw: MetricsInput,
   range: Range,
   comparisonRange: Range | null,
   baselineRange: Range | null,
 ): Scorecard {
+  const input = inReportingCurrency(raw);
   const funnel = computeFunnel(input, range);
   const previousFunnel = comparisonRange ? computeFunnel(input, comparisonRange) : null;
   const baselineFunnel = baselineRange ? computeFunnel(input, baselineRange) : null;
@@ -1102,6 +1247,7 @@ export function computeScorecard(
   const cohortBaseline = baselineRange ? computeFunnel(input, baselineRange, 'cohort') : null;
 
   return {
+    currency: input.money.reporting,
     range,
     comparisonRange,
     funnel,
@@ -1143,6 +1289,7 @@ export function computeScorecard(
 // ---------------------------------------------------------------------------
 
 export interface AdsKpis {
+  currency: Currency;
   spendCents: number;
   costPerLeadCents: number | null;
   costPerConsultCents: number | null;
@@ -1160,6 +1307,8 @@ export interface AdsKpis {
 }
 
 export interface CampaignRow {
+  /** Currency of spend, cost-per, CPM/CPC and initial cash. */
+  currency: Currency;
   key: string;
   campaignId: string | null;
   campaignName: string;
@@ -1202,18 +1351,21 @@ function normalizeCampaign(name: string | null | undefined): string {
  * contact's utm_campaign. Manual weekly spend appears as one "Manual entry"
  * row per platform so the table is never empty while Meta is unconnected.
  */
-export function computeCampaignTable(input: MetricsInput, range: Range): CampaignRow[] {
+export function computeCampaignTable(raw: MetricsInput, range: Range): CampaignRow[] {
+  const input = inReportingCurrency(raw);
+  const ccy = input.money.reporting;
   const contactCampaign = new Map(input.contacts.map((c) => [c.id, c.campaign ?? null]));
   const members = funnelMembership(input, range);
   const rows = new Map<string, CampaignRow>();
   const emptyCounts = (): Record<FunnelStageKey, number> => ({ applied: 0, consult_booked: 0, consult_showed: 0, roadmap_booked: 0, roadmap_showed: 0, enrolled: 0 });
   const emptyIds = (): Record<FunnelStageKey, string[]> => ({ applied: [], consult_booked: [], consult_showed: [], roadmap_booked: [], roadmap_showed: [], enrolled: [] });
 
-  for (const d of expandSpend(input.spend).filter((x) => inRange(x.date, range))) {
+  for (const d of expandSpend(input.spend, input.money).filter((x) => inRange(x.date, range))) {
     const name = d.from === 'manual' ? `Manual entry (${d.platform})` : (d.campaignName ?? d.campaignId ?? 'Unnamed campaign');
     const key = d.from === 'manual' ? `manual:${d.platform}` : `${d.platform}:${d.campaignId ?? normalizeCampaign(name)}`;
     if (!rows.has(key)) {
       rows.set(key, {
+        currency: ccy,
         key,
         campaignId: d.campaignId,
         campaignName: name,
@@ -1238,6 +1390,7 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
       });
     }
     const r = rows.get(key)!;
+    assertCurrency(ccy, d.currency);
     r.spendCents += d.spendCents;
     r.impressions += d.impressions;
     r.clicks += d.clicks;
@@ -1266,7 +1419,9 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
   for (const p of input.payments) {
     if (p.paymentClass !== 'initial' || !p.contactId || !inRange(p.on, range)) continue;
     const row = byName.get(normalizeCampaign(contactCampaign.get(p.contactId)));
-    if (row) row.initialCents += netCents(p);
+    if (!row) continue;
+    assertCurrency(ccy, p.currency);
+    row.initialCents += netCents(p);
   }
 
   for (const r of rows.values()) {
@@ -1282,20 +1437,24 @@ export function computeCampaignTable(input: MetricsInput, range: Range): Campaig
   return Array.from(rows.values()).sort((a, b) => b.spendCents - a.spendCents || a.campaignName.localeCompare(b.campaignName));
 }
 
-export function computeAdsKpis(input: MetricsInput, range: Range): AdsKpis {
-  const daily = expandSpend(input.spend).filter((d) => inRange(d.date, range));
-  const spendCents = daily.reduce((s, d) => s + d.spendCents, 0);
+export function computeAdsKpis(raw: MetricsInput, range: Range): AdsKpis {
+  const input = inReportingCurrency(raw);
+  const ccy = input.money.reporting;
+  const daily = expandSpend(input.spend, input.money).filter((d) => inRange(d.date, range));
+  const spendCents = sumCents(daily.map((d) => ({ cents: d.spendCents, currency: d.currency })), ccy);
   const members = funnelMembership(input, range);
   const marketing = computeMarketing(input, range);
   const platforms = new Map<string, { apiCents: number; manualCents: number }>();
   for (const d of daily) {
     if (!platforms.has(d.platform)) platforms.set(d.platform, { apiCents: 0, manualCents: 0 });
     const p = platforms.get(d.platform)!;
+    assertCurrency(ccy, d.currency);
     if (d.from === 'api') p.apiCents += d.spendCents;
     else p.manualCents += d.spendCents;
   }
   const per = (n: number) => (n > 0 && spendCents > 0 ? Math.round(spendCents / n) : null);
   return {
+    currency: ccy,
     spendCents,
     costPerLeadCents: per(members.applied.length),
     costPerConsultCents: per(members.consult_booked.length),
@@ -1321,8 +1480,17 @@ export interface PaymentDetail {
   stripeId: string | null;
   kind: string;
   status: string;
+  /** In the reporting currency (`currency`). */
   amountCents: number;
   refundedCents: number;
+  /** The reporting currency. */
+  currency: Currency;
+  /** As Stripe charged it — shown next to the converted value. */
+  originalCurrency: Currency;
+  originalAmountCents: number;
+  originalRefundedCents: number;
+  /** Rate applied (1 when no conversion was needed). */
+  fxRate: number;
   on: string | null;
   email: string | null;
   customerName: string | null;
@@ -1338,6 +1506,8 @@ export interface PaymentDetail {
 }
 
 export interface RevenueSummary {
+  /** Currency of every *Cents field (and of each payment's amountCents). */
+  currency: Currency;
   awaitingStripe: boolean;
   /** Net cash in range, every class. */
   collectedCents: number;
@@ -1362,7 +1532,9 @@ export interface RevenueSummary {
   unmatchedCount: number;
 }
 
-export function computeRevenueSummary(input: MetricsInput, range: Range): RevenueSummary {
+export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueSummary {
+  const input = inReportingCurrency(raw);
+  const ccy = input.money.reporting;
   const base = computeRevenue(input, range);
   const contactById = new Map(input.contacts.map((c) => [c.id, c]));
   const inR = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
@@ -1377,6 +1549,11 @@ export function computeRevenueSummary(input: MetricsInput, range: Range): Revenu
       status: p.status,
       amountCents: p.amountCents,
       refundedCents: p.refundedCents,
+      currency: p.currency,
+      originalCurrency: p.original?.currency ?? p.currency,
+      originalAmountCents: p.original?.amountCents ?? p.amountCents,
+      originalRefundedCents: p.original?.refundedCents ?? p.refundedCents,
+      fxRate: p.original?.rate ?? 1,
       on: p.on,
       email: p.email ?? null,
       customerName: p.customerName ?? null,
@@ -1398,6 +1575,7 @@ export function computeRevenueSummary(input: MetricsInput, range: Range): Revenu
   });
 
   return {
+    currency: ccy,
     awaitingStripe: base.awaitingStripe,
     collectedCents: base.collectedCents,
     initialCents: base.initialCents,
@@ -1406,10 +1584,10 @@ export function computeRevenueSummary(input: MetricsInput, range: Range): Revenu
     recurringCount: base.recurringCount,
     unclassifiedCents: base.unclassifiedCents,
     unclassifiedCount: base.unclassifiedCount,
-    mrrCents: subs.reduce((s, p) => s + p.amountCents, 0),
+    mrrCents: sumCents(subs.map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),
     activeSubscriptions: subs.length,
     failedCount: base.failedCount,
-    failedCents: inR.filter((p) => p.status === 'failed').reduce((s, p) => s + p.amountCents, 0),
+    failedCents: sumCents(inR.filter((p) => p.status === 'failed').map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),
     refundedCents: base.refundedCents,
     refundCount: inR.filter((p) => p.refundedCents > 0).length,
     payments: list,
@@ -1469,11 +1647,9 @@ export function matchPayments(payments: MatchablePayment[], contacts: MatchableC
 // Formatting helpers shared by UI + emails (so they never disagree)
 // ---------------------------------------------------------------------------
 
-export function formatCents(cents: number | null, opts: { compact?: boolean } = {}): string {
-  if (cents === null) return '—';
-  const dollars = cents / 100;
-  if (opts.compact && Math.abs(dollars) >= 10_000) return `$${(dollars / 1000).toFixed(1)}k`;
-  return dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: dollars % 1 === 0 ? 0 : 2 });
+/** "$1,605 CAD" — money is never rendered without its currency. */
+export function formatCents(cents: number | null, currency: Currency, opts: { compact?: boolean } = {}): string {
+  return formatMoney(cents, currency, opts);
 }
 
 export function formatPct(ratio: number | null, digits = 0): string {
@@ -1481,12 +1657,17 @@ export function formatPct(ratio: number | null, digits = 0): string {
   return `${(ratio * 100).toFixed(digits)}%`;
 }
 
-export function formatDelta(delta: Delta, kind: 'count' | 'cents' | 'pct' | 'ratio' = 'count'): string {
+export type DeltaKind = 'count' | 'cents' | 'pct' | 'ratio';
+/** A delta that may be money must say which currency it is in. */
+export function formatDelta(delta: Delta, kind?: 'count' | 'pct' | 'ratio'): string;
+export function formatDelta(delta: Delta, kind: DeltaKind, currency: Currency): string;
+export function formatDelta(delta: Delta, kind: DeltaKind = 'count', currency?: Currency): string {
   if (delta.abs === null) return '—';
+  if (kind === 'cents' && !currency) throw new Error('formatDelta: money deltas need their currency');
   const sign = delta.abs > 0 ? '+' : delta.abs < 0 ? '−' : '';
   const a = Math.abs(delta.abs);
   const value =
-    kind === 'cents' ? formatCents(a) : kind === 'pct' ? `${(a * 100).toFixed(0)} pts` : kind === 'ratio' ? a.toFixed(2) : String(a);
+    kind === 'cents' ? formatMoney(a, currency as Currency) : kind === 'pct' ? `${(a * 100).toFixed(0)} pts` : kind === 'ratio' ? a.toFixed(2) : String(a);
   const pct = delta.pct !== null ? ` (${sign}${Math.abs(delta.pct * 100).toFixed(0)}%)` : '';
   return `${sign}${value}${pct}`;
 }

@@ -41,7 +41,7 @@ const INPUT: MetricsInput = {
     t('p1', 'consult_booked', '2026-08-11'), t('p1', 'enrolled', '2026-08-14'), t('p2', 'consult_booked', '2026-08-12'), t('p2', 'enrolled', '2026-08-15'),
   ],
   appointments: [a('a1', 'Consult', 'no_show', '2026-08-20'), a('a3', 'Consult', 'showed', '2026-08-21'), a('p1', 'Consult', 'showed', '2026-08-13'), a('p2', 'Consult', 'showed', '2026-08-14')],
-  spend: [{ date: '2026-08-16', platform: 'meta', spendCents: 40_000, origin: 'manual' }],
+  spend: [{ date: '2026-08-16', platform: 'meta', currency: 'CAD' as const, spendCents: 40_000, origin: 'manual' }],
   payments: [],
 };
 
@@ -61,6 +61,7 @@ function fakeResult(): ScorecardResult {
     ads: { kpis: computeAdsKpis(INPUT, R), previousKpis: null, campaigns: [], previousCampaigns: null },
     revenue: computeRevenueSummary(INPUT, R),
     maturity: computeMaturity({ range: R, today: '2026-08-26', historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
+    money: { currency: 'CAD' as const, fx: { reporting: 'CAD' as const, from: 'USD' as const, rate: 1.36, text: 'displayed in CAD · USD converted at 1.36' }, unsupportedRows: 0 },
   };
 }
 

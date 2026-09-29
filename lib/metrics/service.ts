@@ -20,6 +20,7 @@ import {
 import { getTimezone, getSetting, SETTING_KEYS } from '../settings';
 import { computeMaturity, isMaturingMetric, type DataMaturity } from './maturity';
 import { loadMetricsInput } from './load';
+import { fxNote, DEFAULT_MONEY_CONTEXT, type Currency, type FxNote } from '../money';
 import {
   computeScorecard,
   computeTrend,
@@ -57,6 +58,11 @@ export interface ScorecardResult {
   revenue: RevenueSummary;
   /** Maturing-data disclaimer state for this range (self-expiring; see lib/metrics/maturity.ts). */
   maturity: DataMaturity;
+  /**
+   * The reporting currency every money figure above is in, and today's rate
+   * note ("displayed in CAD · USD converted at 1.36") for the footers.
+   */
+  money: { currency: Currency; fx: FxNote; unsupportedRows: number };
 }
 
 /** Read the two disclaimer dates and evaluate them for a range. */
@@ -124,7 +130,13 @@ export async function getScorecard(params: {
     },
     revenue: computeRevenueSummary(input, range),
     maturity: await getMaturity(range, today),
+    money: moneyInfo(input, today),
   };
+}
+
+function moneyInfo(input: MetricsInput, today: string): ScorecardResult['money'] {
+  const ctx = input.money ?? DEFAULT_MONEY_CONTEXT;
+  return { currency: ctx.reporting, fx: fxNote(ctx, today), unsupportedRows: ctx.unsupportedRows ?? 0 };
 }
 
 /** Today's Day-1 / Day-3 call list, for the daily email and the Reports preview. */

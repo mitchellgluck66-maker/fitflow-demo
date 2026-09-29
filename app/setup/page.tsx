@@ -37,6 +37,7 @@ import { AnthropicCard } from '@/components/setup/AnthropicCard';
 import { SyncHealth } from '@/components/setup/SyncHealth';
 import { IncidentLog } from '@/components/setup/IncidentLog';
 import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
+import { CurrencyCard } from '@/components/setup/CurrencyCard';
 
 interface Credentials {
   configured: boolean;
@@ -774,6 +775,9 @@ export default function SetupPage() {
 
         {/* ---- Incident log ---- */}
         <IncidentLog />
+
+        {/* ---- Reporting currency + USD→CAD rate (C1) ---- */}
+        <CurrencyCard />
 
         {/* ---- Maturing-data disclaimer dates (self-expiring) ---- */}
         <DataCaveatsCard />

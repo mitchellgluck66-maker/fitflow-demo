@@ -39,6 +39,8 @@ export const StripeSubscriptionSchema = z.object({
   id: z.string().min(1),
   customer: z.union([z.string(), StripeCustomerSchema]),
   status: z.string(),
+  /** Top-level on Subscription objects; lower-case ISO. */
+  currency: z.string().nullish(),
   created: z.number().int(),
   current_period_start: z.number().int().nullish(),
   items: z.object({
@@ -47,6 +49,7 @@ export const StripeSubscriptionSchema = z.object({
         z.object({
           price: z
             .object({
+              currency: z.string().nullish(),
               unit_amount: z.number().int().nullish(),
               recurring: z
                 .object({ interval: z.enum(['day', 'week', 'month', 'year']), interval_count: z.number().int().default(1) })
@@ -65,6 +68,7 @@ export const StripeRefundSchema = z.object({
   id: z.string().min(1),
   charge: z.union([z.string(), z.object({ id: z.string() })]).nullish(),
   amount: z.number().int(),
+  currency: z.string().nullish(),
   created: z.number().int(),
   status: z.string().nullish(),
   reason: opt,

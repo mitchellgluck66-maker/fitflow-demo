@@ -56,6 +56,10 @@ export const SETTING_KEYS = {
   /** Maturing-data disclaimer (lib/metrics/maturity.ts): first day with complete stage history, and the day the notice retires. */
   historyCompleteSince: 'history_complete_since',
   disclaimerSunset: 'disclaimer_sunset',
+  /** C1: the ONE business-wide reporting currency (CAD | USD) — dashboard, digests and AI context. */
+  reportingCurrency: 'reporting_currency',
+  /** C1: currency GHL opportunity (contract) values are entered in. */
+  contractValueCurrency: 'contract_value_currency',
   // Legacy keys kept so the dormant write-back code still resolves them.
   ghlPipelineId: 'ghl_pipeline_id',
   ghlStageMap: 'ghl_stage_map',
@@ -72,6 +76,8 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.metaBackfillFrom]: '2026-07-16',
   [SETTING_KEYS.historyCompleteSince]: '2026-09-01',
   [SETTING_KEYS.disclaimerSunset]: '2026-10-15',
+  [SETTING_KEYS.reportingCurrency]: 'CAD',
+  [SETTING_KEYS.contractValueCurrency]: 'CAD',
   // First sends go to Mitchell until recipients are changed on the Reports page.
   [SETTING_KEYS.digestRecipientsTodo]: 'mitchellgluck66@gmail.com',
   [SETTING_KEYS.digestRecipientsWeekly]: 'mitchellgluck66@gmail.com',

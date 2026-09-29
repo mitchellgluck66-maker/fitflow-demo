@@ -21,6 +21,7 @@ import {
   integer,
   real,
   boolean,
+  doublePrecision,
   timestamp,
   jsonb,
   date,
@@ -429,6 +430,34 @@ export const payments = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// FX rates (C1, 2026-09-29): conversion to the reporting currency at READ time
+// ---------------------------------------------------------------------------
+
+/**
+ * 1 `from_ccy` = `rate` `to_ccy`, effective from `date` until the next row
+ * for the pair. Only USD→CAD is stored; the engine derives CAD→USD as the
+ * inverse (lib/money#rateFor). Seed rows (source='seed') are an APPROXIMATE
+ * flat 1.36 placeholder for 2026; Setup → Currency adds source='manual' rows.
+ * Amounts are never rewritten in place — the engine converts on read.
+ */
+export const fxRates = pgTable(
+  'fx_rates',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    date: date('date').notNull(),
+    fromCcy: text('from_ccy').notNull(),
+    toCcy: text('to_ccy').notNull(),
+    rate: doublePrecision('rate').notNull(),
+    /** seed | manual */
+    source: text('source').notNull().default('manual'),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('fx_rates_pair_date_uidx').on(t.date, t.fromCcy, t.toCcy)],
+);
+
+// ---------------------------------------------------------------------------
 // Email digests (Reports archive) & AI reports
 // ---------------------------------------------------------------------------
 
@@ -574,3 +603,4 @@ export type NewSyncRun = typeof syncRuns.$inferInsert;
 export type SyncIncident = typeof syncIncidents.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type GhlSyncQueueItem = typeof ghlSyncQueue.$inferSelect;
+export type FxRateRow = typeof fxRates.$inferSelect;

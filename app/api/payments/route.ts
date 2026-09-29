@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
         status: payments.status,
         amountCents: payments.amountCents,
         refundedCents: payments.refundedCents,
+        currency: payments.currency,
         email: payments.email,
         customerName: payments.customerName,
         paidAt: payments.paidAt,

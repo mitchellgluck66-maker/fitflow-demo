@@ -15,6 +15,8 @@ import {
   computeRevenue,
   computeShowRates,
   funnelMembership,
+  inReportingCurrency,
+  type Currency,
   type MetricsInput,
   type Range,
 } from './index';
@@ -125,6 +127,8 @@ export interface MetricTrend {
   kind: TrendValueKind;
   lowerIsBetter: boolean;
   openIn: string;
+  /** Currency of every 'cents' value (the reporting currency). */
+  currency: Currency;
   /** Last 30 days / last 12 weeks. */
   current: TrendPointOut[];
   /** The equivalent span before, aligned by index. */
@@ -141,7 +145,8 @@ export interface MetricTrend {
 }
 
 /** Compute a metric's trend from already-loaded rows (pure). */
-export function computeMetricTrend(metric: TrendMetric, input: MetricsInput, today: string): MetricTrend {
+export function computeMetricTrend(metric: TrendMetric, raw: MetricsInput, today: string): MetricTrend {
+  const input = inReportingCurrency(raw);
   const spans = trendSpans(metric.grain, today);
   const point = (b: TrendBucket): TrendPointOut => ({ start: b.start, end: b.end, label: b.label, value: metric.compute(input, { start: b.start, end: b.end }) });
   const cur = { start: spans.current[0].start, end: spans.current[spans.current.length - 1].end };
@@ -153,6 +158,7 @@ export function computeMetricTrend(metric: TrendMetric, input: MetricsInput, tod
     kind: metric.kind,
     lowerIsBetter: metric.lowerIsBetter,
     openIn: metric.openIn,
+    currency: input.money.reporting,
     current: spans.current.map(point),
     previous: spans.previous.map(point),
     spanValue: metric.compute(input, cur),

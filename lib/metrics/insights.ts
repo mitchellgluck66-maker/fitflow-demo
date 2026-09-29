@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ScorecardResult } from './service';
 import { paramsForRange } from '../dates';
 import { dataCaveats } from './maturity';
-import { FUNNEL_STAGES, type FunnelStageKey } from './index';
+import { FUNNEL_STAGES, type Currency, type FunnelStageKey } from './index';
 
 export interface InsightInput {
   period: { label: string; start: string; end: string; preset: string };
@@ -28,6 +28,10 @@ export interface InsightInput {
   }>;
   showRates: Array<{ type: string; showed: number; noShow: number; rate: number | null }>;
   money: {
+    /** Every *Cents value in this block (and across the snapshot) is in this reporting currency. */
+    currency: Currency;
+    /** "displayed in CAD · USD converted at 1.36". */
+    fxNote: string;
     spendCents: number;
     /** Blended CAC (spend ÷ all enrollments). */
     cacCents: number | null;
@@ -102,6 +106,8 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
     funnel,
     showRates: scorecard.showRates.map((s) => ({ type: s.type, showed: s.showed, noShow: s.noShow, rate: round(s.rate) })),
     money: {
+      currency: scorecard.currency,
+      fxNote: result.money.fx.text,
       spendCents: scorecard.cac.spendCents,
       cacCents: scorecard.cac.cacCents,
       previousCacCents: scorecard.kpis.cacCents.previous,
@@ -116,7 +122,7 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       contractValueMissingCount: scorecard.marketing.contractValueMissing.length,
       costPerRoadmapCents: scorecard.marketing.costPerRoadmapCents,
       definitions:
-        'Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial (new-client) cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend (null while any new client lacks a contract value). Money is integer cents.',
+        'Paid CAC = spend ÷ paid-attributed enrollments; Blended CAC = spend ÷ all enrollments; ROAS = paid-attributed initial (new-client) cash ÷ spend; LTV:CAC = total contract value of new clients ÷ spend (null while any new client lacks a contract value). Money is integer cents in the reporting currency named by `currency`; always write it with that code.',
       revenue: rev.awaitingStripe
         ? { awaitingStripe: true }
         : {

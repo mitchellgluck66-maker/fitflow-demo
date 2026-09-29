@@ -105,8 +105,8 @@ const INPUT: MetricsInput = {
     { contactId: 'a', fromRole: 'consult_booked', toRole: 'enrolled', toStageId: null, on: '2026-08-21', atMs: noon('2026-08-21') },
   ],
   appointments: [],
-  spend: [{ date: '2026-08-16', platform: 'meta', spendCents: 50_000, origin: 'manual' }],
-  payments: [{ id: 'p', stripeId: 'ch', contactId: 'a', kind: 'charge', amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' }],
+  spend: [{ date: '2026-08-16', platform: 'meta', currency: 'CAD' as const, spendCents: 50_000, origin: 'manual' }],
+  payments: [{ id: 'p', stripeId: 'ch', contactId: 'a', kind: 'charge', currency: 'CAD' as const, amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' }],
 };
 
 function build(rangeKey: string, today: string): ScorecardResult {
@@ -127,6 +127,7 @@ function build(rangeKey: string, today: string): ScorecardResult {
     ads: { kpis: computeAdsKpis(INPUT, range), previousKpis: computeAdsKpis(INPUT, P), campaigns: computeCampaignTable(INPUT, range), previousCampaigns: null },
     revenue: computeRevenueSummary(INPUT, range),
     maturity: computeMaturity({ range, today }),
+    money: { currency: 'CAD' as const, fx: { reporting: 'CAD' as const, from: 'USD' as const, rate: 1.36, text: 'displayed in CAD · USD converted at 1.36' }, unsupportedRows: 0 },
   };
 }
 

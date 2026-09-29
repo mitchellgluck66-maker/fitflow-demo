@@ -11,9 +11,9 @@ import { Popover } from './Popover';
 import { computeDelta, formatCents, formatDelta, formatPct } from '@/lib/metrics';
 import type { MetricTrend } from '@/lib/metrics/trendMetrics';
 
-function fmtValue(v: number | null, kind: MetricTrend['kind']): string {
+function fmtValue(v: number | null, kind: MetricTrend['kind'], currency: MetricTrend['currency']): string {
   if (v === null) return '—';
-  if (kind === 'cents') return formatCents(v);
+  if (kind === 'cents') return formatCents(v, currency);
   if (kind === 'pct') return formatPct(v);
   if (kind === 'ratio') return `${v.toFixed(2)}×`;
   return String(v);
@@ -84,12 +84,12 @@ export const KpiTrendPopover: React.FC<{
             {trend ? (
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-[20px] font-semibold tabular tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>
-                  {fmtValue(trend.spanValue, trend.kind)}
+                  {fmtValue(trend.spanValue, trend.kind, trend.currency)}
                 </span>
                 {delta && delta.direction !== 'none' && (
                   <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold tabular" style={{ color: deltaColor }} title={`vs ${trend.previousSpan.label}`}>
                     <DeltaIcon size={11} strokeWidth={2.4} />
-                    {formatDelta(delta, trend.kind === 'pct' ? 'pct' : trend.kind)}
+                    {formatDelta(delta, trend.kind, trend.currency)}
                   </span>
                 )}
               </div>

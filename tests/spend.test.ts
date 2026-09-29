@@ -42,10 +42,10 @@ describe('manual weekly spend', () => {
 
   it('never modifies API-origin rows, and replaces demo rows', async () => {
     await db.insert(adSpend).values({
-      platform: 'meta', externalId: 'meta:camp1:2026-08-10', date: '2026-08-10', spendCents: 99900, source: 'meta', origin: 'meta',
+      platform: 'meta', externalId: 'meta:camp1:2026-08-10', date: '2026-08-10', currency: 'CAD' as const, spendCents: 99900, source: 'meta', origin: 'meta',
     });
     await db.insert(adSpend).values({
-      platform: 'google', externalId: 'manual:google:2026-08-09', date: '2026-08-09', spendCents: 500, source: 'demo', origin: 'demo',
+      platform: 'google', externalId: 'manual:google:2026-08-09', date: '2026-08-09', currency: 'CAD' as const, spendCents: 500, source: 'demo', origin: 'demo',
     });
     await post({ weekOf: '2026-08-11', platform: 'meta', amountDollars: 1 });
     await post({ weekOf: '2026-08-11', platform: 'google', amountDollars: 7 });

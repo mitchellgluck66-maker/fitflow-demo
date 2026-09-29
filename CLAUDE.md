@@ -41,6 +41,26 @@ large changes. This file is the standing contract.
    string); put any new numeric field on that helper.
 8. **Metric definitions (Phase G, Sept 1 CEO meeting) — never present a computed
    number whose inputs are missing; show the data-health warning instead.**
+   - *Currency (C1, 2026-09-29 audit — NON-NEGOTIABLE)*: the business reports in
+     ONE currency, **CAD by default**, held in `settings.reporting_currency`
+     (CAD | USD, one business-wide value — dashboard, digests and the AI context
+     all follow it; not per-browser). Stored amounts are NEVER rewritten: every
+     `payments` / `ad_spend` row keeps the currency it was charged in (Meta
+     bills USD; Stripe is ~63% CAD) and GHL contract values are in
+     `settings.contract_value_currency` (CAD). The engine converts at READ time
+     (`lib/metrics#inReportingCurrency`) at each row's own date from `fx_rates`
+     (USD→CAD rows only, effective from their date; CAD→USD is the inverse —
+     `lib/money#rateFor`). A converted row is labelled with the reporting
+     currency, so converting twice is identity. Money is summed only through
+     `lib/money#CentsTally` / `sumCents`, which THROW on a mismatched currency;
+     a missing rate throws `FxRateMissingError` — never a silent 1:1. Every
+     rendered amount carries its code (`formatCents(cents, currency)` →
+     "$1,605 CAD"; the currency argument is required, and `KpiDeltaTile`
+     `deltaKind="cents"` requires `currency`). Footers read "displayed in CAD ·
+     USD converted at 1.36" (`lib/money#fxNote`). Seed rates for 2026 are a
+     flat 1.36 PLACEHOLDER (`source='seed'`); Setup → Currency maintains the
+     real rate by hand — no external FX feed. Rows in any other currency are
+     dropped by the loader and counted (`money.unsupportedRows`), never summed.
    - *Payment classes* (`payments.payment_class`, `lib/stripe/classify.ts`): a
      Stripe customer's FIRST successful, not-fully-refunded charge is `initial`
      (new-client cash) whatever the rail (a subscription-only client's first

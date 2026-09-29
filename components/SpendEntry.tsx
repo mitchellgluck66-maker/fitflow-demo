@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Save } from 'lucide-react';
 import { Button, Badge, Toast, Input, Select } from '@/components';
+import { formatMoney } from '@/lib/money';
 
 interface SpendRow {
   platform: string;
@@ -24,7 +25,8 @@ const PLATFORMS = [
   { value: 'other', label: 'Other' },
 ];
 
-const dollars = (cents: number) => (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+/** Ad platforms bill in USD; manual weekly spend is entered and stored in USD (the engine converts on read). */
+const dollars = (cents: number) => formatMoney(Math.round(cents / 100) * 100, 'USD');
 
 /** Manual weekly ad-spend entry. Bridges CAC until Meta/Google APIs land in Phase C. */
 export const SpendEntry: React.FC = () => {

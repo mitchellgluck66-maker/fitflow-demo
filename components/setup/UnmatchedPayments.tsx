@@ -4,11 +4,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link2, UserX } from 'lucide-react';
 import { Badge, Button, Toast } from '@/components';
 import { formatCents } from '@/lib/metrics';
+import { parseCurrency } from '@/lib/money';
 
 interface UnmatchedPayment {
   id: string;
   stripeId: string;
   amountCents: number;
+  /** As charged — this list shows raw Stripe rows, not converted totals. */
+  currency: string;
   email: string | null;
   customerName: string | null;
   on: string | null;
@@ -111,7 +114,7 @@ export const UnmatchedPayments: React.FC = () => {
           >
             <div className="flex flex-wrap items-center gap-2">
               <strong className="tabular" style={{ color: 'var(--text-primary)' }}>
-                {formatCents(p.amountCents)}
+                {parseCurrency(p.currency) ? formatCents(p.amountCents, parseCurrency(p.currency)!) : `${(p.amountCents / 100).toFixed(2)} ${p.currency}`}
               </strong>
               <span style={{ color: 'var(--text-secondary)' }}>{p.customerName ?? p.email ?? p.stripeId}</span>
               {p.customerName && p.email && (

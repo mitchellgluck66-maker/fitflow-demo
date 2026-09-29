@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import clsx from 'clsx';
 import { TrendingUp, TrendingDown, Minus, LineChart, type LucideIcon } from 'lucide-react';
-import type { Delta } from '@/lib/metrics';
+import type { Currency, Delta } from '@/lib/metrics';
 import { formatDelta } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
 import { KpiTrendPopover } from './KpiTrendPopover';
@@ -19,11 +19,10 @@ import type { DataMaturity } from '@/lib/metrics/maturity';
  * KpiTrendPopover for that metric (daily 30d for volume/cash, weekly 12w for
  * rates/CAC). Enter/Space open it too; Esc or click-away closes.
  */
-export const KpiDeltaTile: React.FC<{
+type KpiDeltaTileProps = {
   label: string;
   value: string;
   delta: Delta;
-  deltaKind?: 'count' | 'cents' | 'pct' | 'ratio';
   /** e.g. "Jul 28 – Aug 26 vs Jun 28 – Jul 27" */
   comparisonLabel: string | null;
   subtext?: React.ReactNode;
@@ -39,7 +38,12 @@ export const KpiDeltaTile: React.FC<{
   maturity?: DataMaturity | null;
   maturing?: boolean;
   className?: string;
-}> = ({ label, value, delta, deltaKind = 'count', comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, maturity, maturing, className }) => {
+} & (
+  | { deltaKind: 'cents'; /** Money deltas are labelled ("+$1,605 CAD"). */ currency: Currency }
+  | { deltaKind?: 'count' | 'pct' | 'ratio'; currency?: Currency }
+);
+
+export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, maturity, maturing, className }) => {
   const [open, setOpen] = useState(false);
   const tileRef = useRef<HTMLDivElement>(null);
   const clickable = Boolean(trendMetric);
@@ -55,6 +59,8 @@ export const KpiDeltaTile: React.FC<{
   const trendColor = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--positive-text)' : 'var(--negative-text)';
   const trendBg = delta.good === null ? 'var(--surface-sunken)' : delta.good ? 'var(--positive-muted)' : 'var(--negative-muted)';
   const TrendIcon = delta.direction === 'up' ? TrendingUp : delta.direction === 'down' ? TrendingDown : Minus;
+  const deltaText = () =>
+    deltaKind === 'cents' ? formatDelta(delta, 'cents', currency as Currency) : formatDelta(delta, deltaKind);
 
   return (
     <div
@@ -110,10 +116,10 @@ export const KpiDeltaTile: React.FC<{
           <span
             className="inline-flex items-center gap-1 h-[20px] px-1.5 rounded-[5px] text-[11px] font-semibold tabular cursor-help shrink-0"
             style={{ color: trendColor, background: trendBg }}
-            title={comparisonLabel ? `${formatDelta(delta, deltaKind)} · ${comparisonLabel}` : formatDelta(delta, deltaKind)}
+            title={comparisonLabel ? `${deltaText()} · ${comparisonLabel}` : deltaText()}
           >
             <TrendIcon size={11} strokeWidth={2.4} />
-            {delta.pct !== null ? `${delta.pct > 0 ? '+' : delta.pct < 0 ? '−' : ''}${Math.abs(delta.pct * 100).toFixed(0)}%` : formatDelta(delta, deltaKind)}
+            {delta.pct !== null ? `${delta.pct > 0 ? '+' : delta.pct < 0 ? '−' : ''}${Math.abs(delta.pct * 100).toFixed(0)}%` : deltaText()}
           </span>
         )}
       </div>

@@ -107,7 +107,7 @@ export const Funnel: React.FC<{
                   {s.costPerCents !== null && (
                     <>
                       {' '}
-                      · {formatCents(s.costPerCents)}/{short}
+                      · {formatCents(s.costPerCents, funnel.currency)}/{short}
                     </>
                   )}
                 </div>

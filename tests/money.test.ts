@@ -16,8 +16,8 @@ import {
 
 const R = { start: '2026-08-02', end: '2026-08-08' }; // Sun–Sat
 
-const manualMeta: SpendRow = { date: '2026-08-02', platform: 'meta', spendCents: 70_010, origin: 'manual' };
-const manualGoogle: SpendRow = { date: '2026-08-02', platform: 'google', spendCents: 7_000, origin: 'manual' };
+const manualMeta: SpendRow = { date: '2026-08-02', platform: 'meta', currency: 'CAD' as const, spendCents: 70_010, origin: 'manual' };
+const manualGoogle: SpendRow = { date: '2026-08-02', platform: 'google', currency: 'CAD' as const, spendCents: 7_000, origin: 'manual' };
 
 describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
   it('spreads a manual week over 7 days with the remainder on Sunday', () => {
@@ -34,8 +34,8 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
     const spend: SpendRow[] = [
       manualMeta,
       manualGoogle,
-      { date: '2026-08-03', platform: 'meta', spendCents: 50_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred' },
-      { date: '2026-08-04', platform: 'meta', spendCents: 60_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred' },
+      { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 50_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred' },
+      { date: '2026-08-04', platform: 'meta', currency: 'CAD' as const, spendCents: 60_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred' },
     ];
     const days = expandSpend(spend).filter((d) => d.platform === 'meta').sort((a, b) => a.date.localeCompare(b.date));
     expect(days.map((d) => [d.date, d.from, d.spendCents])).toEqual([
@@ -54,14 +54,14 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
   it('two API rows on the same date (two campaigns) both count and both suppress manual', () => {
     const spend: SpendRow[] = [
       manualMeta,
-      { date: '2026-08-03', platform: 'meta', spendCents: 1_000, origin: 'meta', campaignId: 'a', campaignName: 'A' },
-      { date: '2026-08-03', platform: 'meta', spendCents: 2_000, origin: 'meta', campaignId: 'b', campaignName: 'B' },
+      { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 1_000, origin: 'meta', campaignId: 'a', campaignName: 'A' },
+      { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 2_000, origin: 'meta', campaignId: 'b', campaignName: 'B' },
     ];
     expect(computeSpend(spend, R)).toBe(3_000 + 70_010 - 10_001);
   });
 
   it('API rows for one platform never suppress manual rows for another', () => {
-    const spend: SpendRow[] = [manualGoogle, { date: '2026-08-03', platform: 'meta', spendCents: 1_000, origin: 'meta' }];
+    const spend: SpendRow[] = [manualGoogle, { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 1_000, origin: 'meta' }];
     expect(computeSpend(spend, R)).toBe(8_000);
   });
 
@@ -69,6 +69,7 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
     const api: SpendRow[] = Array.from({ length: 7 }, (_, i) => ({
       date: `2026-08-0${2 + i}`,
       platform: 'meta',
+      currency: 'CAD' as const,
       spendCents: 1_000,
       origin: 'meta',
     }));
@@ -81,14 +82,14 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
   });
 
   it('manual-level demo rows behave like manual rows', () => {
-    const spend: SpendRow[] = [{ ...manualMeta, origin: 'demo' }, { date: '2026-08-03', platform: 'meta', spendCents: 500, origin: 'meta' }];
+    const spend: SpendRow[] = [{ ...manualMeta, origin: 'demo' }, { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 500, origin: 'meta' }];
     expect(computeSpend(spend, R)).toBe(500 + 70_010 - 10_001);
   });
 
   it('campaign-level demo rows are API-grade: daily, and they suppress manual for their dates', () => {
     const spend: SpendRow[] = [
       manualMeta,
-      { date: '2026-08-03', platform: 'meta', spendCents: 2_000, origin: 'demo', level: 'campaign', campaignId: 'd1', campaignName: 'Demo Broad' },
+      { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 2_000, origin: 'demo', level: 'campaign', campaignId: 'd1', campaignName: 'Demo Broad' },
     ];
     const days = expandSpend(spend).filter((d) => d.date === '2026-08-03');
     expect(days).toEqual([expect.objectContaining({ from: 'api', spendCents: 2_000, campaignName: 'Demo Broad' })]);
@@ -129,13 +130,13 @@ const ADS: MetricsInput = {
   appointments: [],
   spend: [
     manualGoogle,
-    { date: '2026-08-03', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1000, clicks: 50, leads: 3, reach: 700, linkClicks: 30, landingPageViews: 20, purchases: 1 },
-    { date: '2026-08-04', platform: 'meta', spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1200, clicks: 40, leads: 1, reach: 800, linkClicks: 20, landingPageViews: 15, purchases: 0 },
-    { date: '2026-08-04', platform: 'meta', spendCents: 10_000, origin: 'meta', campaignId: 'c2', campaignName: 'Retarget', impressions: 300, clicks: 10, leads: 0 },
+    { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1000, clicks: 50, leads: 3, reach: 700, linkClicks: 30, landingPageViews: 20, purchases: 1 },
+    { date: '2026-08-04', platform: 'meta', currency: 'CAD' as const, spendCents: 30_000, origin: 'meta', campaignId: 'c1', campaignName: 'Summer Shred', impressions: 1200, clicks: 40, leads: 1, reach: 800, linkClicks: 20, landingPageViews: 15, purchases: 0 },
+    { date: '2026-08-04', platform: 'meta', currency: 'CAD' as const, spendCents: 10_000, origin: 'meta', campaignId: 'c2', campaignName: 'Retarget', impressions: 300, clicks: 10, leads: 0 },
   ],
   payments: [
-    { id: 'pi1', stripeId: 'ch_pi1', contactId: 'p1', kind: 'charge', amountCents: 150_000, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', paymentClass: 'initial' },
-    { id: 'pr1', stripeId: 'in_pr1', contactId: 'p1', kind: 'invoice', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
+    { id: 'pi1', stripeId: 'ch_pi1', contactId: 'p1', kind: 'charge', currency: 'CAD' as const, amountCents: 150_000, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'pr1', stripeId: 'in_pr1', contactId: 'p1', kind: 'invoice', currency: 'CAD' as const, amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
   ],
 };
 
@@ -209,13 +210,13 @@ describe('revenue summary', () => {
   const REV: MetricsInput = {
     ...ADS,
     payments: [
-      { id: 'pay1', stripeId: 'ch_1', contactId: 'p1', kind: 'charge', amountCents: 299_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', email: 'p1@example.com', paymentClass: 'initial' },
-      { id: 'pay2', stripeId: 'ch_2', contactId: null, kind: 'charge', amountCents: 99_900, refundedCents: 99_900, status: 'refunded', on: '2026-08-05', origin: 'stripe', email: 'x@example.com', paymentClass: null },
-      { id: 'pay3', stripeId: 'ch_3', contactId: null, kind: 'charge', amountCents: 49_900, refundedCents: 0, status: 'failed', on: '2026-08-03', origin: 'stripe', email: 'y@example.com' },
-      { id: 'pay4', stripeId: 'in_1', contactId: 'p1', kind: 'invoice', amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
-      { id: 'sub1', stripeId: 'sub_1', contactId: 'p1', kind: 'subscription', amountCents: 19_900, refundedCents: 0, status: 'active', on: '2026-08-01', origin: 'stripe' },
-      { id: 'sub2', stripeId: 'sub_2', contactId: null, kind: 'subscription', amountCents: 9_900, refundedCents: 0, status: 'canceled', on: '2026-07-01', origin: 'stripe' },
-      { id: 'old', stripeId: 'ch_0', contactId: null, kind: 'charge', amountCents: 500_000, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe' },
+      { id: 'pay1', stripeId: 'ch_1', contactId: 'p1', kind: 'charge', currency: 'CAD' as const, amountCents: 299_900, refundedCents: 0, status: 'succeeded', on: '2026-08-07', origin: 'stripe', email: 'p1@example.com', paymentClass: 'initial' },
+      { id: 'pay2', stripeId: 'ch_2', contactId: null, kind: 'charge', currency: 'CAD' as const, amountCents: 99_900, refundedCents: 99_900, status: 'refunded', on: '2026-08-05', origin: 'stripe', email: 'x@example.com', paymentClass: null },
+      { id: 'pay3', stripeId: 'ch_3', contactId: null, kind: 'charge', currency: 'CAD' as const, amountCents: 49_900, refundedCents: 0, status: 'failed', on: '2026-08-03', origin: 'stripe', email: 'y@example.com' },
+      { id: 'pay4', stripeId: 'in_1', contactId: 'p1', kind: 'invoice', currency: 'CAD' as const, amountCents: 19_900, refundedCents: 0, status: 'succeeded', on: '2026-08-08', origin: 'stripe', paymentClass: 'recurring' },
+      { id: 'sub1', stripeId: 'sub_1', contactId: 'p1', kind: 'subscription', currency: 'CAD' as const, amountCents: 19_900, refundedCents: 0, status: 'active', on: '2026-08-01', origin: 'stripe' },
+      { id: 'sub2', stripeId: 'sub_2', contactId: null, kind: 'subscription', currency: 'CAD' as const, amountCents: 9_900, refundedCents: 0, status: 'canceled', on: '2026-07-01', origin: 'stripe' },
+      { id: 'old', stripeId: 'ch_0', contactId: null, kind: 'charge', currency: 'CAD' as const, amountCents: 500_000, refundedCents: 0, status: 'succeeded', on: '2026-07-01', origin: 'stripe' },
     ],
   };
 

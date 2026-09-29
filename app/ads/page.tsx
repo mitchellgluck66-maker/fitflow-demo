@@ -43,6 +43,7 @@ function AdsTab() {
   }
 
   const { ads, revenue, comparison, range, trend } = data;
+  const ccy = data.money.currency;
   const { kpis, previousKpis } = ads;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
   const weekly = trend.grain === 'week';
@@ -78,14 +79,15 @@ function AdsTab() {
             <KpiDeltaTile
               label="Spend"
               trendMetric="spend"
-              value={formatCents(kpis.spendCents, { compact: true })}
+              value={formatCents(kpis.spendCents, ccy, { compact: true })}
               delta={computeDelta(kpis.spendCents, previousKpis?.spendCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={DollarSign}
               accent="warning"
               sparkline={spark('spendCents')}
-              subtext={kpis.byPlatform.map((p) => `${p.platform} ${formatCents(p.spendCents, { compact: true })}`).join(' · ') || 'no spend recorded'}
+              subtext={kpis.byPlatform.map((p) => `${p.platform} ${formatCents(p.spendCents, ccy, { compact: true })}`).join(' · ') || 'no spend recorded'}
             />
           )}
           {show('cpl') && (
@@ -94,9 +96,10 @@ function AdsTab() {
               trendMetric="cpl"
               maturity={data.maturity}
               maturing
-              value={formatCents(kpis.costPerLeadCents)}
+              value={formatCents(kpis.costPerLeadCents, ccy)}
               delta={computeDelta(kpis.costPerLeadCents, previousKpis?.costPerLeadCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={Users}
               accent="info"
@@ -109,9 +112,10 @@ function AdsTab() {
               trendMetric="cost_consult"
               maturity={data.maturity}
               maturing
-              value={formatCents(kpis.costPerConsultCents)}
+              value={formatCents(kpis.costPerConsultCents, ccy)}
               delta={computeDelta(kpis.costPerConsultCents, previousKpis?.costPerConsultCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={CalendarCheck}
               accent="accent"
@@ -124,9 +128,10 @@ function AdsTab() {
               trendMetric="cost_roadmap"
               maturity={data.maturity}
               maturing
-              value={formatCents(kpis.costPerRoadmapCents)}
+              value={formatCents(kpis.costPerRoadmapCents, ccy)}
               delta={computeDelta(kpis.costPerRoadmapCents, previousKpis?.costPerRoadmapCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={Map}
               accent="info"
@@ -137,9 +142,10 @@ function AdsTab() {
             <KpiDeltaTile
               label="Paid CAC"
               trendMetric="paid_cac"
-              value={formatCents(kpis.paidCacCents)}
+              value={formatCents(kpis.paidCacCents, ccy)}
               delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={Target}
               accent="warning"
@@ -150,9 +156,10 @@ function AdsTab() {
             <KpiDeltaTile
               label="Blended CAC"
               trendMetric="blended_cac"
-              value={formatCents(kpis.blendedCacCents)}
+              value={formatCents(kpis.blendedCacCents, ccy)}
               delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
               deltaKind="cents"
+              currency={ccy}
               comparisonLabel={cmpLabel}
               icon={Target}
               accent="info"
@@ -188,8 +195,8 @@ function AdsTab() {
             action={
               <ChartLegend
                 items={[
-                  { label: 'Spend ($)', color: 'var(--warning)' },
-                  ...(revenue.awaitingStripe ? [] : [{ label: 'Initial cash ($)', color: 'var(--success)' }]),
+                  { label: `Spend (${ccy})`, color: 'var(--warning)' },
+                  ...(revenue.awaitingStripe ? [] : [{ label: `Initial cash (${ccy})`, color: 'var(--success)' }]),
                 ]}
               />
             }
@@ -206,11 +213,11 @@ function AdsTab() {
               <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={24} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'var(--text-quaternary)' }} />
               <Tooltip content={<ChartTooltip suffix="" />} />
-              <Area type="monotone" dataKey="spend" name="Spend ($)" stroke="var(--warning)" strokeWidth={2} fill="url(#adsSpend)" />
+              <Area type="monotone" dataKey="spend" name={`Spend (${ccy})`} stroke="var(--warning)" strokeWidth={2} fill="url(#adsSpend)" />
               <Line type="monotone" dataKey="spendPrev" name="Spend (comparison)" stroke="var(--warning)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
               {!revenue.awaitingStripe && (
                 <>
-                  <Line type="monotone" dataKey="revenue" name="Initial cash ($)" stroke="var(--success)" strokeWidth={2.2} dot={false} />
+                  <Line type="monotone" dataKey="revenue" name={`Initial cash (${ccy})`} stroke="var(--success)" strokeWidth={2.2} dot={false} />
                   <Line type="monotone" dataKey="revenuePrev" name="Initial cash (comparison)" stroke="var(--success)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
                 </>
               )}

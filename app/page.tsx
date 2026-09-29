@@ -80,6 +80,7 @@ function CommandCenter() {
   }
 
   const { scorecard, comparison, range, trend } = data;
+  const ccy = data.money.currency;
   const { marketing } = scorecard;
   const cmpLabel = comparison.range ? `${range.resolvedLabel} vs ${comparison.range.resolvedLabel}` : null;
   const spark = (key: 'enrolled' | 'consultsBooked' | 'applied' | 'cacCents' | 'revenueCents' | 'initialCents') =>
@@ -104,9 +105,10 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Initial cash collected"
             trendMetric="initial_cash"
-            value={formatCents(scorecard.revenue.initialCents, { compact: true })}
+            value={formatCents(scorecard.revenue.initialCents, ccy, { compact: true })}
             delta={scorecard.kpis.initialCents}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={DollarSign}
             accent="success"
@@ -132,9 +134,10 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Paid CAC"
             trendMetric="paid_cac"
-            value={formatCents(marketing.paidCacCents)}
+            value={formatCents(marketing.paidCacCents, ccy)}
             delta={scorecard.kpis.paidCacCents}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Target}
             accent="warning"
@@ -146,16 +149,17 @@ function CommandCenter() {
               ) : marketing.paidCacCents === null ? (
                 'no paid-attributed enrollments in period'
               ) : (
-                `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${marketing.paidEnrollments} paid enrolled`
+                `${formatCents(marketing.spendCents, ccy, { compact: true })} spend ÷ ${marketing.paidEnrollments} paid enrolled`
               )
             }
           />
           <KpiDeltaTile
             label="Blended CAC"
             trendMetric="blended_cac"
-            value={formatCents(marketing.blendedCacCents)}
+            value={formatCents(marketing.blendedCacCents, ccy)}
             delta={scorecard.kpis.blendedCacCents}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Target}
             accent="info"
@@ -168,7 +172,7 @@ function CommandCenter() {
               ) : marketing.blendedCacCents === null ? (
                 'no enrollments in period'
               ) : (
-                `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${marketing.enrollments} enrolled (organic included)`
+                `${formatCents(marketing.spendCents, ccy, { compact: true })} spend ÷ ${marketing.enrollments} enrolled (organic included)`
               )
             }
           />
@@ -186,7 +190,7 @@ function CommandCenter() {
                 ? marketing.noSpendData
                   ? 'no spend in period'
                   : 'paid initial cash ÷ ad spend'
-                : `${formatCents(marketing.paidInitialCents, { compact: true })} paid initial cash ÷ ${formatCents(marketing.spendCents, { compact: true })} spend`
+                : `${formatCents(marketing.paidInitialCents, ccy, { compact: true })} paid initial cash ÷ ${formatCents(marketing.spendCents, ccy, { compact: true })} spend`
             }
             empty={
               scorecard.revenue.awaitingStripe
@@ -209,7 +213,7 @@ function CommandCenter() {
             accent="accent"
             subtext={
               marketing.ltvToCac !== null
-                ? `${formatCents(marketing.contractValueCents, { compact: true })} contract value of ${marketing.enrollments} new client${marketing.enrollments === 1 ? '' : 's'} ÷ ${formatCents(marketing.spendCents, { compact: true })} spend`
+                ? `${formatCents(marketing.contractValueCents, ccy, { compact: true })} contract value of ${marketing.enrollments} new client${marketing.enrollments === 1 ? '' : 's'} ÷ ${formatCents(marketing.spendCents, ccy, { compact: true })} spend`
                 : 'avg contract value ÷ blended CAC'
             }
             empty={
@@ -243,9 +247,10 @@ function CommandCenter() {
             trendMetric="cost_roadmap"
             maturity={data.maturity}
             maturing
-            value={formatCents(marketing.costPerRoadmapCents)}
+            value={formatCents(marketing.costPerRoadmapCents, ccy)}
             delta={scorecard.kpis.costPerRoadmapCents}
             deltaKind="cents"
+            currency={ccy}
             comparisonLabel={cmpLabel}
             icon={Map}
             accent="info"
@@ -254,7 +259,7 @@ function CommandCenter() {
                 ? marketing.noSpendData
                   ? 'no spend in period'
                   : 'no roadmaps booked in period'
-                : `${formatCents(marketing.spendCents, { compact: true })} spend ÷ ${scorecard.kpis.roadmapsBooked.current ?? 0} roadmaps booked`
+                : `${formatCents(marketing.spendCents, ccy, { compact: true })} spend ÷ ${scorecard.kpis.roadmapsBooked.current ?? 0} roadmaps booked`
             }
           />
         </div>
@@ -279,7 +284,7 @@ function CommandCenter() {
                   items={[
                     { label: 'Applied', color: 'var(--info)' },
                     { label: 'Enrolled', color: 'var(--accent)' },
-                    ...(weekly ? [{ label: 'Blended CAC ($)', color: 'var(--warning)' }] : []),
+                    ...(weekly ? [{ label: `Blended CAC (${ccy})`, color: 'var(--warning)' }] : []),
                   ]}
                 />
               }
@@ -311,7 +316,7 @@ function CommandCenter() {
                 <Line yAxisId="count" type="monotone" dataKey="enrolled" name="Enrolled" stroke="var(--accent)" strokeWidth={2.2} dot={false} />
                 <Line yAxisId="count" type="monotone" dataKey="enrolledPrev" name="Enrolled (comparison)" stroke="var(--accent)" strokeWidth={1.4} strokeDasharray="4 4" strokeOpacity={0.45} dot={false} connectNulls />
                 {weekly && (
-                  <Line yAxisId="money" type="monotone" dataKey="cac" name="Blended CAC ($)" stroke="var(--warning)" strokeWidth={1.8} dot={false} connectNulls />
+                  <Line yAxisId="money" type="monotone" dataKey="cac" name={`Blended CAC (${ccy})`} stroke="var(--warning)" strokeWidth={1.8} dot={false} connectNulls />
                 )}
               </ComposedChart>
             </ResponsiveContainer>

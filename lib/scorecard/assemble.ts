@@ -10,7 +10,7 @@
  */
 
 import type { ScorecardResult } from '../metrics/service';
-import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Delta, type CampaignRow, type ShowRate } from '../metrics';
+import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
 import { isMaturingMetric, maturingCaveatText, type DataMaturity } from '../metrics/maturity';
 
@@ -21,7 +21,7 @@ export interface ScorecardStat {
   /** Stable id — also the KpiTrendPopover metric key. */
   key: string;
   label: string;
-  /** Formatted for display ("$1,234", "41%", "2.5×", "12"). */
+  /** Formatted for display ("$1,234 CAD", "41%", "2.5×", "12"). */
   value: string;
   delta: Delta;
   deltaKind: 'count' | 'cents' | 'pct' | 'ratio';
@@ -65,17 +65,24 @@ export interface ScorecardView {
   /** Email subject line. */
   subject: string;
   maturity: DataMaturity;
+  /** The reporting currency every money value above is labelled with. */
+  currency: Currency;
+  /** "displayed in CAD · USD converted at 1.36" — rendered under the stats. */
+  fxNote: string;
 }
 
-function deltaSub(d: Delta, kind: ScorecardStat['deltaKind']): { sub: string; tone: StatTone } {
+function deltaSub(d: Delta, kind: ScorecardStat['deltaKind'], currency: Currency): { sub: string; tone: StatTone } {
   if (d.abs === null) return { sub: 'no comparison', tone: 'neutral' };
   if (d.abs === 0) return { sub: 'no change', tone: 'neutral' };
-  return { sub: formatDelta(d, kind), tone: d.good === null ? 'neutral' : d.good ? 'good' : 'bad' };
+  return { sub: formatDelta(d, kind, currency), tone: d.good === null ? 'neutral' : d.good ? 'good' : 'bad' };
 }
 
-function stat(key: string, label: string, value: string, delta: Delta, deltaKind: ScorecardStat['deltaKind'], override?: { sub: string; tone?: StatTone; empty?: ScorecardStat['empty'] }): ScorecardStat {
-  const ds = deltaSub(delta, deltaKind);
-  return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty, maturing: false };
+/** A stat builder whose money deltas are labelled with the reporting currency. */
+function statIn(currency: Currency) {
+  return (key: string, label: string, value: string, delta: Delta, deltaKind: ScorecardStat['deltaKind'], override?: { sub: string; tone?: StatTone; empty?: ScorecardStat['empty'] }): ScorecardStat => {
+    const ds = deltaSub(delta, deltaKind, currency);
+    return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty, maturing: false };
+  };
 }
 
 function withMaturity(stats: ScorecardStat[], maturity: DataMaturity): ScorecardStat[] {
@@ -100,17 +107,20 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   const awaiting = rev.awaitingStripe;
   const kind = scorecardKindOf(result);
   const cmp = comparison.range;
+  const ccy = scorecard.currency;
+  const stat = statIn(ccy);
+  const money$ = (cents: number | null) => formatCents(cents, ccy);
 
   // ---- Money -------------------------------------------------------------
   const stripeEmpty = { title: 'Awaiting Stripe', description: 'Connect Stripe in Setup — nothing here is estimated.' };
   const money: ScorecardStat[] = [
     awaiting
       ? stat('initial_cash', 'Initial cash collected', '—', k.initialCents, 'cents', { sub: 'Awaiting Stripe', empty: stripeEmpty })
-      : stat('initial_cash', 'Initial cash collected', formatCents(k.initialCents.current), k.initialCents, 'cents'),
+      : stat('initial_cash', 'Initial cash collected', money$(k.initialCents.current), k.initialCents, 'cents'),
     stat('enrollments', 'Enrollments', String(k.enrollments.current ?? 0), k.enrollments, 'count'),
-    stat('paid_cac', 'Paid CAC', k.paidCacCents.current === null ? '—' : formatCents(k.paidCacCents.current), k.paidCacCents, 'cents',
+    stat('paid_cac', 'Paid CAC', k.paidCacCents.current === null ? '—' : money$(k.paidCacCents.current), k.paidCacCents, 'cents',
       k.paidCacCents.current === null ? { sub: m.noSpendData ? 'no spend entered' : 'no paid-attributed enrollments' } : undefined),
-    stat('blended_cac', 'Blended CAC', k.blendedCacCents.current === null ? '—' : formatCents(k.blendedCacCents.current), k.blendedCacCents, 'cents',
+    stat('blended_cac', 'Blended CAC', k.blendedCacCents.current === null ? '—' : money$(k.blendedCacCents.current), k.blendedCacCents, 'cents',
       k.blendedCacCents.current === null ? { sub: m.noSpendData ? 'no spend entered' : 'no enrollments' } : undefined),
     awaiting
       ? stat('roas', 'ROAS', '—', k.roas, 'ratio', { sub: 'Awaiting Stripe', empty: stripeEmpty })
@@ -143,9 +153,9 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   const a = ads.kpis;
   const pa = ads.previousKpis;
   const costStat = (key: string, label: string, cur: number | null, prev: number | null | undefined, missing: string) =>
-    stat(key, label, cur === null ? '—' : formatCents(cur), computeDelta(cur, prev ?? null, true), 'cents', cur === null ? { sub: m.noSpendData ? 'no spend entered' : missing } : undefined);
+    stat(key, label, cur === null ? '—' : money$(cur), computeDelta(cur, prev ?? null, true), 'cents', cur === null ? { sub: m.noSpendData ? 'no spend entered' : missing } : undefined);
   const adsStats: ScorecardStat[] = [
-    stat('spend', 'Spend', formatCents(a.spendCents), computeDelta(a.spendCents, pa?.spendCents ?? null, true), 'cents', m.noSpendData ? { sub: 'no spend entered' } : undefined),
+    stat('spend', 'Spend', money$(a.spendCents), computeDelta(a.spendCents, pa?.spendCents ?? null, true), 'cents', m.noSpendData ? { sub: 'no spend entered' } : undefined),
     costStat('cpl', 'Cost per lead', a.costPerLeadCents, pa?.costPerLeadCents, 'no applicants'),
     costStat('cost_consult', 'Cost per consult', a.costPerConsultCents, pa?.costPerConsultCents, 'no consults booked'),
     costStat('cost_roadmap', 'Cost per roadmap', a.costPerRoadmapCents, pa?.costPerRoadmapCents, 'no roadmaps booked'),
@@ -174,7 +184,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
     String(s.count),
     formatPct(s.shareOfApplied),
     s.conversionFromPrevious === null ? '—' : formatPct(s.conversionFromPrevious),
-    s.costPerCents === null ? '—' : formatCents(s.costPerCents),
+    s.costPerCents === null ? '—' : money$(s.costPerCents),
   ]);
   if (scorecard.funnel.previousLeads.count > 0) {
     funnelRows.push(['Previous leads (parked, not in conversion)', String(scorecard.funnel.previousLeads.count), '—', '—', '—']);
@@ -185,12 +195,12 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   const cacLine = m.noSpendData
     ? 'No ad spend entered for this period — add weekly spend on the Ads tab to get CAC.'
     : m.enrollments === 0
-      ? `${formatCents(m.spendCents)} spend, no enrollments this period.`
+      ? `${money$(m.spendCents)} spend, no enrollments this period.`
       : [
-          `Paid CAC: ${formatCents(m.spendCents)} spend ÷ ${m.paidEnrollments} paid-attributed enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${m.paidCacCents === null ? '—' : formatCents(m.paidCacCents)}.`,
-          `Blended CAC: ${formatCents(m.spendCents)} ÷ ${m.enrollments} enrollments (${m.organicEnrollments} organic) = ${formatCents(m.blendedCacCents)}.`,
+          `Paid CAC: ${money$(m.spendCents)} spend ÷ ${m.paidEnrollments} paid-attributed enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${m.paidCacCents === null ? '—' : money$(m.paidCacCents)}.`,
+          `Blended CAC: ${money$(m.spendCents)} ÷ ${m.enrollments} enrollments (${m.organicEnrollments} organic) = ${money$(m.blendedCacCents)}.`,
           m.ltvToCac !== null
-            ? `LTV:CAC: ${formatCents(m.contractValueCents)} contract value ÷ ${formatCents(m.spendCents)} spend = ${m.ltvToCac.toFixed(1)}×.`
+            ? `LTV:CAC: ${money$(m.contractValueCents)} contract value ÷ ${money$(m.spendCents)} spend = ${m.ltvToCac.toFixed(1)}×.`
             : m.contractValueMissing.length
               ? `LTV:CAC withheld — no contract value in GHL for: ${m.contractValueMissing.map((p) => p.name).join(', ')}.`
               : '',
@@ -201,9 +211,11 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
 
   const notes: ScorecardView['notes'] = [];
   if (awaiting) notes.push({ text: 'Revenue and ROAS will appear once Stripe is connected. Nothing here is estimated.', tone: 'info' });
-  else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${formatCents(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
+  else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${money$(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
   if (rev.unclassifiedCount > 0) notes.push({ text: `${rev.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, tone: 'warn' });
-  if (m.unattributedInitialCount > 0) notes.push({ text: `${formatCents(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
+  if (m.unattributedInitialCount > 0) notes.push({ text: `${money$(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
+  notes.push({ text: `Money ${result.money.fx.text}.`, tone: 'info' });
+  if (result.money.unsupportedRows > 0) notes.push({ text: `${result.money.unsupportedRows} payment/spend row(s) in a currency other than CAD or USD are excluded.`, tone: 'warn' });
   if (result.maturity.active) notes.push({ text: `Maturing data — ${maturingCaveatText(result.maturity)} Affected here: consults booked, roadmaps booked, cost per lead / consult / roadmap and the funnel conversions.`, tone: 'warn' });
 
   const title = periodTitle(r);
@@ -225,5 +237,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
     empty: scorecard.empty,
     subject: `FitFlow ${kind === 'custom' ? '' : `${kind} `}scorecard — ${formatRangeLabel(r.start, r.end)}: ${k.enrollments.current ?? 0} enrolled, ${k.consultsBooked.current ?? 0} consults booked`,
     maturity: result.maturity,
+    currency: ccy,
+    fxNote: result.money.fx.text,
   };
 }

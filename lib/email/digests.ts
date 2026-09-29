@@ -133,8 +133,8 @@ export function renderScorecardDigest(kind: 'weekly' | 'monthly', view: Scorecar
   // "†" marks a maturing-data stat; the note explaining it is in view.notes.
   const card = (st: ScorecardStat) => ({ label: st.maturing ? `${st.label} †` : st.label, value: st.value, sub: st.sub, tone: st.tone });
   const campaignLine = view.campaigns.top
-    ? `Best cost per client: ${view.campaigns.top.campaignName} (${formatCents(view.campaigns.top.costPerEnrollmentCents)}/client, ${view.campaigns.top.enrolled} enrolled from ${formatCents(view.campaigns.top.spendCents)}).` +
-      (view.campaigns.worst ? ` Worst: ${view.campaigns.worst.campaignName} (${formatCents(view.campaigns.worst.costPerEnrollmentCents)}/client, ${view.campaigns.worst.enrolled} enrolled from ${formatCents(view.campaigns.worst.spendCents)}).` : '') +
+    ? `Best cost per client: ${view.campaigns.top.campaignName} (${formatCents(view.campaigns.top.costPerEnrollmentCents, view.currency)}/client, ${view.campaigns.top.enrolled} enrolled from ${formatCents(view.campaigns.top.spendCents, view.currency)}).` +
+      (view.campaigns.worst ? ` Worst: ${view.campaigns.worst.campaignName} (${formatCents(view.campaigns.worst.costPerEnrollmentCents, view.currency)}/client, ${view.campaigns.worst.enrolled} enrolled from ${formatCents(view.campaigns.worst.spendCents, view.currency)}).` : '') +
       (view.campaigns.note ? ` ${view.campaigns.note}` : '')
     : view.campaigns.note;
 

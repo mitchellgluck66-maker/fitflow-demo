@@ -93,6 +93,7 @@ export {
   syncIncidents,
   settings,
   ghlSyncQueue,
+  fxRates,
   SEMANTIC_ROLES,
 } from './schema';
 export type {
@@ -120,4 +121,5 @@ export type {
   SyncIncident,
   Setting,
   GhlSyncQueueItem,
+  FxRateRow,
 } from './schema';

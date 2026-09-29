@@ -567,7 +567,8 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     status: 'succeeded',
     amountCents: 299_900,
     refundedCents: 0,
-    currency: 'USD',
+    // Like the real account (C1 audit: ~63% CAD): 3 in 5 demo clients pay in CAD.
+    currency: l.i % 5 < 3 ? 'CAD' : 'USD',
     email: l.email,
     emailNormalized: normalizeEmail(l.email),
     phoneNormalized: normalizePhone(l.phone),

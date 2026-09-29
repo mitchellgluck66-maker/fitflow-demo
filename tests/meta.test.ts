@@ -150,7 +150,7 @@ describe('runMetaSync', () => {
     const rows = await db.select().from(adSpend).where(eq(adSpend.origin, 'meta'));
     expect(rows).toHaveLength(3);
     const a1 = rows.find((x) => x.externalId === 'meta:a1:2026-08-10')!;
-    expect(a1).toMatchObject({ platform: 'meta', level: 'ad', campaignName: 'Summer Shred', spendCents: 1234, impressions: 1000, clicks: 50, leads: 3, source: 'meta', backfilled: true });
+    expect(a1).toMatchObject({ platform: 'meta', level: 'ad', campaignName: 'Summer Shred', currency: 'USD', spendCents: 1234, impressions: 1000, clicks: 50, leads: 3, source: 'meta', backfilled: true });
     // Phase G: every extra Meta metric is stored, the actions array verbatim by type.
     expect(a1).toMatchObject({ reach: 800, frequency: 1.25, cpmCents: 1234, cpcCents: 31, linkClicks: 40, landingPageViews: 30, purchases: 3 });
     expect(a1.actions).toEqual({ lead: 3, link_click: 40, landing_page_view: 30, purchase: 2, 'offsite_conversion.fb_pixel_purchase': 1 });

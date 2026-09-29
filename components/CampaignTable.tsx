@@ -8,18 +8,18 @@ import { PeopleDrawer } from './PeopleDrawer';
 import { FilterBar, NoMatches } from './FilterBar';
 import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
-import { computeDelta, formatCents, formatDelta, type CampaignRow, type Delta, type FunnelStageKey } from '@/lib/metrics';
+import { computeDelta, formatCents, formatDelta, type CampaignRow, type Currency, type Delta, type FunnelStageKey } from '@/lib/metrics';
 import { DEFAULT_DISPLAYED_METRICS } from '@/lib/metrics/display';
 
 /** Platform-reported columns, keyed by displayed-metric key. */
-const PLATFORM_COLS: Array<{ key: string; label: string; sortKey: string; value: (c: CampaignRow) => number | null; format: (v: number) => string }> = [
+const PLATFORM_COLS: Array<{ key: string; label: string; sortKey: string; value: (c: CampaignRow) => number | null; format: (v: number, ccy: Currency) => string }> = [
   { key: 'impressions', label: 'Impr.', sortKey: 'impressions', value: (c) => c.impressions, format: (v) => v.toLocaleString() },
   { key: 'reach', label: 'Reach', sortKey: 'reach', value: (c) => c.reach, format: (v) => v.toLocaleString() },
   { key: 'frequency', label: 'Freq.', sortKey: 'frequency', value: (c) => c.frequency, format: (v) => v.toFixed(2) },
-  { key: 'cpm', label: 'CPM', sortKey: 'cpm', value: (c) => c.cpmCents, format: (v) => formatCents(v) },
+  { key: 'cpm', label: 'CPM', sortKey: 'cpm', value: (c) => c.cpmCents, format: (v, ccy) => formatCents(v, ccy) },
   { key: 'link_clicks', label: 'Link clicks', sortKey: 'link_clicks', value: (c) => c.linkClicks, format: (v) => v.toLocaleString() },
   { key: 'clicks', label: 'Clicks', sortKey: 'clicks', value: (c) => c.clicks, format: (v) => v.toLocaleString() },
-  { key: 'cpc', label: 'CPC', sortKey: 'cpc', value: (c) => c.cpcCents, format: (v) => formatCents(v) },
+  { key: 'cpc', label: 'CPC', sortKey: 'cpc', value: (c) => c.cpcCents, format: (v, ccy) => formatCents(v, ccy) },
   { key: 'landing_page_views', label: 'LPV', sortKey: 'lpv', value: (c) => c.landingPageViews, format: (v) => v.toLocaleString() },
   { key: 'platform_leads', label: 'Leads', sortKey: 'leads', value: (c) => c.platformLeads, format: (v) => v.toLocaleString() },
   { key: 'purchases', label: 'Purch.', sortKey: 'purchases', value: (c) => c.purchases, format: (v) => v.toLocaleString() },
@@ -37,18 +37,19 @@ const FACETS = ['platform', 'from', 'campaign'];
 const th = 'text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap';
 const num = 'px-3 py-2.5 text-right tabular';
 
-const DeltaChip: React.FC<{ delta: Delta; kind?: 'count' | 'cents'; label: string | null }> = ({ delta, kind = 'count', label }) => {
+const DeltaChip: React.FC<{ delta: Delta; label: string | null } & ({ kind: 'cents'; currency: Currency } | { kind?: 'count'; currency?: undefined })> = ({ delta, kind = 'count', currency, label }) => {
   if (delta.direction === 'none' || delta.direction === 'flat') return null;
+  const text = () => (kind === 'cents' ? formatDelta(delta, 'cents', currency as Currency) : formatDelta(delta, 'count'));
   const color = delta.good === null ? 'var(--text-tertiary)' : delta.good ? 'var(--positive-text)' : 'var(--negative-text)';
   const Icon = delta.direction === 'up' ? TrendingUp : TrendingDown;
   return (
     <span
       className="inline-flex items-center gap-0.5 ml-1.5 px-1 h-[16px] rounded-[4px] text-[10.5px] font-semibold tabular cursor-help"
       style={{ color, background: `color-mix(in srgb, ${color} 10%, transparent)` }}
-      title={label ? `${formatDelta(delta, kind)} · ${label}` : formatDelta(delta, kind)}
+      title={label ? `${text()} · ${label}` : text()}
     >
       <Icon size={10} strokeWidth={2.4} />
-      {delta.pct !== null ? `${Math.abs(delta.pct * 100).toFixed(0)}%` : formatDelta(delta, kind)}
+      {delta.pct !== null ? `${Math.abs(delta.pct * 100).toFixed(0)}%` : text()}
     </span>
   );
 };
@@ -177,14 +178,14 @@ export const CampaignTable: React.FC<{
                       </div>
                     </td>
                     <td className={num} style={{ color: 'var(--text-primary)', borderLeft: '1px solid var(--border-subtle)' }}>
-                      <span className="font-semibold">{formatCents(c.spendCents)}</span>
-                      <DeltaChip delta={spendDelta} kind="cents" label={comparisonLabel} />
+                      <span className="font-semibold">{formatCents(c.spendCents, c.currency)}</span>
+                      <DeltaChip delta={spendDelta} kind="cents" currency={c.currency} label={comparisonLabel} />
                     </td>
                     {platformCols.map((col) => {
                       const v = c.from === 'api' ? col.value(c) : null;
                       return (
                         <td key={col.key} className={num} style={{ color: 'var(--text-secondary)' }}>
-                          {v === null ? '—' : col.format(v)}
+                          {v === null ? '—' : col.format(v, c.currency)}
                         </td>
                       );
                     })}
@@ -212,7 +213,7 @@ export const CampaignTable: React.FC<{
                               </button>
                               {tr.stage === 'enrolled' && <DeltaChip delta={enrolledDelta} label={comparisonLabel} />}
                               <div className="text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
-                                {cost !== null ? `${formatCents(cost)}/${tr.unit}` : '—'}
+                                {cost !== null ? `${formatCents(cost, c.currency)}/${tr.unit}` : '—'}
                               </div>
                             </>
                           )}
@@ -233,7 +234,7 @@ export const CampaignTable: React.FC<{
                               {c.roas !== null ? `${c.roas.toFixed(2)}×` : '—'}
                             </span>
                             <div className="text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
-                              {formatCents(c.initialCents, { compact: true })} initial
+                              {formatCents(c.initialCents, c.currency, { compact: true })} initial
                             </div>
                           </>
                         )}

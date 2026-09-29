@@ -22,12 +22,12 @@ const INPUT: MetricsInput = {
     { contactId: 'b', type: 'Consult', outcome: 'no_show', on: '2026-09-12', atMs: noon('2026-09-12') },
   ],
   spend: [
-    { date: '2026-08-30', platform: 'meta', spendCents: 70_000, origin: 'manual' }, // week Aug 30 – Sep 5
-    { date: '2026-09-13', platform: 'meta', spendCents: 140_000, origin: 'manual' }, // week Sep 13–19
+    { date: '2026-08-30', platform: 'meta', currency: 'CAD' as const, spendCents: 70_000, origin: 'manual' }, // week Aug 30 – Sep 5
+    { date: '2026-09-13', platform: 'meta', currency: 'CAD' as const, spendCents: 140_000, origin: 'manual' }, // week Sep 13–19
   ],
   payments: [
-    { id: 'p1', stripeId: 'ch_1', contactId: 'a', kind: 'charge', amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-09-03', origin: 'stripe', paymentClass: 'initial' },
-    { id: 'p2', stripeId: 'ch_2', contactId: 'b', kind: 'charge', amountCents: 100_000, refundedCents: 0, status: 'succeeded', on: '2026-09-15', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'p1', stripeId: 'ch_1', contactId: 'a', kind: 'charge', currency: 'CAD' as const, amountCents: 200_000, refundedCents: 0, status: 'succeeded', on: '2026-09-03', origin: 'stripe', paymentClass: 'initial' },
+    { id: 'p2', stripeId: 'ch_2', contactId: 'b', kind: 'charge', currency: 'CAD' as const, amountCents: 100_000, refundedCents: 0, status: 'succeeded', on: '2026-09-15', origin: 'stripe', paymentClass: 'initial' },
   ],
 };
 

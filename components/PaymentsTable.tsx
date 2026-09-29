@@ -10,6 +10,7 @@ import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
 import { formatCents, type PaymentDetail } from '@/lib/metrics';
 import { addDays, formatRangeLabel } from '@/lib/dates';
+import { formatRate } from '@/lib/money';
 
 const STATUS_VARIANT: Record<string, 'positive' | 'negative' | 'warning' | 'info' | 'neutral'> = {
   succeeded: 'positive',
@@ -18,7 +19,7 @@ const STATUS_VARIANT: Record<string, 'positive' | 'negative' | 'warning' | 'info
   pending: 'info',
 };
 
-const FACETS = ['class', 'status', 'kind', 'source', 'matched'];
+const FACETS = ['class', 'status', 'kind', 'charged', 'source', 'matched'];
 
 const th = { color: 'var(--text-quaternary)' };
 
@@ -71,11 +72,16 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
       </td>
       <td className="px-3 py-2.5 text-right tabular">
         <span className="font-semibold" style={{ color: 'var(--text-primary)', textDecoration: p.refundedCents >= p.amountCents && p.amountCents > 0 ? 'line-through' : undefined }}>
-          {formatCents(p.amountCents)}
+          {formatCents(p.amountCents, p.currency)}
         </span>
+        {p.originalCurrency !== p.currency && (
+          <div className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-quaternary)' }} title={`Charged in ${p.originalCurrency}; converted at the ${p.on ?? 'latest'} rate`}>
+            charged {formatCents(p.originalAmountCents, p.originalCurrency)} @ {formatRate(p.fxRate)}
+          </div>
+        )}
         {p.refundedCents > 0 && (
           <div className="text-[11px]" style={{ color: 'var(--warning)' }}>
-            −{formatCents(p.refundedCents)} refunded
+            −{formatCents(p.refundedCents, p.currency)} refunded
           </div>
         )}
       </td>
@@ -130,6 +136,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
           class: (p) => classLabel(p.paymentClass),
           status: (p) => p.status,
           kind: (p) => kindLabel(p.kind),
+          charged: (p) => p.originalCurrency,
           source: (p) => p.source ?? 'Unknown',
           matched: (p) => (p.contactId ? 'matched' : 'unmatched'),
         },
@@ -171,6 +178,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
           { key: 'class', label: 'Class', options: facetOptions(payments, (p) => classLabel(p.paymentClass)) },
           { key: 'status', label: 'Status', options: facetOptions(payments, (p) => p.status) },
           { key: 'kind', label: 'Kind', options: facetOptions(payments, (p) => kindLabel(p.kind)) },
+          { key: 'charged', label: 'Charged in', options: facetOptions(payments, (p) => p.originalCurrency) },
           { key: 'source', label: 'Source', options: facetOptions(payments, (p) => p.source ?? 'Unknown') },
           { key: 'matched', label: 'Matched', options: facetOptions(payments, (p) => (p.contactId ? 'matched' : 'unmatched')) },
         ]}

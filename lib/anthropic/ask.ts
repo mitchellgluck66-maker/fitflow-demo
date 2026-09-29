@@ -11,6 +11,7 @@ import { db, aiReports } from '@/db';
 import { getScorecard } from '../metrics/service';
 import { buildAskContext, hashAskContext, verifyAnswerNumbers, AskAnswerSchema, type AskAnswer, type AskContext } from '../metrics/ask';
 import { askClaude } from './client';
+import type { Currency } from '../money';
 import { getAnthropicConfig } from './config';
 import { ASK_SYSTEM, ASK_TOOL_SCHEMA } from './prompts';
 
@@ -38,6 +39,8 @@ export interface AskContent {
   question: string;
   answer: string;
   citations: AskAnswer['citations'];
+  /** Currency every cents citation is in (absent on answers saved before 2026-09-29). */
+  currency?: Currency;
   period: { start: string; end: string; label: string; preset: string };
   comparison: { start: string; end: string; label: string } | null;
   contextHash: string;
@@ -55,6 +58,7 @@ export interface AskResult {
   question: string;
   answer: string | null;
   citations: AskAnswer['citations'];
+  currency: Currency | null;
   period: { start: string; end: string; label: string } | null;
   model: string | null;
   generatedAt: string | null;
@@ -71,16 +75,16 @@ export async function askDashboard(params: {
   contextOverride?: AskContext;
 }): Promise<AskResult> {
   const question = params.question.trim().slice(0, 500);
-  if (!question) return { ok: false, reportId: null, question, answer: null, citations: [], period: null, model: null, generatedAt: null, error: 'Ask a question first.' };
+  if (!question) return { ok: false, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: 'Ask a question first.' };
 
   const config = await getAnthropicConfig();
   if (!config.configured) {
-    return { ok: false, notConfigured: true, reportId: null, question, answer: null, citations: [], period: null, model: null, generatedAt: null, error: 'Anthropic not configured' };
+    return { ok: false, notConfigured: true, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: 'Anthropic not configured' };
   }
 
   const limit = checkAskRateLimit();
   if (!limit.ok) {
-    return { ok: false, rateLimited: true, retryAfterSec: limit.retryAfterSec, reportId: null, question, answer: null, citations: [], period: null, model: null, generatedAt: null, error: `Rate limit: ${ASK_RATE_LIMIT} questions per minute. Try again in ${limit.retryAfterSec}s.` };
+    return { ok: false, rateLimited: true, retryAfterSec: limit.retryAfterSec, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: `Rate limit: ${ASK_RATE_LIMIT} questions per minute. Try again in ${limit.retryAfterSec}s.` };
   }
 
   const result = await getScorecard({ range: params.range ?? 'this_week', compare: params.compare ?? 'previous_period', start: params.start, end: params.end });
@@ -96,7 +100,7 @@ export async function askDashboard(params: {
     maxTokens: 1200,
   });
   if (!answer.ok || !answer.data) {
-    return { ok: false, notConfigured: answer.notConfigured, reportId: null, question, answer: null, citations: [], period, model: answer.model, generatedAt: null, error: answer.error };
+    return { ok: false, notConfigured: answer.notConfigured, reportId: null, question, answer: null, citations: [], currency: null, period, model: answer.model, generatedAt: null, error: answer.error };
   }
 
   const grounding = verifyAnswerNumbers(answer.data.answer, answer.data.citations, context);
@@ -107,6 +111,7 @@ export async function askDashboard(params: {
       question,
       answer: null,
       citations: [],
+      currency: null,
       period,
       model: answer.model,
       generatedAt: null,
@@ -118,6 +123,7 @@ export async function askDashboard(params: {
     question,
     answer: answer.data.answer.trim(),
     citations: answer.data.citations,
+    currency: result.money.currency,
     period,
     comparison: result.comparison.range ? { start: result.comparison.range.start, end: result.comparison.range.end, label: result.comparison.range.resolvedLabel } : null,
     contextHash: hashAskContext(context),
@@ -130,7 +136,7 @@ export async function askDashboard(params: {
     .values({ kind: 'ask', periodStart: period.start, periodEnd: period.end, model: content.model, inputHash: content.contextHash, content: content as unknown as Record<string, unknown> })
     .returning({ id: aiReports.id });
 
-  return { ok: true, reportId: row.id, question, answer: content.answer, citations: content.citations, period, model: content.model, generatedAt: content.generatedAt };
+  return { ok: true, reportId: row.id, question, answer: content.answer, citations: content.citations, currency: content.currency ?? null, period, model: content.model, generatedAt: content.generatedAt };
 }
 
 export interface AskHistoryItem {
@@ -138,6 +144,7 @@ export interface AskHistoryItem {
   question: string;
   answer: string;
   citations: AskAnswer['citations'];
+  currency: Currency | null;
   period: AskContent['period'];
   model: string | null;
   generatedAt: string;
@@ -147,6 +154,6 @@ export async function listAskHistory(limit = 20): Promise<AskHistoryItem[]> {
   const rows = await db.select().from(aiReports).where(eq(aiReports.kind, 'ask')).orderBy(desc(aiReports.createdAt)).limit(Math.min(Math.max(limit, 1), 100));
   return rows.map((r) => {
     const c = r.content as unknown as AskContent;
-    return { id: r.id, question: c.question, answer: c.answer, citations: c.citations ?? [], period: c.period, model: r.model, generatedAt: c.generatedAt ?? r.createdAt.toISOString() };
+    return { id: r.id, question: c.question, answer: c.answer, citations: c.citations ?? [], currency: c.currency ?? null, period: c.period, model: r.model, generatedAt: c.generatedAt ?? r.createdAt.toISOString() };
   });
 }

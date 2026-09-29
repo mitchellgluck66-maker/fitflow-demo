@@ -29,8 +29,8 @@ const INPUT: MetricsInput = {
     { contactId: 'a2', fromRole: null, toRole: 'consult_booked', toStageId: null, on: '2026-08-19', atMs: noon('2026-08-19') },
   ],
   appointments: [],
-  spend: [{ date: '2026-08-16', platform: 'meta', spendCents: 40_000, origin: 'meta', campaignId: 'c1', campaignName: 'VSL', impressions: 5000, clicks: 200 }],
-  payments: [{ id: 'p1', stripeId: 'ch_1', contactId: 'a1', kind: 'charge', amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' }],
+  spend: [{ date: '2026-08-16', platform: 'meta', currency: 'CAD' as const, spendCents: 40_000, origin: 'meta', campaignId: 'c1', campaignName: 'VSL', impressions: 5000, clicks: 200 }],
+  payments: [{ id: 'p1', stripeId: 'ch_1', contactId: 'a1', kind: 'charge', currency: 'CAD' as const, amountCents: 250_000, refundedCents: 0, status: 'succeeded', on: '2026-08-21', origin: 'stripe', paymentClass: 'initial' }],
 };
 
 function fakeResult(): ScorecardResult {
@@ -50,6 +50,7 @@ function fakeResult(): ScorecardResult {
     ads: { kpis: computeAdsKpis(INPUT, R), previousKpis: computeAdsKpis(INPUT, P), campaigns: computeCampaignTable(INPUT, R), previousCampaigns: computeCampaignTable(INPUT, P) },
     revenue: computeRevenueSummary(INPUT, R),
     maturity: computeMaturity({ range: R, today: '2026-08-26', historyCompleteSince: '2026-09-01', sunset: '2026-10-15' }),
+    money: { currency: 'CAD' as const, fx: { reporting: 'CAD' as const, from: 'USD' as const, rate: 1.36, text: 'displayed in CAD · USD converted at 1.36' }, unsupportedRows: 0 },
   };
 }
 
