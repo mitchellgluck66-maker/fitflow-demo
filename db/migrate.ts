@@ -31,6 +31,7 @@ export async function runMigrations(): Promise<void> {
     const db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder });
     await client.end();
+    await sealCredentials();
     return;
   }
 
@@ -39,6 +40,19 @@ export async function runMigrations(): Promise<void> {
   await migrate(db as unknown as import('drizzle-orm/pglite').PgliteDatabase, {
     migrationsFolder,
   });
+  await sealCredentials();
+}
+
+/**
+ * H4: SQL cannot encrypt with a key that lives only in the environment, so
+ * the credential "migration" is this step — every plaintext secret row is
+ * sealed with CREDENTIALS_KEY right after the schema migrations. No key
+ * (local dev) → skipped.
+ */
+async function sealCredentials(): Promise<void> {
+  const { encryptPlaintextSecrets } = await import('../lib/settings');
+  const r = await encryptPlaintextSecrets();
+  if (r.sealed > 0) console.log(`✓ Encrypted ${r.sealed} stored credential(s) at rest`);
 }
 
 if (require.main === module) {

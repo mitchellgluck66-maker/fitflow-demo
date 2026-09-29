@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllSettings, setSetting, SETTING_KEYS } from '@/lib/settings';
 import { getGhlConfig, REQUIRED_SCOPES, ENABLE_WRITEBACK } from '@/lib/ghl/config';
 import { testConnection } from '@/lib/ghl/client';
+import { keyStatus, keyStatusMessage } from '@/lib/crypto/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,11 @@ export async function GET() {
         requiredScopes: REQUIRED_SCOPES,
         connection: { ...connection, dryRun: false },
       },
+      // H4: encryption-at-rest status (mode + one sentence; never key material).
+      credentials: (() => {
+        const s = keyStatus();
+        return { mode: s.mode, message: keyStatusMessage(s) };
+      })(),
       email: {
         configured: Boolean(process.env.RESEND_API_KEY?.trim()),
         from: process.env.RESEND_FROM_EMAIL ?? null,

@@ -4,10 +4,15 @@
  * Credentials live here too (entered in /setup, verified on save). Rows flagged
  * `isSecret` are never returned unmasked by any API route — see
  * lib/ghl/config.ts#maskToken. Env vars are the fallback when nothing is stored.
+ *
+ * H4 (2026-09-29): secret rows are stored AES-256-GCM encrypted with env
+ * CREDENTIALS_KEY (lib/crypto/credentials). This file is the ONLY place they
+ * are sealed (setSetting) and opened (getSetting) — server-side, at call time.
  */
 
 import { db, settings } from '@/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, not, like, ne } from 'drizzle-orm';
+import { ENC_PREFIX, keyStatus, openSecret, sealSecret } from './crypto/credentials';
 
 export const SETTING_KEYS = {
   timezone: 'timezone',
@@ -89,7 +94,7 @@ export const DEFAULTS: Record<string, string> = {
 
 export async function getSetting(key: string): Promise<string | null> {
   const rows = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
-  if (rows.length > 0 && rows[0].value !== null) return rows[0].value;
+  if (rows.length > 0 && rows[0].value !== null) return rows[0].isSecret ? openSecret(rows[0].value) : rows[0].value;
   return DEFAULTS[key] ?? null;
 }
 
@@ -98,13 +103,35 @@ export async function setSetting(
   value: string,
   options: { secret?: boolean } = {},
 ): Promise<void> {
+  // Secrets are sealed before they touch the database; without a usable key in
+  // production this throws (fail closed) rather than storing plaintext.
+  const stored = options.secret ? sealSecret(value) : value;
   await db
     .insert(settings)
-    .values({ key, value, isSecret: options.secret ?? false, updatedAt: new Date() })
+    .values({ key, value: stored, isSecret: options.secret ?? false, updatedAt: new Date() })
     .onConflictDoUpdate({
       target: settings.key,
-      set: { value, isSecret: options.secret ?? false, updatedAt: new Date() },
+      set: { value: stored, isSecret: options.secret ?? false, updatedAt: new Date() },
     });
+}
+
+/**
+ * Seal every secret row still stored in plaintext (rows saved before H4).
+ * Runs after `npm run db:migrate` and as `npm run credentials:encrypt`; a
+ * no-op without a key (local dev) or when everything is sealed. Idempotent.
+ */
+export async function encryptPlaintextSecrets(): Promise<{ sealed: number; skipped: string | null }> {
+  const status = keyStatus();
+  if (status.mode !== 'on') return { sealed: 0, skipped: status.mode };
+  const plain = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.isSecret, true), ne(settings.value, ''), not(like(settings.value, `${ENC_PREFIX}%`))));
+  for (const row of plain) {
+    if (row.value === null) continue;
+    await db.update(settings).set({ value: sealSecret(row.value, status), updatedAt: new Date() }).where(eq(settings.key, row.key));
+  }
+  return { sealed: plain.filter((r) => r.value !== null).length, skipped: null };
 }
 
 /** Every non-secret setting, with defaults filled in. Secrets are never included. */

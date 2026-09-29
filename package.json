@@ -25,7 +25,8 @@
     "reclassify:payments": "tsx scripts/reclassify-payments.ts",
     "reclassify:attribution": "tsx scripts/reclassify-attribution.ts",
     "reclassify": "npm run reclassify:payments && npm run reclassify:attribution",
-    "incidents:sweep": "tsx scripts/sweep-incidents.ts"
+    "incidents:sweep": "tsx scripts/sweep-incidents.ts",
+    "credentials:encrypt": "tsx scripts/encrypt-credentials.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",

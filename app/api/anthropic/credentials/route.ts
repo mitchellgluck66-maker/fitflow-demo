@@ -4,6 +4,7 @@ import { db, aiReports } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { getAnthropicConfig, maskToken, ANTHROPIC_KEYS, MODEL_OPTIONS, DEFAULT_MODEL } from '@/lib/anthropic/config';
 import { testConnection } from '@/lib/anthropic/client';
+import { CredentialsKeyError } from '@/lib/crypto/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Failed to save Anthropic credentials');
+    // H4: no usable CREDENTIALS_KEY in production → refuse to store plaintext, say why.
+    if (error instanceof CredentialsKeyError) return NextResponse.json({ error: error.message, locked: true }, { status: 503 });
     return NextResponse.json({ error: 'Failed to save Anthropic credentials', detail: String(error) }, { status: 500 });
   }
 }

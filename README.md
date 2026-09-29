@@ -41,6 +41,27 @@ and `/api/stripe/webhook` (Stripe signature).
   attempts per minute per IP. **Sign out** in the nav clears the cookie.
 - Rotating `AUTH_SECRET` signs every device out.
 
+## Credentials at rest and the database API
+
+- **`CREDENTIALS_KEY`** (required in production and preview): 32 random bytes,
+  `openssl rand -base64 32`, set in Vercel → Settings → Environment Variables.
+  Every credential pasted in Setup (GHL, Meta, Stripe, Anthropic, Google Ads)
+  is stored AES-256-GCM encrypted with it and decrypted only on the server
+  when a request needs it; Setup still shows the same masked previews.
+  **Without it, production fails closed**: stored credentials read as absent,
+  new ones cannot be saved, and Setup says why. Locally with it unset,
+  credentials are stored unencrypted as before.
+- After setting the key, run `npm run db:migrate` (or `npm run
+  credentials:encrypt`) once against production: it seals every credential
+  saved before encryption existed. Then **rotate the GHL, Meta and Stripe
+  keys** — the old ones sat in plaintext.
+- Keep the key somewhere besides Vercel (a password manager). Losing it means
+  re-entering every credential in Setup; changing it does the same.
+- **Row-level security**: every table has RLS enabled with no policies
+  (migration 0009), so Supabase's public REST API returns nothing even to
+  someone holding the anon key. The app connects as the table owner and is
+  unaffected.
+
 ## Connecting GoHighLevel (read-only)
 
 1. In GHL: Settings → Private Integrations → create a token with only the
@@ -134,6 +155,7 @@ output and the `[demo]` rows are removed by `db:wipe:demo`.
 | `npm run test` | Vitest (role mapper, transition diffing, read-only guard, full mocked sync on PGlite) |
 | `npm run verify:readonly` | grep-based proof that no code path can send a non-GET to GHL |
 | `npm run db:generate` | regenerate a Drizzle migration after editing `db/schema.ts` |
+| `npm run credentials:encrypt` | seal any plaintext credential rows with `CREDENTIALS_KEY` (also runs after `db:migrate`) |
 
 ## Stack
 

@@ -22,7 +22,12 @@ large changes. This file is the standing contract.
    sync must be safe. Every row carries `source`, `synced_at`, `backfilled`.
 5. **Credentials** live in the settings table (entered in /setup, verified on save,
    masked in responses) with env-var fallback. Never echo a secret to the client,
-   never log one, never commit one.
+   never log one, never commit one. Since 2026-09-29 (H4) secret rows are stored
+   AES-256-GCM encrypted (`enc:v1:…`) with env `CREDENTIALS_KEY`; ONLY
+   `lib/settings#setSetting`/`getSetting` seal/open them (server-side, at call
+   time). Production/preview without a valid key FAILS CLOSED (credentials read
+   as absent, saves 503 with the Setup message). Never read `settings.value`
+   for a secret any other way.
 6. **Sample data is labelled.** Any fabricated row has `origin='demo'`; analytics pages
    show the sample-data banner while any exists. Never present generated numbers as
    real (this bit us once already).
@@ -592,6 +597,12 @@ cycle) had never run.
   `ENABLE ROW LEVEL SECURITY`** — `tests/rls.test.ts` fails otherwise (it also
   proves an anon-grant role sees 0 rows and the owner still reads). Never add
   a policy or FORCE without revisiting this.
+- **H4 credentials at rest** — see rule 5. `lib/crypto/credentials.ts` (pure:
+  key parsing, seal/open, fail-closed status); `db:migrate` then seals legacy
+  plaintext rows (`encryptPlaintextSecrets`; also `npm run
+  credentials:encrypt`). Setup → `CredentialsKeyNotice` shows on / local
+  plaintext / LOCKED. After enabling in production: migrate, then rotate the
+  GHL / Meta / Stripe keys. `tests/credentials.test.ts`.
 
 ## Working agreements
 

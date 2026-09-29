@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { setSetting, getSetting } from '@/lib/settings';
 import { getGhlConfig, maskToken, CREDENTIAL_KEYS, REQUIRED_SCOPES, ENABLE_WRITEBACK } from '@/lib/ghl/config';
 import { testConnection } from '@/lib/ghl/client';
+import { CredentialsKeyError } from '@/lib/crypto/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Failed to save credentials');
+    // H4: no usable CREDENTIALS_KEY in production → refuse to store plaintext, say why.
+    if (error instanceof CredentialsKeyError) return NextResponse.json({ error: error.message, locked: true }, { status: 503 });
     return NextResponse.json({ error: 'Failed to save credentials', detail: String(error) }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import { db, syncRuns } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { getStripeConfig, maskToken, STRIPE_KEYS, REQUIRED_STRIPE_PERMISSIONS, isPlausibleStripeKey } from '@/lib/stripe/config';
 import { testConnection } from '@/lib/stripe/client';
+import { CredentialsKeyError } from '@/lib/crypto/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +64,8 @@ export async function POST(request: NextRequest) {
       hasWebhookSecret: config.hasWebhookSecret,
     });
   } catch (error) {
+    // H4: no usable CREDENTIALS_KEY in production → refuse to store plaintext, say why.
+    if (error instanceof CredentialsKeyError) return NextResponse.json({ error: error.message, locked: true }, { status: 503 });
     return NextResponse.json({ error: 'Failed to save Stripe credentials', detail: String(error) }, { status: 500 });
   }
 }

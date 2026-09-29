@@ -38,6 +38,7 @@ import { SyncHealth } from '@/components/setup/SyncHealth';
 import { IncidentLog } from '@/components/setup/IncidentLog';
 import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
 import { CurrencyCard } from '@/components/setup/CurrencyCard';
+import { CredentialsKeyNotice } from '@/components/setup/CredentialsKeyNotice';
 
 interface Credentials {
   configured: boolean;
@@ -400,6 +401,9 @@ export default function SetupPage() {
             source of truth.
           </p>
         </div>
+
+        {/* ---- Credentials at rest (H4) — fails closed without CREDENTIALS_KEY ---- */}
+        <CredentialsKeyNotice />
 
         {/* ---- STEP 1: Credentials (open while the credential is unverified) ---- */}
         <AccordionCard

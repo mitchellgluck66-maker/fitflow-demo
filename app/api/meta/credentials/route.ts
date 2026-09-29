@@ -4,6 +4,7 @@ import { db, syncRuns } from '@/db';
 import { setSetting, getSetting, SETTING_KEYS } from '@/lib/settings';
 import { getMetaConfig, maskToken, META_KEYS } from '@/lib/meta/config';
 import { testConnection } from '@/lib/meta/client';
+import { CredentialsKeyError } from '@/lib/crypto/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +69,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Failed to save Meta credentials');
+    // H4: no usable CREDENTIALS_KEY in production → refuse to store plaintext, say why.
+    if (error instanceof CredentialsKeyError) return NextResponse.json({ error: error.message, locked: true }, { status: 503 });
     return NextResponse.json({ error: 'Failed to save Meta credentials', detail: String(error) }, { status: 500 });
   }
 }
