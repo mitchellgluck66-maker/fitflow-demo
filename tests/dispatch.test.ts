@@ -13,7 +13,7 @@ describe('runDispatch', () => {
         { name: 'ghl', ownsRun: true, timeoutMs: 20, run: () => new Promise(() => { calls.push('ghl'); /* never resolves */ }) },
         { name: 'reconcile', run: async () => { calls.push('reconcile'); return { ok: false, error: 'boom' }; } },
         { name: 'insights', run: async () => { calls.push('insights'); return { ok: false, notConfigured: true }; } },
-        { name: 'daily', skip: 'before 7am local', run: async () => { calls.push('daily'); } },
+        { name: 'daily', skip: 'before 6am local', run: async () => { calls.push('daily'); } },
         { name: 'weekly', run: async () => { calls.push('weekly'); return { status: 'stored' }; } },
       ],
       { record: async (name, outcome) => { recorded.push([name, outcome]); } },
@@ -25,7 +25,7 @@ describe('runDispatch', () => {
     expect(result.steps.ghl.status).toBe('timed_out');
     expect(result.steps.reconcile).toMatchObject({ status: 'failed', error: 'boom' });
     expect(result.steps.insights.status).toBe('succeeded'); // not connected is not a failure
-    expect(result.steps.daily).toEqual({ status: 'skipped', reason: 'before 7am local' });
+    expect(result.steps.daily).toEqual({ status: 'skipped', reason: 'before 6am local' });
     expect(result.steps.weekly.status).toBe('succeeded');
     expect(result.ok).toBe(false);
     // Sources own their sync_runs rows; everything else is recorded by the dispatcher.

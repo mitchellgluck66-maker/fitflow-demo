@@ -9,7 +9,7 @@ import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
-import { localHour, SEND_HOUR_LOCAL } from '@/lib/email/cron';
+import { inSendWindow, localHour, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
 import { getTimezone } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
 import { runDispatch, statsForOutcome, type DispatchStep, type StepOutcome } from '@/lib/dispatch';
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
   const today = todayInTimezone(timezone);
   const [y, m, d] = today.split('-').map(Number);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 1 = Monday
-  const isSendHour = force || hour >= SEND_HOUR_LOCAL;
+  const isSendHour = force || inSendWindow(now, timezone);
   const gate = (ok: boolean, reason: string) => (ok ? null : reason);
 
   // Reconciliation is eligible once the TRACKED phases of the current cycle are complete (followed pipelines'
@@ -78,9 +78,9 @@ export async function GET(request: NextRequest) {
     { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period' }) },
     { name: 'narrative_weekly', skip: gate(force || dow === 1, 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
     { name: 'narrative_monthly', skip: gate(force || d === 1, 'not the 1st'), run: () => runWeeklyNarrative('monthly', { force }) },
-    { name: 'daily', skip: gate(isSendHour, `before ${SEND_HOUR_LOCAL}am local`), run: () => runDigest('daily_todo', { force }) },
-    { name: 'weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_HOUR_LOCAL}am local` : 'not Monday'), run: () => runDigest('weekly', { force }) },
-    { name: 'monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_HOUR_LOCAL}am local` : 'not the 1st'), run: () => runDigest('monthly', { force }) },
+    { name: 'daily', skip: gate(isSendHour, `before ${SEND_WINDOW_START_LOCAL}am local`), run: () => runDigest('daily_todo', { force }) },
+    { name: 'weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runDigest('weekly', { force }) },
+    { name: 'monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runDigest('monthly', { force }) },
   ].filter((s) => want(s.name === 'narrative_weekly' || s.name === 'narrative_monthly' ? 'narrative' : s.name));
 
   const record = async (name: string, outcome: StepOutcome) => {

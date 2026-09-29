@@ -240,9 +240,10 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - Crons (Vercel Hobby = 2 jobs, each once daily): `vercel.json` has only
   `/api/cron/sync-ghl` (12:00 UTC) and `/api/cron/dispatch` (13:00 UTC).
   Dispatch runs GHL delta → Meta → Stripe → Google → insights → narratives →
-  daily/weekly/monthly digests. Digest guards are "at/after 7am local" +
-  Monday / 1st, and every step is idempotent, so a once-daily 9am-ET run
-  still sends each digest exactly once. **Pro plan:** set sync-ghl to
+  daily/weekly/monthly digests. Digest guards are "at/after 6am local"
+  (`lib/email/cron#inSendWindow`; was 7am until the M1 fix) + Monday / 1st,
+  and every step is idempotent, so a once-daily run still sends each digest
+  exactly once. **Pro plan:** set sync-ghl to
   `0 * * * *`, dispatch to `0 11,12 * * *` (lands on 7am ET across DST) and
   optionally add per-job lines (routes still exist under `app/api/cron/*`).
   Do not edit vercel.json casually — it is Hobby-constrained on purpose.
@@ -619,6 +620,12 @@ cycle) had never run.
   `.dump.enc` + sha256 as an artifact kept 90 days. Repo secrets:
   `DATABASE_URL` (session pooler) + `BACKUP_PASSPHRASE`. Restore:
   `docs/restore-runbook.md`. Restores need the SAME `CREDENTIALS_KEY`.
+- **M1 winter clock** — the Hobby dispatch lands ~13:28 UTC = 6:28am MST from
+  Nov 1; the old ≥ 7am guard would have skipped every digest all winter. The
+  send window now opens at 6am local (`SEND_WINDOW_START_LOCAL`, one
+  predicate for the dispatch and the per-job digest routes); per-period
+  dedupe keeps it to one send a day. DST fixtures in `tests/email.test.ts`.
+  Digests therefore arrive ~7:28 in summer and ~6:28 in winter (Edmonton).
 
 ## Working agreements
 

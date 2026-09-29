@@ -8,7 +8,7 @@ import { runMigrations } from '@/db/migrate';
 import { db, pipelines, stages, contacts, emailDigests } from '@/db';
 import { buildDailyTodo } from '@/lib/email/digests';
 import { runDigest, resolveRecipients } from '@/lib/email/send';
-import { localHour } from '@/lib/email/cron';
+import { localHour, inSendWindow, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
 
 const TODAY = '2026-08-26';
 const YESTERDAY = '2026-08-25';
@@ -117,5 +117,39 @@ describe('cron local-hour gate', () => {
     expect(localHour(new Date('2026-08-26T11:00:00Z'), 'America/New_York')).toBe(7); // EDT
     expect(localHour(new Date('2026-12-16T12:00:00Z'), 'America/New_York')).toBe(7); // EST
     expect(localHour(new Date('2026-12-16T11:00:00Z'), 'America/New_York')).toBe(6);
+  });
+
+  // M1 (2026-09-29 audit): the Hobby dispatch lands ~13:28 UTC every day. In
+  // Edmonton that is 7:28 MDT in summer but 6:28 MST from Nov 1 — a ≥7am guard
+  // would have skipped every digest all winter.
+  describe('send window opens at 6am local, across DST (America/Edmonton)', () => {
+    const TZ = 'America/Edmonton';
+    const at = (isoStr: string) => new Date(isoStr);
+    it('opens at 6', () => expect(SEND_WINDOW_START_LOCAL).toBe(6));
+    it('summer (MDT): 13:28 UTC = 7:28 → send', () => {
+      expect(localHour(at('2026-09-29T13:28:00Z'), TZ)).toBe(7);
+      expect(inSendWindow(at('2026-09-29T13:28:00Z'), TZ)).toBe(true);
+    });
+    it('last MDT day, Sat Oct 31: 7:28 → send', () => expect(inSendWindow(at('2026-10-31T13:28:00Z'), TZ)).toBe(true));
+    it('fall-back day, Sun Nov 1: 13:28 UTC = 6:28 MST → send (the bug)', () => {
+      expect(localHour(at('2026-11-01T13:28:00Z'), TZ)).toBe(6);
+      expect(inSendWindow(at('2026-11-01T13:28:00Z'), TZ)).toBe(true);
+    });
+    it('first winter Monday, Nov 2: 6:28 MST → the weekly digest sends', () => {
+      expect(localHour(at('2026-11-02T13:28:00Z'), TZ)).toBe(6);
+      expect(inSendWindow(at('2026-11-02T13:28:00Z'), TZ)).toBe(true);
+    });
+    it('mid-winter, Dec 1 (the monthly): 6:28 MST → send', () => expect(inSendWindow(at('2026-12-01T13:28:00Z'), TZ)).toBe(true));
+    it('spring-forward, Sun Mar 14 2027: 13:28 UTC = 7:28 MDT → send', () => {
+      expect(localHour(at('2027-03-14T13:28:00Z'), TZ)).toBe(7);
+      expect(inSendWindow(at('2027-03-14T13:28:00Z'), TZ)).toBe(true);
+    });
+    it('still closed before 6: 12:28 UTC in winter = 5:28 MST', () => {
+      expect(localHour(at('2026-11-02T12:28:00Z'), TZ)).toBe(5);
+      expect(inSendWindow(at('2026-11-02T12:28:00Z'), TZ)).toBe(false);
+    });
+    it('Eastern business timezone keeps working: 8:28 EST in winter → send', () => {
+      expect(inSendWindow(at('2026-12-16T13:28:00Z'), 'America/New_York')).toBe(true);
+    });
   });
 });
