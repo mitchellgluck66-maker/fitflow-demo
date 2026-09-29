@@ -603,6 +603,15 @@ cycle) had never run.
   credentials:encrypt`). Setup → `CredentialsKeyNotice` shows on / local
   plaintext / LOCKED. After enabling in production: migrate, then rotate the
   GHL / Meta / Stripe keys. `tests/credentials.test.ts`.
+- **H2 Meta token self-check** — dispatch step `meta_token` (right after
+  `meta`, 10 s timeout): one GET `/debug_token` (`lib/meta/token.ts`), result
+  in `settings.meta_token_status`, shown in Setup → Sync health with "Check
+  now" (`POST /api/meta/token`). `assessMetaToken` (pure) considers the token
+  AND Meta's data-access window; < 7 days → ONE open `meta_token` warning
+  incident "Meta token expires <date> — regenerate in Business Settings";
+  expired / invalid → critical and the step fails; resolved automatically
+  when a regenerated token checks out. Dispatch order is now stripe → meta →
+  meta_token → google → ghl → … `tests/meta-token.test.ts`.
 
 ## Working agreements
 

@@ -3,6 +3,7 @@ import { db, syncRuns } from '@/db';
 import { runGhlSync } from '@/lib/ghl/ingest';
 import { runReconcile } from '@/lib/ghl/reconcile';
 import { runMetaSync } from '@/lib/meta/ingest';
+import { runMetaTokenCheck } from '@/lib/meta/token';
 import { runStripeSync } from '@/lib/stripe/ingest';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights } from '@/lib/anthropic/insights';
@@ -59,6 +60,8 @@ export async function GET(request: NextRequest) {
   const steps: DispatchStep[] = [
     { name: 'stripe', ownsRun: true, run: () => runStripeSync({ mode: 'reconcile', trigger: 'cron' }) },
     { name: 'meta', ownsRun: true, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
+    // H2: one debug_token GET — when does the stored Meta token expire? (7-day warning incident)
+    { name: 'meta_token', timeoutMs: 10_000, run: () => runMetaTokenCheck() },
     { name: 'google', ownsRun: true, run: () => runGoogleAdsSync({ mode: 'delta', trigger: 'cron' }) },
     {
       name: 'ghl',

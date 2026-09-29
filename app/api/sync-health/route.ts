@@ -9,6 +9,8 @@ import { ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
 import { sentryConfigured } from '@/lib/sentry';
 import { isStaleRun, STALE_RUN_ERROR } from '@/lib/staleRuns';
 import { readReconcileSummary } from '@/lib/ghl/reconcile';
+import { assessMetaToken, readMetaTokenStatus } from '@/lib/meta/token';
+import { getTimezone } from '@/lib/settings';
 import { readGhlFreshness } from '@/lib/sync/ghlFreshness';
 import type { FamilyFreshness } from '@/lib/sync/freshness';
 
@@ -122,6 +124,11 @@ export async function GET() {
       sentry: sentryConfigured(),
       reconcile: await readReconcileSummary(),
       ghlFreshness,
+      // H2: the last Meta debug_token self-check (nightly), assessed now.
+      metaToken: await (async () => {
+        const status = await readMetaTokenStatus();
+        return { configured: meta.configured, status, assessment: status ? assessMetaToken(status, now.getTime(), await getTimezone()) : null };
+      })(),
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to read sync health', detail: String(error) }, { status: 500 });

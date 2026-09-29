@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, Sparkles, AlertTriangle, RefreshCw, GitCompareArrows } from 'lucide-react';
+import { Activity, Sparkles, AlertTriangle, RefreshCw, GitCompareArrows, KeyRound } from 'lucide-react';
 import { AccordionCard, Button, Badge, Toast, Select } from '@/components';
 import { UnmatchedPayments } from './UnmatchedPayments';
 
@@ -59,6 +59,11 @@ interface Health {
   recentRuns: Array<{ id: string; kind: string; trigger: string; status: string; startedAt: string; requestsUsed: number; stats: Record<string, number>; error: string | null }>;
   sentry: boolean;
   reconcile: { at: string; ok: boolean; stagesChecked: number; mismatches: Array<{ stageName: string; pipelineName: string; live: number; mirror: number }>; skipped: string[] } | null;
+  metaToken: {
+    configured: boolean;
+    status: { checkedAt: string; valid: boolean; expiresAt: string | null; type: string | null } | null;
+    assessment: { level: 'ok' | 'warning' | 'expired' | 'invalid'; daysLeft: number | null; message: string } | null;
+  };
 }
 interface Suggestion {
   role: string;
@@ -141,6 +146,22 @@ export const SyncHealth: React.FC = () => {
         message: data.ok ? (data.summary?.ok ? 'Mirror matches GoHighLevel' : `Mirror differs on ${data.summary?.mismatches?.length ?? 0} stage(s)`) : 'Could not reconcile',
         detail: data.error,
         type: data.ok ? (data.summary?.ok ? 'success' : 'info') : 'error',
+      });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const checkMetaToken = async () => {
+    setBusy('meta_token');
+    try {
+      const res = await fetch('/api/meta/token', { method: 'POST' });
+      const data = await res.json();
+      setToast({
+        message: data.assessment?.message ?? (data.notConfigured ? 'Meta is not connected' : 'Could not check the Meta token'),
+        detail: data.error ?? undefined,
+        type: data.assessment?.level === 'ok' ? 'success' : data.assessment?.level === 'warning' ? 'info' : 'error',
       });
       await load();
     } finally {
@@ -270,6 +291,36 @@ export const SyncHealth: React.FC = () => {
           </ul>
         )}
       </div>
+
+      {/* ---- Meta token self-check (H2): expiry from Meta's debug_token, nightly ---- */}
+      {health.metaToken.configured && (
+        <div
+          className="flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-[8px] mb-5"
+          style={{
+            background: health.metaToken.assessment && health.metaToken.assessment.level !== 'ok' ? (health.metaToken.assessment.level === 'warning' ? 'var(--warning-muted)' : 'var(--negative-muted)') : 'var(--surface-sunken)',
+            border: `1px solid ${health.metaToken.assessment && health.metaToken.assessment.level !== 'ok' ? (health.metaToken.assessment.level === 'warning' ? 'var(--warning-border)' : 'var(--negative-border)') : 'var(--border-subtle)'}`,
+          }}
+        >
+          <KeyRound
+            size={14}
+            strokeWidth={2.3}
+            style={{ color: !health.metaToken.assessment || health.metaToken.assessment.level === 'ok' ? 'var(--text-tertiary)' : health.metaToken.assessment.level === 'warning' ? 'var(--warning)' : 'var(--danger)' }}
+          />
+          <span className="text-[12.5px]" style={{ color: 'var(--text-secondary)' }}>
+            {health.metaToken.assessment && health.metaToken.status ? (
+              <>
+                <strong>{health.metaToken.assessment.message}</strong> · checked {ago(health.metaToken.status.checkedAt)}
+              </>
+            ) : (
+              'Meta token expiry not checked yet — the nightly dispatch asks Meta (debug_token) and warns 7 days ahead.'
+            )}
+          </span>
+          <div className="flex-1" />
+          <Button variant="ghost" icon={KeyRound} loading={busy === 'meta_token'} onClick={checkMetaToken}>
+            Check now
+          </Button>
+        </div>
+      )}
 
       {/* ---- Unmapped stages ---- */}
       {health.unmappedStages.length > 0 && (

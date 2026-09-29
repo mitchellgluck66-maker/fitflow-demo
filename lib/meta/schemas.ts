@@ -105,3 +105,22 @@ export function actionsByType(actions: MetaInsightRow['actions']): Record<string
   for (const a of actions ?? []) out[a.action_type] = (out[a.action_type] ?? 0) + a.value;
   return out;
 }
+
+/**
+ * GET /debug_token?input_token=<token> (H2 self-check). `expires_at` /
+ * `data_access_expires_at` are unix seconds; 0 means "never" (system-user
+ * tokens). Numbers may arrive as strings — coerce like everywhere else.
+ */
+const unixSeconds = z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish();
+export const MetaDebugTokenSchema = z.object({
+  data: z.object({
+    app_id: z.union([z.string(), z.number()]).nullish(),
+    type: z.string().nullish(),
+    is_valid: z.boolean().default(false),
+    expires_at: unixSeconds,
+    data_access_expires_at: unixSeconds,
+    scopes: z.array(z.string()).nullish(),
+    error: z.object({ code: z.union([z.number(), z.string()]).nullish(), message: z.string().nullish() }).nullish(),
+  }),
+});
+export type MetaDebugToken = z.infer<typeof MetaDebugTokenSchema>;
