@@ -3,6 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MetricFocusCard } from '@/components/MetricFocusCard';
+import { formatMoney, type Currency } from '@/lib/money';
 import {
   AreaChart,
   Area,
@@ -87,6 +88,7 @@ interface MetricsData {
   funnel: Array<{ stage: string; count: number; value: number }>;
   totalLeads: number;
   totalPipelineValue: number;
+  contractCurrency: Currency;
 }
 
 const RANGES = [
@@ -654,8 +656,7 @@ function MetricsPage() {
             icon={Users}
             action={
               <span className="text-[12px] tabular" style={{ color: 'var(--text-tertiary)' }}>
-                {data.totalLeads} leads · $
-                {(data.totalPipelineValue / 100).toLocaleString()} value
+                {data.totalLeads} leads · {formatMoney(data.totalPipelineValue, data.contractCurrency)} value
               </span>
             }
           />
@@ -702,7 +703,7 @@ function MetricsPage() {
                     className="text-[11.5px] tabular w-[74px] text-right shrink-0"
                     style={{ color: 'var(--text-quaternary)' }}
                   >
-                    ${(f.value / 100).toLocaleString()}
+                    {formatMoney(f.value, data.contractCurrency, { compact: true })}
                   </span>
                 </div>
               </div>

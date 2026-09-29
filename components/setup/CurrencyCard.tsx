@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Coins } from 'lucide-react';
 import { AccordionCard, Badge, Button, Input, Select, Toast } from '@/components';
-import { formatRate, type Currency, type FxRate } from '@/lib/money';
+import { CURRENCY_CHANGED_EVENT, formatRate, type Currency, type FxRate } from '@/lib/money';
 
 interface CurrencyState {
   today: string;
@@ -34,10 +34,15 @@ export const CurrencyCard: React.FC = () => {
   };
 
   useEffect(() => {
-    fetch('/api/currency')
-      .then((r) => r.json())
-      .then(apply)
-      .catch(() => undefined);
+    const load = () =>
+      fetch('/api/currency')
+        .then((r) => r.json())
+        .then(apply)
+        .catch(() => undefined);
+    load();
+    // The nav toggle flips the same setting.
+    window.addEventListener(CURRENCY_CHANGED_EVENT, load);
+    return () => window.removeEventListener(CURRENCY_CHANGED_EVENT, load);
   }, []);
 
   const post = async (body: Record<string, unknown>, ok: string) => {
@@ -46,6 +51,7 @@ export const CurrencyCard: React.FC = () => {
       const r = await fetch('/api/currency', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const d = await r.json();
       if (r.ok) apply(d);
+      if (r.ok && 'reportingCurrency' in body) window.dispatchEvent(new Event(CURRENCY_CHANGED_EVENT));
       setToast({ message: r.ok ? ok : (d.error ?? 'Could not save'), type: r.ok ? 'success' : 'error' });
     } finally {
       setBusy(false);
@@ -70,7 +76,17 @@ export const CurrencyCard: React.FC = () => {
         ) : undefined
       }
     >
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Select
+          label="Reporting currency"
+          value={state?.reporting ?? 'CAD'}
+          onChange={(e) => post({ reportingCurrency: e.target.value }, `Reporting in ${e.target.value} — dashboards, emails and AI`)}
+          disabled={!state || busy}
+          hint="One business-wide setting (same as the CAD | USD switch in the nav)."
+        >
+          <option value="CAD">CAD</option>
+          <option value="USD">USD</option>
+        </Select>
         <Input
           label={`Current USD → CAD rate (from ${state?.today ?? 'today'})`}
           type="number"

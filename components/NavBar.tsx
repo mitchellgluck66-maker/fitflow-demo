@@ -18,6 +18,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { CurrencyToggle } from './CurrencyToggle';
 import { GlobalSearch } from './GlobalSearch';
 
 const LINKS = [
@@ -132,6 +133,7 @@ export const NavBar: React.FC = () => {
               Read-only
             </div>
 
+            <CurrencyToggle />
             <ThemeToggle />
             <button
               type="button"

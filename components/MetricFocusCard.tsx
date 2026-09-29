@@ -9,6 +9,7 @@ import { SkeletonChart } from './Skeleton';
 import { EmptyState } from './PageHeader';
 import { computeDelta, formatCents, formatDelta, formatPct } from '@/lib/metrics';
 import type { MetricTrend } from '@/lib/metrics/trendMetrics';
+import { CURRENCY_CHANGED_EVENT } from '@/lib/money';
 
 function fmtValue(v: number | null, kind: MetricTrend['kind'], currency: MetricTrend['currency']): string {
   if (v === null) return '—';
@@ -25,6 +26,12 @@ function fmtValue(v: number | null, kind: MetricTrend['kind'], currency: MetricT
 export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
   const [trend, setTrend] = useState<MetricTrend | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    window.addEventListener(CURRENCY_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(CURRENCY_CHANGED_EVENT, bump);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +51,7 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
     return () => {
       cancelled = true;
     };
-  }, [metric]);
+  }, [metric, tick]);
 
   if (error) {
     return (

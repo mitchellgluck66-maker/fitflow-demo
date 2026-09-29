@@ -11,6 +11,7 @@ import { FunnelStrip } from '@/components/FunnelStrip';
 import { formatCents, type Currency } from '@/lib/metrics';
 import { periodFamily, rangeFromParams, todayInTimezone } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
+import { CURRENCY_CHANGED_EVENT } from '@/lib/money';
 import type { ScorecardView, ScorecardStat, CampaignPick } from '@/lib/scorecard/assemble';
 import type { DataMaturity } from '@/lib/metrics/maturity';
 
@@ -94,6 +95,13 @@ function ScorecardPage() {
   const [data, setData] = useState<{ result: ScorecardResult; view: ScorecardView } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped when the business-wide reporting currency flips → re-fetch.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    window.addEventListener(CURRENCY_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(CURRENCY_CHANGED_EVENT, bump);
+  }, []);
 
   // Default to the completed week — the same period the Monday email covers.
   const query = useMemo(() => {
@@ -130,7 +138,7 @@ function ScorecardPage() {
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, tick]);
 
   const timezone = data?.result.timezone ?? 'America/New_York';
   const today = todayInTimezone(timezone);

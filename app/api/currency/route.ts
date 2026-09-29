@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getTimezone, setSetting, SETTING_KEYS } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
 import { CURRENCIES, fxNote, rateFor } from '@/lib/money';
-import { loadMoneyContext, setUsdCadRate } from '@/lib/money/store';
+import { loadMoneyContext, setReportingCurrency, setUsdCadRate } from '@/lib/money/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,15 +35,18 @@ const Body = z.object({
   /** The maintained USD→CAD rate, effective from today (business tz). */
   usdCadRate: z.number().gt(0.5).lt(3).optional(),
   contractCurrency: z.enum(CURRENCIES).optional(),
+  /** The ONE business-wide reporting currency (nav toggle / Setup) — dashboard, digests and AI context. */
+  reportingCurrency: z.enum(CURRENCIES).optional(),
 });
 
-/** POST /api/currency — Setup → Currency. */
+/** POST /api/currency — the nav toggle and Setup → Currency. */
 export async function POST(request: NextRequest) {
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'invalid body' }, { status: 400 });
   try {
     const today = todayInTimezone(await getTimezone());
     if (parsed.data.usdCadRate !== undefined) await setUsdCadRate(parsed.data.usdCadRate, today);
+    if (parsed.data.reportingCurrency) await setReportingCurrency(parsed.data.reportingCurrency);
     if (parsed.data.contractCurrency) await setSetting(SETTING_KEYS.contractValueCurrency, parsed.data.contractCurrency);
     return GET();
   } catch (error) {

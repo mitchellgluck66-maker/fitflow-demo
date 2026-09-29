@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, appointments, contacts, stages, pipelines, stageTransitions } from '@/db';
 import { and, gte, lte, eq, asc } from 'drizzle-orm';
 import { getTimezone } from '@/lib/settings';
+import { getContractCurrency } from '@/lib/money/store';
 import { getDayBounds, todayInTimezone, addDays } from '@/lib/day';
 import { FUNNEL_ROLE_ORDER, ROLE_LABELS } from '@/lib/ghl/roles';
 
@@ -226,6 +227,8 @@ export async function GET(request: NextRequest) {
       stageCounts,
       totalLeads: allContacts.length,
       totalPipelineValue: allContacts.reduce((s, c) => s + (c.value ?? 0), 0),
+      /** GHL opportunity values are in the location's currency (settings.contract_value_currency). */
+      contractCurrency: await getContractCurrency(),
       activity: Array.from(activityCounts.entries())
         .map(([action, count]) => ({ action, count }))
         .sort((a, b) => b.count - a.count),

@@ -145,6 +145,13 @@ export function formatRate(rate: number): string {
   return String(Number(rate.toFixed(4)));
 }
 
+/**
+ * Window event fired after the business-wide reporting currency changes
+ * (nav toggle / Setup). Every client data hook re-fetches on it, so each
+ * number re-renders through the same read-time conversion.
+ */
+export const CURRENCY_CHANGED_EVENT = 'fitflow:currency-changed';
+
 export function otherCurrency(c: Currency): Currency {
   return c === 'CAD' ? 'USD' : 'CAD';
 }
