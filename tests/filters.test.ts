@@ -115,9 +115,9 @@ describe('listClients multi-value filters', () => {
     const ben = rows.find((r) => r.ghl === 'f2')!.id;
     const cy = rows.find((r) => r.ghl === 'f3')!.id;
     await db.insert(appointments).values([
-      { ghlEventId: 'fe1', contactId: ben, type: 'Consult', startTime: new Date('2026-08-07T15:00:00Z'), ghlStatus: 'confirmed', ...prov },
-      { ghlEventId: 'fe2', contactId: cy, type: 'Consult', startTime: new Date('2026-08-10T15:00:00Z'), ghlStatus: 'showed', outcome: 'showed', ...prov },
-      { ghlEventId: 'fe3', contactId: cy, type: 'Roadmap', startTime: new Date('2026-08-14T15:00:00Z'), ghlStatus: 'showed', outcome: 'showed', ...prov },
+      { timezone: 'America/New_York', ghlEventId: 'fe1', contactId: ben, type: 'Consult', startTime: new Date('2026-08-07T15:00:00Z'), ghlStatus: 'confirmed', ...prov },
+      { timezone: 'America/New_York', ghlEventId: 'fe2', contactId: cy, type: 'Consult', startTime: new Date('2026-08-10T15:00:00Z'), ghlStatus: 'showed', outcome: 'showed', ...prov },
+      { timezone: 'America/New_York', ghlEventId: 'fe3', contactId: cy, type: 'Roadmap', startTime: new Date('2026-08-14T15:00:00Z'), ghlStatus: 'showed', outcome: 'showed', ...prov },
     ]);
   });
 

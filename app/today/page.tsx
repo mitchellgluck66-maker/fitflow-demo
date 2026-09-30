@@ -1,5 +1,6 @@
 'use client';
 
+import { useBusinessTimezone } from '@/components/BusinessTimezone';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
@@ -70,7 +71,8 @@ function shiftDate(dateStr: string, days: number): string {
 
 export default function TodayPage() {
   const [date, setDate] = useState('');
-  const [timezone, setTimezone] = useState('America/New_York');
+  const business = useBusinessTimezone();
+  const [timezone, setTimezone] = useState<string | null>(business.timezone);
   const [appointments, setAppointments] = useState<DayAppointment[]>([]);
   const [summary, setSummary] = useState<DaySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +99,7 @@ export default function TodayPage() {
       setAppointments(data.appointments ?? []);
       setSummary(data.summary ?? null);
       setDate(data.date);
-      setTimezone(data.timezone ?? 'America/New_York');
+      setTimezone(data.timezone ?? business.timezone);
     } catch {
       setToast({ message: 'Could not load appointments', type: 'error' });
     } finally {
@@ -217,6 +219,7 @@ export default function TodayPage() {
   }, [date]);
 
   const formatTime = (iso: string) => {
+    if (!timezone) return '--:--'; // no business timezone configured (F8) — never the browser's own zone
     try {
       return new Intl.DateTimeFormat('en-US', {
         timeZone: timezone,

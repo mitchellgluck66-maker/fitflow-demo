@@ -12,6 +12,7 @@
 
 import { db, pipelines, stages, contacts, appointments, stageTransitions, adSpend } from './index';
 import { runMigrations } from './migrate';
+import { getTimezone } from '../lib/settings';
 import { clearDemoData } from '../lib/provenance';
 import { suggestRole } from '../lib/ghl/roles';
 import { normalizeEmail, normalizePhone } from '../lib/ghl/transitions';
@@ -183,7 +184,7 @@ async function seed() {
         title: `${type} with ${firstName} ${lastName}`,
         startTime: at,
         endTime: new Date(at.getTime() + 30 * 60_000),
-        timezone: 'America/New_York',
+        timezone: await getTimezone(),
         assignedTo: owner,
         ghlStatus: status,
         outcome: status === 'showed' ? 'showed' : status === 'noshow' ? 'no_show' : null,
@@ -241,7 +242,7 @@ async function seed() {
       title: `${i % 2 === 0 ? 'Consult' : 'Roadmap'} with ${firstName} ${lastName}`,
       startTime: at,
       endTime: new Date(at.getTime() + 30 * 60_000),
-      timezone: 'America/New_York',
+      timezone: await getTimezone(),
       assignedTo: pick(OWNERS),
       ghlStatus: 'confirmed',
       outcome: null,

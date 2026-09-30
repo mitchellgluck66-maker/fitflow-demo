@@ -225,8 +225,8 @@ export const appointments = pgTable(
 
     startTime: timestamp('start_time', { withTimezone: true, mode: 'date' }).notNull(),
     endTime: timestamp('end_time', { withTimezone: true, mode: 'date' }),
-    /** Business timezone in effect when the row was synced. */
-    timezone: text('timezone').notNull().default('America/New_York'),
+    /** Business timezone in effect when the row was synced. No default (F8, 2026-09-30): the sync always stamps it. */
+    timezone: text('timezone').notNull(),
 
     assignedUserId: text('assigned_user_id'),
     assignedTo: text('assigned_to'),

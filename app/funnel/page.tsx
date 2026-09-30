@@ -61,7 +61,7 @@ function FunnelTab() {
     return (
       <>
         <PageHeader title="Funnel" description="Every stage, every person behind it.">
-          <DateRangePicker timezone="America/New_York" />
+          <DateRangePicker />
         </PageHeader>
         <PageBody className="space-y-5" aria-busy="true">
           <Card padding="lg">

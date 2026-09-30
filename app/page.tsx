@@ -36,7 +36,7 @@ function CommandCenter() {
     return (
       <>
         <PageHeader title="Command Center" description="The 10-second read on the business — every number here comes from the same tested engine as the emails.">
-          <DateRangePicker timezone="America/New_York" />
+          <DateRangePicker />
         </PageHeader>
         <PageBody className="space-y-5" aria-busy="true">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">

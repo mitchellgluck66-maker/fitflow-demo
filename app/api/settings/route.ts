@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllSettings, setSetting, SETTING_KEYS } from '@/lib/settings';
+import { getAllSettings, setSetting, SETTING_KEYS, getTimezone } from '@/lib/settings';
 import { getGhlConfig, REQUIRED_SCOPES, ENABLE_WRITEBACK } from '@/lib/ghl/config';
 import { testConnection } from '@/lib/ghl/client';
 import { keyStatus, keyStatusMessage } from '@/lib/crypto/credentials';
@@ -9,9 +9,12 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const [stored, connection, config] = await Promise.all([getAllSettings(), testConnection(), getGhlConfig()]);
+    // F8: the resolved business timezone, or null + the reason — never a silent America/New_York.
+    const tz = await getTimezone().then((timezone) => ({ timezone, error: null as string | null })).catch((e: unknown) => ({ timezone: null, error: e instanceof Error ? e.message : String(e) }));
 
     return NextResponse.json({
-      timezone: stored[SETTING_KEYS.timezone] ?? 'America/New_York',
+      timezone: tz.timezone,
+      timezoneError: tz.error,
       autoSyncEnabled: stored[SETTING_KEYS.autoSyncEnabled] !== 'false',
       summaryRecipientEmail: stored[SETTING_KEYS.summaryRecipientEmail] ?? '',
       digestRecipients: stored[SETTING_KEYS.digestRecipients] ?? '',

@@ -46,7 +46,7 @@ beforeAll(async () => {
     { contactId: annId, pipelineId: 'p1', fromStageId: 's-consult', toStageId: 's-enrolled', fromRole: 'consult_booked', toRole: 'enrolled', observedAt: new Date('2026-08-09T12:00:00Z'), kind: 'diff', ...prov },
   ]);
   await db.insert(appointments).values({
-    ghlEventId: 'ev-1',
+    timezone: 'America/New_York', ghlEventId: 'ev-1',
     contactId: annId,
     type: 'Consult',
     title: 'Consult with Ann',

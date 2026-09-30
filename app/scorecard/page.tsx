@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Banknote, Filter, Megaphone, Sparkles, Trophy, Frown, ArrowRight, CalendarRange, CalendarDays } from 'lucide-react';
 import { Card, CardHeader, PageHeader, PageBody, SampleDataBanner, EmptyState, Toast, SkeletonTile, Skeleton, Badge } from '@/components';
 import { DateRangePicker } from '@/components/DateRangePicker';
+import { useBusinessTimezone, TimezoneMissing } from '@/components/BusinessTimezone';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
 import { formatCents, type Currency } from '@/lib/metrics';
@@ -140,8 +141,11 @@ function ScorecardPage() {
     };
   }, [query, tick]);
 
-  const timezone = data?.result.timezone ?? 'America/New_York';
-  const today = todayInTimezone(timezone);
+  // The served scorecard's zone, else the layout's business timezone (F8). If neither exists the page renders
+  // the configuration error below; 'UTC' here only keeps the hook order stable and is never displayed.
+  const business = useBusinessTimezone();
+  const timezone = data?.result.timezone ?? business.timezone;
+  const today = todayInTimezone(timezone ?? 'UTC');
   const range = rangeFromParams({ range: params.get('range') ?? 'last_week', start: params.get('start'), end: params.get('end') }, today);
   const family = periodFamily(range);
 
@@ -178,6 +182,8 @@ function ScorecardPage() {
       })}
     </div>
   );
+
+  if (!timezone) return <div className="p-6"><TimezoneMissing error={business.error} /></div>;
 
   const header = (
     <PageHeader

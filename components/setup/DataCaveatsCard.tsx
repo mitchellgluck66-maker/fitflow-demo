@@ -1,5 +1,6 @@
 'use client';
 
+import { useBusinessTimezone } from '../BusinessTimezone';
 import React, { useEffect, useState } from 'react';
 import { Hourglass } from 'lucide-react';
 import { AccordionCard, Badge, Button, Input, Toast } from '@/components';
@@ -12,7 +13,11 @@ import { todayInTimezone } from '@/lib/dates';
  * history (live observation start); disclaimer_sunset = the day the notice
  * retires everywhere, no redeploy.
  */
-export const DataCaveatsCard: React.FC<{ timezone?: string }> = ({ timezone = 'America/New_York' }) => {
+export const DataCaveatsCard: React.FC = () => {
+  // Business timezone from the layout (F8); the card's "today" and the sunset check use it. 'UTC' only when it is
+  // missing — the layout's banner already names that error, and the card shows it too.
+  const business = useBusinessTimezone();
+  const timezone = business.timezone ?? 'UTC';
   const [since, setSince] = useState<string>(MATURITY_DEFAULTS.historyCompleteSince);
   const [sunset, setSunset] = useState<string>(MATURITY_DEFAULTS.disclaimerSunset);
   const [loaded, setLoaded] = useState(false);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useBusinessTimezone, TimezoneMissing } from './BusinessTimezone';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -34,7 +35,15 @@ import { Popover } from './Popover';
  * the one displayed; ▶ disables at the current period. ← → do the same while
  * the picker has focus.
  */
-export const DateRangePicker: React.FC<{ timezone?: string }> = ({ timezone = 'America/New_York' }) => {
+export const DateRangePicker: React.FC<{ timezone?: string | null }> = ({ timezone: fromProps }) => {
+  // The page's own (server-resolved) zone wins; else the layout's business timezone. Never a hard-coded zone (F8).
+  const business = useBusinessTimezone();
+  const timezone = fromProps ?? business.timezone;
+  if (!timezone) return <TimezoneMissing error={business.error} />;
+  return <DateRangePickerInner timezone={timezone} />;
+};
+
+const DateRangePickerInner: React.FC<{ timezone: string }> = ({ timezone }) => {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();

@@ -4,6 +4,19 @@ import { ThemeProvider, themeInitScript } from '@/components/ThemeProvider';
 import { NavBar } from '@/components/NavBar';
 import { StaleSyncBanner } from '@/components/StaleSyncBanner';
 import { PageTransition } from '@/components/PageTransition';
+import { BusinessTimezoneProvider } from '@/components/BusinessTimezone';
+import { getTimezone } from '@/lib/settings';
+
+// The layout reads the business timezone from the database on every request (F8) — never prerendered.
+export const dynamic = 'force-dynamic';
+
+async function resolveTimezone(): Promise<{ timezone: string | null; error: string | null }> {
+  try {
+    return { timezone: await getTimezone(), error: null };
+  } catch (err) {
+    return { timezone: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export const metadata: Metadata = {
   title: 'FitFlow — Sales Onboarding',
@@ -21,7 +34,8 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const tz = await resolveTimezone();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -44,9 +58,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen antialiased">
         <ThemeProvider>
-          <NavBar />
-          <StaleSyncBanner />
-          <PageTransition>{children}</PageTransition>
+          <BusinessTimezoneProvider timezone={tz.timezone} error={tz.error}>
+            <NavBar />
+            {tz.error && (
+              <div role="alert" className="px-4 py-2 text-[13px] text-center" style={{ background: 'var(--negative-muted, var(--danger-muted))', color: 'var(--negative-text, var(--danger))' }}>
+                {tz.error}
+              </div>
+            )}
+            <StaleSyncBanner />
+            <PageTransition>{children}</PageTransition>
+          </BusinessTimezoneProvider>
         </ThemeProvider>
       </body>
     </html>

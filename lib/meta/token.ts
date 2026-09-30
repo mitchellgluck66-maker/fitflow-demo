@@ -74,7 +74,7 @@ export function formatExpiryDate(isoInstant: string, timezone: string): string {
 }
 
 /** Pure: what the stored status means at `nowMs`. */
-export function assessMetaToken(s: MetaTokenStatus, nowMs: number, timezone = 'America/New_York'): TokenAssessment {
+export function assessMetaToken(s: MetaTokenStatus, nowMs: number, timezone: string): TokenAssessment {
   const candidates = (
     [
       ['token', s.expiresAt],

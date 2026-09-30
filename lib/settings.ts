@@ -88,7 +88,9 @@ export const SETTING_KEYS = {
 } as const;
 
 export const DEFAULTS: Record<string, string> = {
-  [SETTING_KEYS.timezone]: process.env.BUSINESS_TIMEZONE?.trim() || 'America/New_York',
+  // F8 (2026-09-30): no silent America/New_York. The business timezone lives in settings (migration 0011 wrote
+  // America/Edmonton); BUSINESS_TIMEZONE is only an explicit override for a database without the row.
+  ...(process.env.BUSINESS_TIMEZONE?.trim() ? { [SETTING_KEYS.timezone]: process.env.BUSINESS_TIMEZONE.trim() } : {}),
   [SETTING_KEYS.autoSyncEnabled]: 'true',
   [SETTING_KEYS.summaryRecipientHistory]: '[]',
   [SETTING_KEYS.backfillFrom]: '2026-06-01',
@@ -159,8 +161,34 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   return result;
 }
 
+/** Thrown when no business timezone is configured — day boundaries are never guessed (F8, 2026-09-30). */
+export class TimezoneNotConfiguredError extends Error {
+  constructor(detail: string) {
+    super(`Business timezone is not configured — ${detail}. Set it in Setup (settings.timezone), e.g. America/Edmonton.`);
+    this.name = 'TimezoneNotConfiguredError';
+  }
+}
+
+/** True when `tz` is an IANA zone this runtime knows. */
+export function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The business timezone: settings.timezone, else the BUSINESS_TIMEZONE env override. Neither → THROWS
+ * (fail closed): every day boundary, week and digest depends on it, and a silent America/New_York default
+ * moved last week's Applied from 14 to 21 in the 2026-09-29 verification.
+ */
 export async function getTimezone(): Promise<string> {
-  return (await getSetting(SETTING_KEYS.timezone)) ?? 'America/New_York';
+  const tz = (await getSetting(SETTING_KEYS.timezone))?.trim();
+  if (!tz) throw new TimezoneNotConfiguredError('no settings.timezone row and no BUSINESS_TIMEZONE');
+  if (!isValidTimezone(tz)) throw new TimezoneNotConfiguredError(`"${tz}" is not a valid IANA timezone`);
+  return tz;
 }
 
 export async function rememberRecipient(email: string): Promise<void> {
