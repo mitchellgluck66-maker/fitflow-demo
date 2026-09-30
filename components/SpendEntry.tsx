@@ -3,11 +3,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Save } from 'lucide-react';
 import { Button, Badge, Toast, Input, Select } from '@/components';
-import { formatMoney } from '@/lib/money';
+import { formatMoney, type Currency } from '@/lib/money';
 
 interface SpendRow {
   platform: string;
   spendCents: number;
+  currency: string;
   origin: string;
   externalId: string;
 }
@@ -16,7 +17,8 @@ interface SpendWeek {
   end: string;
   label: string;
   rows: SpendRow[];
-  totalCents: number;
+  /** Per currency — never summed across currencies. */
+  totals: Record<string, number>;
 }
 
 const PLATFORMS = [
@@ -25,8 +27,8 @@ const PLATFORMS = [
   { value: 'other', label: 'Other' },
 ];
 
-/** Ad platforms bill in USD; manual weekly spend is entered and stored in USD (the engine converts on read). */
-const dollars = (cents: number) => formatMoney(Math.round(cents / 100) * 100, 'USD');
+/** Every amount is shown in the currency its row was stored in — Meta bills CAD, a manual entry is whatever was chosen (P1 #8). */
+const money = (cents: number, currency: string) => formatMoney(Math.round(cents / 100) * 100, currency as Currency);
 
 /** Manual weekly ad-spend entry. Bridges CAC until Meta/Google APIs land in Phase C. */
 export const SpendEntry: React.FC = () => {
@@ -82,7 +84,7 @@ export const SpendEntry: React.FC = () => {
         setToast({ message: 'Could not save', detail: data.error, type: 'error' });
         return false;
       }
-      setToast({ message: amountDollars === 0 ? 'Entry cleared' : `Saved ${dollars(amountDollars * 100)} for ${data.week.label}`, type: 'success' });
+      setToast({ message: amountDollars === 0 ? 'Entry cleared' : `Saved ${money(amountDollars * 100, cur)} for ${data.week.label}`, type: 'success' });
       await load();
       return true;
     } finally {
@@ -121,7 +123,7 @@ export const SpendEntry: React.FC = () => {
     if (api) {
       return (
         <div className="flex items-center justify-end gap-1.5" title="Reported by the ad platform — manual entries for this week are ignored.">
-          <span className="tabular">{dollars(api.spendCents)}</span>
+          <span className="tabular">{money(api.spendCents, api.currency)}</span>
           <Badge variant="info" size="xs">from {api.origin === 'meta' ? 'Meta' : api.origin === 'google' ? 'Google' : api.origin}</Badge>
         </div>
       );
@@ -154,7 +156,7 @@ export const SpendEntry: React.FC = () => {
         className="inline-flex items-center justify-end gap-1.5 h-7 px-2 rounded-[6px] tabular transition-colors hover:bg-[var(--surface-hover)]"
         style={{ color: shown ? 'var(--text-primary)' : 'var(--text-quaternary)' }}
       >
-        {shown ? dollars(shown.spendCents) : '—'}
+        {shown ? money(shown.spendCents, shown.currency) : '—'}
         {demo && !manual && <Badge variant="warning" size="xs">sample</Badge>}
       </button>
     );
@@ -218,7 +220,7 @@ export const SpendEntry: React.FC = () => {
                     <td key={p} className="px-3 py-1.5 text-right">{cell(w, p)}</td>
                   ))}
                   <td className="px-3 py-1.5 text-right font-semibold tabular" style={{ color: 'var(--text-primary)' }}>
-                    {w.totalCents ? dollars(w.totalCents) : '—'}
+                    {Object.keys(w.totals).length ? Object.entries(w.totals).map(([ccy, cents]) => money(cents, ccy)).join(' · ') : '—'}
                   </td>
                 </tr>
               ))}

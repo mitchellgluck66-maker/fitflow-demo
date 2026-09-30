@@ -68,8 +68,23 @@ describe('manual weekly spend', () => {
     // One line per platform: the manual meta row is shown as itself (the API
     // row for that week is a separate source of truth the engine prefers).
     expect(wk.rows.map((r: { platform: string; origin: string }) => [r.platform, r.origin]).sort()).toEqual([['google', 'manual'], ['meta', 'manual']]);
-    expect(wk.rows.find((r: { platform: string }) => r.platform === 'meta').spendCents).toBe(100);
-    expect(wk.totalCents).toBe(100 + 700);
+    expect(wk.rows.find((r: { platform: string }) => r.platform === 'meta')).toMatchObject({ spendCents: 100, currency: 'CAD' });
+    expect(wk.totals).toEqual({ CAD: 100 + 700 });
+  });
+
+  // Audit P1 #8 (2026-09-30): the table labelled Meta weeks "USD"; each row carries its own currency and a
+  // week's total is per currency — CAD and USD cents are never added together.
+  it('GET carries each row\'s real currency and never sums across currencies', async () => {
+    await db.insert(adSpend).values([
+      { platform: 'meta', externalId: 'meta:c9:2026-07-06', date: '2026-07-06', currency: 'CAD' as const, spendCents: 12_000, source: 'meta', origin: 'meta' },
+      { platform: 'meta', externalId: 'meta:c9:2026-07-07', date: '2026-07-07', currency: 'CAD' as const, spendCents: 8_000, source: 'meta', origin: 'meta' },
+      { platform: 'google', externalId: 'google:g1:2026-07-06', date: '2026-07-06', currency: 'USD' as const, spendCents: 5_000, source: 'google', origin: 'google' },
+    ]);
+    const res = await GET(new NextRequest('http://x/api/spend?weeks=60'));
+    const wk = (await res.json()).weeks.find((w: { start: string }) => w.start === '2026-07-05');
+    expect(wk.rows.map((r: { platform: string; currency: string; spendCents: number }) => [r.platform, r.currency, r.spendCents]).sort()).toEqual([['google', 'USD', 5_000], ['meta', 'CAD', 20_000]]);
+    expect(wk.totals).toEqual({ CAD: 20_000, USD: 5_000 });
+    expect(wk).not.toHaveProperty('totalCents');
   });
 
   it('rejects bad input', async () => {

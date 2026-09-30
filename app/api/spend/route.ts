@@ -13,6 +13,8 @@ export const PLATFORMS = ['meta', 'google', 'other'] as const;
 export interface SpendRowView {
   platform: string;
   spendCents: number;
+  /** The currency the row's amount is stored in (P1 #8: Meta bills CAD; never assumed). */
+  currency: string;
   origin: string;
   enteredBy: string | null;
   updatedAt: string;
@@ -25,7 +27,7 @@ export interface SpendWeekView {
   end: string;
   label: string;
   rows: SpendRowView[];
-  totalCents: number;
+  totals: Record<string, number>;
 }
 
 function manualId(platform: string, start: string): string {
@@ -39,18 +41,21 @@ async function loadWeek(start: string): Promise<SpendWeekView> {
     .from(adSpend)
     .where(and(gte(adSpend.date, start), lte(adSpend.date, end)))
     .orderBy(desc(adSpend.updatedAt));
-  // One line per platform per week: API/demo daily rows are summed; a manual
-  // row (there is at most one per platform+week) is shown as itself.
+  // One line per platform + CURRENCY per week: API/demo daily rows are summed within their currency (cents in
+  // different currencies are never added together — P1 #8); a manual row (at most one per platform+week) is shown
+  // as itself.
   const byPlatform = new Map<string, (typeof rows)[number][]>();
   for (const r of rows) {
-    if (!byPlatform.has(r.platform)) byPlatform.set(r.platform, []);
-    byPlatform.get(r.platform)!.push(r);
+    const key = `${r.platform}:${r.currency}`;
+    if (!byPlatform.has(key)) byPlatform.set(key, []);
+    byPlatform.get(key)!.push(r);
   }
-  const view = Array.from(byPlatform.entries()).map(([platform, list]) => {
+  const view = Array.from(byPlatform.values()).map((list) => {
     const manual = list.find((r) => r.origin === 'manual');
     const lead = manual ?? list[0];
     return {
-      platform,
+      platform: lead.platform,
+      currency: lead.currency,
       spendCents: manual ? manual.spendCents : list.reduce((s, r) => s + r.spendCents, 0),
       origin: lead.origin,
       enteredBy: lead.enteredBy,
@@ -66,7 +71,8 @@ async function loadWeek(start: string): Promise<SpendWeekView> {
     end,
     label: formatRangeLabel(start, end),
     rows: view,
-    totalCents: view.reduce((s, r) => s + r.spendCents, 0),
+    /** Per currency — a week can hold CAD (Meta) and USD (Google) rows and they are never summed together. */
+    totals: view.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.currency]: (acc[r.currency] ?? 0) + r.spendCents }), {}),
   };
 }
 
