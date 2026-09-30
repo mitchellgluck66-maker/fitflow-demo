@@ -117,3 +117,22 @@ describe('P2 #12: the Command Center says which mode each number is in', () => {
     expect(src).toContain('a cohort, so it differs from the in-period tiles above');
   });
 });
+
+// Audit P2 #13 / #14 (2026-09-30): "Subscriptions $103.9k" is monthly recurring revenue; the by-source facet showed a row count ("1") beside every source.
+describe('P2 #13 and #14: MRR label; by-source facet counts people', () => {
+  it('the Revenue tile is labelled MRR and the source facet count is the applied count, not 1', async () => {
+    const fs = await import('fs');
+    expect(fs.readFileSync('app/revenue/page.tsx', 'utf8')).toContain('label="MRR"');
+    expect(fs.readFileSync('components/SourceBreakdownTable.tsx', 'utf8')).toContain('?.counts.applied ?? 0');
+    const { facetOptions } = await import('@/components/tableState');
+    const sources = [
+      { source: 'Facebook', counts: { applied: 41 } },
+      { source: 'Google', counts: { applied: 9 } },
+    ];
+    const opts = facetOptions(sources, (s) => s.source).map((o) => ({ ...o, count: sources.find((s) => s.source === o.value)?.counts.applied ?? 0 }));
+    expect(opts).toEqual([
+      { value: 'Facebook', label: 'Facebook', count: 41 },
+      { value: 'Google', label: 'Google', count: 9 },
+    ]);
+  });
+});

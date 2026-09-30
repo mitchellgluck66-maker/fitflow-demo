@@ -42,7 +42,8 @@ export const SourceBreakdownTable: React.FC<{ sources: SourceBreakdown[] }> = ({
     <div className="space-y-3">
       <FilterBar
         state={t.state}
-        facets={[{ key: 'source', label: 'Source', options: facetOptions(sources, (s) => s.source) }]}
+        // P2 #14: one row per source, so a row count reads "1" beside every source — show the people instead.
+        facets={[{ key: 'source', label: 'Source', options: facetOptions(sources, (s) => s.source).map((o) => ({ ...o, count: sources.find((s) => s.source === o.value)?.counts.applied ?? 0 })) }]}
         onQ={t.setQ}
         onToggle={t.toggleFilter}
         onClear={t.clearFilters}

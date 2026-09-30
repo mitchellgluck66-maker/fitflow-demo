@@ -143,7 +143,7 @@ function RevenueTab() {
             subtext={`${revenue.recurringCount} payment${revenue.recurringCount === 1 ? '' : 's'} from existing clients · excluded from ROAS`}
           />
           <KpiDeltaTile
-            label="Subscriptions"
+            label="MRR"
             value={formatCents(revenue.mrrCents, ccy, { compact: true })}
             delta={computeDelta(null, null)}
             deltaKind="cents"
@@ -151,7 +151,7 @@ function RevenueTab() {
             comparisonLabel={null}
             icon={CalendarClock}
             accent="info"
-            subtext={`${revenue.activeSubscriptions} active · monthly-normalised plan value, not range-bound`}
+            subtext={`monthly recurring revenue · ${revenue.activeSubscriptions} active subscription${revenue.activeSubscriptions === 1 ? '' : 's'}, monthly-normalised · not range-bound`}
           />
           <KpiDeltaTile
             label="Still unpaid"
