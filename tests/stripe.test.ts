@@ -218,7 +218,12 @@ describe('runStripeSync', () => {
     const summary = computeRevenueSummary(input, wide);
     const unmatchedCharges = (await db.select().from(payments)).filter((p) => p.origin === 'stripe' && !p.contactId && p.kind !== 'refund' && ['succeeded', 'refunded'].includes(p.status) && p.matchSource !== 'manual');
     expect(summary.unmatchedCount).toBe(unmatchedCharges.length);
-    expect(summary.payments.find((p) => p.stripeId === 're_1')?.contactId).toBe(parent.contactId); // the name of a non-pipeline contact is P1 #7
+    expect(summary.payments.find((p) => p.stripeId === 're_1')?.contactId).toBe(parent.contactId);
+    // P1 #7: the matched person has no followed-pipeline application, so the table names them as an existing client.
+    const parentDetail = summary.payments.find((p) => p.stripeId === 'ch_refunded')!;
+    expect(parentDetail.contactName).toBeTruthy();
+    expect(parentDetail.outsidePipeline).toBe(true);
+    expect(input.contacts.some((c) => c.id === parent.contactId)).toBe(false); // still outside the funnel scope
   });
 });
 

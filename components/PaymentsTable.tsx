@@ -114,7 +114,7 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
               )}
             </div>
             <div className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
-              {p.source ?? 'Unknown source'}
+              {p.outsidePipeline ? 'Existing client · no application in the followed pipeline' : (p.source ?? 'Unknown source')}
               {p.cohortWeek && p.status === 'succeeded' && ` · Cohort: week of ${formatRangeLabel(p.cohortWeek, addDays(p.cohortWeek, 6))}`}
             </div>
           </>

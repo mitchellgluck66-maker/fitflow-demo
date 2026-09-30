@@ -186,6 +186,17 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     })
     .from(payments);
 
+  // P1 #7: name the people payments are matched to even when they are outside the funnel scope (existing clients).
+  const inScope = new Set(contactIds);
+  const outsideIds = Array.from(new Set(paymentRows.map((p) => p.contactId).filter((id): id is string => Boolean(id) && !inScope.has(id as string))));
+  const outsideContacts = outsideIds.length
+    ? (await db.select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, source: contacts.attributionSource }).from(contacts).where(inArray(contacts.id, outsideIds))).map((c) => ({
+        id: c.id,
+        name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown',
+        source: c.source,
+      }))
+    : [];
+
   const money = await loadMoneyContext();
   // Amounts keep their stored currency; the engine converts at read time.
   // A code the business does not report in (only CAD / USD exist today) is
@@ -256,6 +267,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
   };
   // Computed while mapping the contacts above (appliedDate fills it).
   result.health = health;
+  result.outsideContacts = outsideContacts;
   result.asOfMs = Date.now(); // F2: appointments after now are not "past" for show-rate coverage
   return result;
 }

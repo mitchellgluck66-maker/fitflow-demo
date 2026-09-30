@@ -200,6 +200,11 @@ export interface MetricsInput {
   payments: PaymentRow[];
   /** Loader diagnostics (optional; fixtures omit it). */
   health?: InputHealth;
+  /**
+   * Contacts OUTSIDE the funnel scope (no followed-pipeline opportunity — existing clients, check-ins) that a
+   * payment is matched to, so the Revenue table can name them (audit P1 #7, 2026-09-30). Never counted anywhere.
+   */
+  outsideContacts?: Array<{ id: string; name: string; source: string | null }>;
   /** "Now" for past-vs-future appointment checks (F2). Absent = every appointment counts as past. */
   asOfMs?: number;
   /** Reporting currency + stored rates. Absent = CAD with no rates (any non-CAD row then throws FxRateMissingError). */
@@ -1631,6 +1636,8 @@ export interface PaymentDetail {
   description: string | null;
   contactId: string | null;
   contactName: string | null;
+  /** The matched person has no application in the followed pipeline (an existing client) — P1 #7. */
+  outsidePipeline?: boolean;
   source: string | null;
   /** Sun–Sat week the matched contact applied in, e.g. "2026-08-16". */
   cohortWeek: string | null;
@@ -1705,6 +1712,7 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
   const ccy = input.money.reporting;
   const base = computeRevenue(input, range);
   const contactById = new Map(input.contacts.map((c) => [c.id, c]));
+  const outsideById = new Map((input.outsideContacts ?? []).map((c) => [c.id, c]));
   const inR = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
   const subs = input.payments.filter((p) => p.kind === 'subscription' && (p.status === 'active' || p.status === 'trialing' || p.status === 'past_due'));
 
@@ -1727,8 +1735,10 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
       customerName: p.customerName ?? null,
       description: p.description ?? null,
       contactId: p.contactId,
-      contactName: c?.name ?? null,
-      source: c?.source ?? null,
+      contactName: c?.name ?? (p.contactId ? (outsideById.get(p.contactId)?.name ?? null) : null),
+      source: c?.source ?? (p.contactId ? (outsideById.get(p.contactId)?.source ?? null) : null),
+      // P1 #7: matched to a person with no application in the followed pipeline — an existing client, not a lead.
+      outsidePipeline: Boolean(p.contactId && !c && outsideById.has(p.contactId)),
       cohortWeek: c?.appliedOn ? weekOf(c.appliedOn) : null,
       matchSource: p.matchSource ?? null,
       paymentClass: p.paymentClass ?? null,
