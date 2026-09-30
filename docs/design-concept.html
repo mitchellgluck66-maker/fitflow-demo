@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FitFlow — Command Center (concept)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0B0E; --panel:#101218; --panel-2:#0D0F14; --line:#1C1F27; --line-2:#252935;
+    --ink:#E8EAF0; --ink-2:#8B91A0; --ink-3:#565C69;
+    --accent:#8F7AFF; --accent-dim:rgba(143,122,255,.14);
+    --up:#2FBF85; --up-dim:rgba(47,191,133,.12);
+    --down:#F0545E; --down-dim:rgba(240,84,94,.12);
+    --amber:#E8B34B; --amber-dim:rgba(232,179,75,.12);
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+
+  /* ── top nav ── */
+  nav{display:flex;align-items:center;gap:2px;padding:0 20px;height:46px;border-bottom:1px solid var(--line);background:rgba(10,11,14,.9)}
+  .mark{display:flex;align-items:center;gap:8px;margin-right:22px;font-weight:600;font-size:13.5px;letter-spacing:-.01em}
+  .mark .dot{width:9px;height:9px;border-radius:3px;background:linear-gradient(135deg,#A08DFF,#6d4ef2)}
+  .tab{padding:6px 10px;border-radius:6px;color:var(--ink-2);font-size:12.5px;font-weight:500;cursor:pointer}
+  .tab:hover{color:var(--ink)}
+  .tab.on{color:var(--ink);background:#171A22}
+  nav .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+  .sync{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+  .sync .pulse{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 0 3px var(--up-dim)}
+  .kbd{font-family:var(--mono);font-size:10px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:5px;padding:2.5px 6px}
+  .avatar{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#3b3f4d,#22252e);border:1px solid var(--line-2)}
+
+  /* ── toolbar ── */
+  .toolbar{display:flex;align-items:center;gap:10px;padding:14px 20px 0}
+  h1{font-size:15px;font-weight:600;letter-spacing:-.01em;margin-right:6px}
+  .seg{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:7px;background:var(--panel);overflow:hidden}
+  .seg button{background:none;border:none;color:var(--ink-2);padding:5px 9px;cursor:pointer;font-size:12px}
+  .seg button:hover{color:var(--ink);background:#171A22}
+  .seg .val{font-family:var(--mono);font-size:11.5px;color:var(--ink);padding:5px 10px;border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .chip-ctl{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:5.5px 10px}
+  .chip-ctl b{color:var(--ink);font-weight:500}
+  .toolbar .right{margin-left:auto;display:flex;gap:8px}
+  .btn-ask{display:flex;align-items:center;gap:7px;background:var(--accent-dim);border:1px solid rgba(143,122,255,.35);color:#C9BFFF;font-size:12px;font-weight:500;border-radius:7px;padding:5.5px 12px;cursor:pointer}
+
+  main{flex:1;padding:14px 20px 10px;display:grid;grid-template-columns:1fr 296px;gap:12px;max-width:1440px;width:100%;margin:0 auto}
+  .col{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+  /* ── KPI grid ── */
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .kpi{background:var(--panel);padding:12px 14px 10px;position:relative;cursor:pointer}
+  .kpi:hover{background:#141722}
+  .kpi .lbl{display:block;margin-bottom:7px}
+  .kpi .v{font-family:var(--mono);font-size:21px;font-weight:600;letter-spacing:-.02em;line-height:1}
+  .kpi .v small{font-size:12px;color:var(--ink-3);font-weight:500}
+  .delta{display:inline-flex;align-items:center;gap:3px;font-family:var(--mono);font-size:10.5px;font-weight:600;border-radius:5px;padding:1.5px 5px;margin-top:7px}
+  .delta.up{color:var(--up);background:var(--up-dim)}
+  .delta.dn{color:var(--down);background:var(--down-dim)}
+  .delta.na{color:var(--ink-3);background:#171A22}
+  .kpi svg{position:absolute;right:10px;bottom:8px;opacity:.95}
+  .subnote{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:6px}
+
+  /* ── panels ── */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .panel-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .panel-hd .t{font-size:12.5px;font-weight:600}
+  .panel-hd .s{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .panel-hd .right{margin-left:auto;display:flex;gap:6px;align-items:center}
+
+  /* funnel */
+  .frow{display:grid;grid-template-columns:118px 1fr 150px;align-items:center;gap:12px;padding:4.5px 0}
+  .frow .n{font-size:11.5px;color:var(--ink-2);text-align:right}
+  .bar{height:17px;border-radius:4px;background:var(--panel-2);position:relative;overflow:hidden}
+  .bar .fill{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#7a63f5,#8F7AFF);border-radius:4px}
+  .bar .ghost{position:absolute;inset:0;background:repeating-linear-gradient(45deg,var(--down-dim),var(--down-dim) 3px,transparent 3px,transparent 7px);border-radius:0 4px 4px 0}
+  .frow .m{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;gap:8px;align-items:center}
+  .frow .m b{color:var(--ink);font-weight:600}
+  .conv{display:flex;align-items:center;gap:6px;padding:0 0 0 130px;height:15px}
+  .conv .c{font-family:var(--mono);font-size:9.5px;padding:1px 5px;border-radius:4px}
+  .conv .good{color:var(--up);background:var(--up-dim)}
+  .conv .warn{color:var(--down);background:var(--down-dim)}
+  .conv .ok{color:var(--ink-2);background:#171A22}
+  .mat{font-family:var(--mono);font-size:9px;color:var(--amber);background:var(--amber-dim);border:1px solid rgba(232,179,75,.25);border-radius:4px;padding:1px 5px;letter-spacing:.06em}
+
+  /* chart */
+  .chart-wrap{position:relative}
+  .legend{display:flex;gap:14px;font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+  .legend i{display:inline-block;width:14px;height:2.5px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .tip{position:absolute;left:57.5%;top:26px;background:#171A22;border:1px solid var(--line-2);border-radius:7px;padding:7px 10px;font-family:var(--mono);font-size:10px;line-height:1.7;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none}
+  .tip .d{color:var(--ink-3)}
+  .anno{font-family:var(--mono);font-size:9px;color:var(--ink-3)}
+
+  /* right rail */
+  .insight{border-left:2px solid var(--accent);padding:2px 0 2px 10px;margin-bottom:11px}
+  .insight:last-child{margin-bottom:2px}
+  .insight .h{font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center}
+  .insight p{color:var(--ink-2);font-size:11.5px;line-height:1.55;margin-top:3px}
+  .insight a{color:#B4A6FF;text-decoration:none;font-family:var(--mono);font-size:10px}
+  .camp{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+  .camp:first-of-type{border-top:none}
+  .camp .nm{font-size:11.5px;font-weight:500;line-height:1.3}
+  .camp .nm span{display:block;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:2px}
+  .camp .val{margin-left:auto;text-align:right}
+  .camp .val .num{font-size:12.5px;font-weight:600}
+  .camp .val .delta{margin-top:2px}
+  .tag{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;border-radius:4px;padding:2px 5px}
+  .tag.win{color:var(--up);background:var(--up-dim)}
+  .tag.lose{color:var(--down);background:var(--down-dim)}
+
+  /* status bar (signature) */
+  footer{border-top:1px solid var(--line);background:var(--panel-2);padding:7px 20px;display:flex;gap:22px;align-items:center;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--ink-3)}
+  footer .ok{color:var(--up)}
+  footer .item b{color:var(--ink-2);font-weight:500}
+  footer .right{margin-left:auto}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="mark"><span class="dot"></span>FitFlow</div>
+  <div class="tab on">Command Center</div><div class="tab">Scorecard</div><div class="tab">Funnel</div>
+  <div class="tab">Ads</div><div class="tab">Revenue</div><div class="tab">Clients</div><div class="tab">Reports</div><div class="tab">Setup</div>
+  <div class="right">
+    <span class="sync"><span class="pulse"></span>SYNCED 06:02</span>
+    <span class="kbd">⌘K</span>
+    <div class="avatar"></div>
+  </div>
+</nav>
+
+<div class="toolbar">
+  <h1>Command Center</h1>
+  <div class="seg"><button>◀</button><span class="val">Week of Sep 7 – 13</span><button>▶</button><button style="border-left:1px solid var(--line)">Sun–Sat ▾</button></div>
+  <span class="chip-ctl">vs <b>prior week</b> ▾</span>
+  <div class="right"><button class="btn-ask">✦ Ask FitFlow</button></div>
+</div>
+
+<main>
+  <div class="col">
+
+    <!-- KPI row -->
+    <div class="kpis">
+      <div class="kpi">
+        <span class="lbl">Initial cash</span>
+        <div class="v num">$18,400</div>
+        <span class="delta up">▲ 18.2%</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 17 L11 15 L21 16 L31 12 L41 13 L51 8 L61 4" fill="none" stroke="#2FBF85" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="4" r="2.3" fill="#2FBF85"/></svg>
+      </div>
+      <div class="kpi">
+        <span class="lbl">Enrollments</span>
+        <div class="v num">4</div>
+        <span class="delta up">▲ +1</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 16 L11 16 L21 13 L31 14 L41 11 L51 11 L61 7" fill="none" stroke="#2FBF85" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="7" r="2.3" fill="#2FBF85"/></svg>
+      </div>
+      <div class="kpi">
+        <span class="lbl">Blended CAC</span>
+        <div class="v num">$1,412</div>
+        <span class="delta up">▼ 12.4%</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 5 L11 8 L21 7 L31 11 L41 10 L51 14 L61 16" fill="none" stroke="#2FBF85" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="16" r="2.3" fill="#2FBF85"/></svg>
+        <div class="subnote">↓ cost — lower is better</div>
+      </div>
+      <div class="kpi">
+        <span class="lbl">Paid CAC</span>
+        <div class="v num">$4,012</div>
+        <span class="delta dn">▲ 6.1%</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 15 L11 13 L21 14 L31 10 L41 12 L51 8 L61 5" fill="none" stroke="#F0545E" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="5" r="2.3" fill="#F0545E"/></svg>
+      </div>
+      <div class="kpi">
+        <span class="lbl">ROAS</span>
+        <div class="v num">1.33<small>×</small></div>
+        <span class="delta up">▲ 0.21</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 16 L11 17 L21 14 L31 15 L41 11 L51 12 L61 8" fill="none" stroke="#2FBF85" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="8" r="2.3" fill="#2FBF85"/></svg>
+      </div>
+      <div class="kpi">
+        <span class="lbl">LTV : CAC</span>
+        <div class="v num">3.9<small>: 1</small></div>
+        <span class="delta na">— flat</span>
+        <svg width="64" height="22" viewBox="0 0 64 22"><path d="M1 11 L11 12 L21 10 L31 11 L41 11 L51 10 L61 11" fill="none" stroke="#565C69" stroke-width="1.6" stroke-linecap="round"/><circle cx="61" cy="11" r="2.3" fill="#8B91A0"/></svg>
+      </div>
+    </div>
+
+    <!-- Trend chart -->
+    <div class="panel chart-wrap">
+      <div class="panel-hd">
+        <span class="t">Spend vs initial cash collected</span>
+        <span class="s">WEEKLY · SUN–SAT · 12 WEEKS</span>
+        <div class="right legend">
+          <span><i style="background:#8F7AFF"></i>Cash collected</span>
+          <span><i style="background:#565C69"></i>Ad spend</span>
+          <span><i style="background:none;border-top:1.5px dashed #3a3f4d;width:14px"></i>Prior period</span>
+        </div>
+      </div>
+      <svg width="100%" height="190" viewBox="0 0 860 190" preserveAspectRatio="none">
+        <!-- grid -->
+        <g stroke="#171A22" stroke-width="1">
+          <line x1="0" y1="40" x2="860" y2="40"/><line x1="0" y1="85" x2="860" y2="85"/>
+          <line x1="0" y1="130" x2="860" y2="130"/><line x1="0" y1="175" x2="860" y2="175"/>
+        </g>
+        <!-- VSL annotation -->
+        <line x1="118" y1="12" x2="118" y2="175" stroke="#3a3f4d" stroke-dasharray="3 4"/>
+        <!-- prior period ghost -->
+        <path d="M20 132 L90 138 L160 128 L230 135 L300 122 L370 130 L440 118 L510 124 L580 112 L650 120 L720 108 L830 114" fill="none" stroke="#3a3f4d" stroke-width="1.5" stroke-dasharray="4 5"/>
+        <!-- spend -->
+        <path d="M20 148 L90 150 L160 141 L230 144 L300 138 L370 141 L440 134 L510 137 L580 131 L650 133 L720 128 L830 126" fill="none" stroke="#565C69" stroke-width="2" stroke-linecap="round"/>
+        <!-- cash area + line -->
+        <path d="M20 142 L90 146 L160 118 L230 128 L300 104 L370 116 L440 88 L510 98 L580 74 L650 84 L720 58 L830 38 L830 175 L20 175 Z" fill="url(#g1)"/>
+        <path d="M20 142 L90 146 L160 118 L230 128 L300 104 L370 116 L440 88 L510 98 L580 74 L650 84 L720 58 L830 38" fill="none" stroke="#8F7AFF" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="830" cy="38" r="3.4" fill="#8F7AFF" stroke="#0A0B0E" stroke-width="2"/>
+        <circle cx="830" cy="126" r="3" fill="#565C69" stroke="#0A0B0E" stroke-width="2"/>
+        <!-- hover crosshair -->
+        <line x1="510" y1="12" x2="510" y2="175" stroke="#252935" stroke-width="1"/>
+        <circle cx="510" cy="98" r="3.4" fill="#8F7AFF" stroke="#0A0B0E" stroke-width="2"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#8F7AFF" stop-opacity=".22"/><stop offset="100%" stop-color="#8F7AFF" stop-opacity="0"/>
+        </linearGradient></defs>
+      </svg>
+      <div class="tip"><span class="d">WEEK OF AUG 17–23</span><br>Cash collected <b style="color:#C9BFFF">$9,750</b><br>Ad spend <b>$2,904</b> · ROAS <b>3.36×</b><br><span class="d">vs prior wk</span> <span style="color:#2FBF85">▲ +12.8%</span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span class="anno" style="padding-left:96px">▲ VSL CAMPAIGN LIVE · JUL 16</span>
+        <span class="anno" style="color:#8B91A0">LAST 4 WKS <span style="color:#2FBF85">▲ +21% CASH</span> ON <span style="color:#8B91A0">+6% SPEND</span></span>
+      </div>
+    </div>
+
+    <!-- Funnel -->
+    <div class="panel">
+      <div class="panel-hd">
+        <span class="t">Funnel — journey view</span>
+        <span class="s">EVERYONE WHO APPLIED SEP 7–13, FOLLOWED FORWARD</span>
+        <div class="right"><span class="chip-ctl" style="padding:3px 8px">By cohort ▾</span></div>
+      </div>
+      <div class="frow"><span class="n">Applied</span><div class="bar"><div class="fill" style="width:100%"></div></div><span class="m"><b>62</b>100%</span></div>
+      <div class="conv"><span class="c good">▸ 39% booked</span></div>
+      <div class="frow"><span class="n">Consult booked</span><div class="bar" style="width:39%"><div class="fill" style="width:100%"></div><div class="ghost" style="left:100%"></div></div><span class="m"><b>24</b>39%</span></div>
+      <div class="conv"><span class="c warn">▸ 63% showed · 9 lost</span><span class="mat">MATURING · RETIRES OCT 15</span></div>
+      <div class="frow"><span class="n">Consult showed</span><div class="bar" style="width:24.5%"><div class="fill" style="width:100%"></div></div><span class="m"><b>15</b>24%</span></div>
+      <div class="conv"><span class="c good">▸ 73% to roadmap</span></div>
+      <div class="frow"><span class="n">Roadmap booked</span><div class="bar" style="width:18%"><div class="fill" style="width:100%"></div></div><span class="m"><b>11</b>18%</span></div>
+      <div class="conv"><span class="c ok">▸ 55% enrolled</span></div>
+      <div class="frow"><span class="n">Enrolled</span><div class="bar" style="width:9.7%"><div class="fill" style="width:100%;background:linear-gradient(90deg,#26A873,#2FBF85)"></div></div><span class="m"><b>6</b>9.7% · <span style="color:#2FBF85">$37,800 value</span></span></div>
+      <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line);display:flex;gap:16px" class="anno">
+        <span>AWAITING REBOOK <b style="color:var(--amber)">4</b></span><span>PREVIOUS LEADS <b style="color:var(--ink-2)">12</b></span>
+        <span style="margin-left:auto;color:#565C69">CLICK ANY BAR FOR THE PEOPLE ↗</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- right rail -->
+  <div class="col">
+    <div class="panel">
+      <div class="panel-hd"><span class="t">AI read on this week</span><span class="s num">06:00</span></div>
+      <div class="insight">
+        <div class="h"><span style="color:var(--up)">▲</span> Cash up 18% on flat spend</div>
+        <p>$18,400 collected against $2,850 spend. The VSL campaign drove all 3 paid enrollments.</p>
+        <a href="#">→ Revenue</a>
+      </div>
+      <div class="insight" style="border-color:var(--down)">
+        <div class="h"><span style="color:var(--down)">▼</span> Consult show rate slipped to 63%</div>
+        <p>9 of 24 booked consults didn’t show — 7 came from Quiz Funnel · Broad. Worst week since Aug 3.</p>
+        <a href="#">→ Funnel · show rates</a>
+      </div>
+      <div class="insight" style="border-color:var(--amber)">
+        <div class="h"><span style="color:var(--amber)">●</span> 4 people awaiting rebook</div>
+        <p>Two have waited 6+ days. Miranda’s daily list has them flagged until they rebook.</p>
+        <a href="#">→ Awaiting rebook</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="t">Campaigns</span><span class="s">COST PER CLIENT · WEEK</span></div>
+      <div class="camp">
+        <div class="nm">VSL — Physician Burnout v2<span>$1,910 spend · 2 clients</span></div>
+        <div class="val"><div class="num">$955</div><span class="tag win">WINNER</span></div>
+      </div>
+      <div class="camp">
+        <div class="nm">VSL — Retargeting 30d<span>$540 spend · 1 client</span></div>
+        <div class="val"><div class="num">$540</div><span class="delta up">▼ 22%</span></div>
+      </div>
+      <div class="camp">
+        <div class="nm">Quiz Funnel — Broad<span>$400 spend · 0 clients</span></div>
+        <div class="val"><div class="num" style="color:var(--down)">—</div><span class="tag lose">REVIEW</span></div>
+      </div>
+      <div style="margin-top:10px"><a href="#" style="color:#B4A6FF;font-family:var(--mono);font-size:10px;text-decoration:none">→ ALL 12 CAMPAIGNS</a></div>
+    </div>
+
+    <div class="panel" style="background:var(--panel-2)">
+      <div class="panel-hd" style="margin-bottom:8px"><span class="t" style="color:var(--ink-2)">Ask FitFlow</span></div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px">
+        <span style="color:var(--accent)">▸</span> where should we move budget next week?<span style="opacity:.6">▎</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span class="item"><span class="ok">●</span> ALL SOURCES SYNCED <b>06:02 MDT</b></span>
+  <span class="item">MIRROR = GHL <span class="ok">✓</span> <b>RECONCILED 23:00</b></span>
+  <span class="item">READ-ONLY CONNECTION</span>
+  <span class="item">319 CHECKS PASSING</span>
+  <span class="right item">FITFLOW FOR THE FIT PHYSICIAN</span>
+</footer>
+
+</body>
+</html>
