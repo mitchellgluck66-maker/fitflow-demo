@@ -821,10 +821,14 @@ async function processOpportunityPage(p: {
   }
   const ids = Array.from(oppByContact.keys());
   const existingRows = await db
-    .select({ id: contacts.id, ghlContactId: contacts.ghlContactId, pipelineId: contacts.pipelineId, stageId: contacts.stageId, ghlUpdatedAt: contacts.ghlUpdatedAt })
+    .select({ id: contacts.id, ghlContactId: contacts.ghlContactId, pipelineId: contacts.pipelineId, stageId: contacts.stageId, ghlUpdatedAt: contacts.ghlUpdatedAt, ghlOpportunityId: contacts.ghlOpportunityId })
     .from(contacts)
     .where(inArray(contacts.ghlContactId, ids));
   const existingByGhlId = new Map(existingRows.map((r) => [r.ghlContactId, r]));
+  // F6: the opportunity that HOLDS each contact's position, as last stored — its updatedAt decides a contest.
+  const heldIds = existingRows.map((r) => r.ghlOpportunityId).filter((x): x is string => Boolean(x));
+  const heldRows = heldIds.length ? await db.select({ id: ghlOpportunities.id, ghlUpdatedAt: ghlOpportunities.ghlUpdatedAt }).from(ghlOpportunities).where(inArray(ghlOpportunities.id, heldIds)) : [];
+  const heldUpdated = new Map(heldRows.map((h) => [h.id, h.ghlUpdatedAt?.getTime() ?? null]));
   // What we stored for these opportunities last time: an opportunity we never stored, or one GHL updated since,
   // is what makes a contact worth re-fetching (v2 — replaces "changed since the last completed cycle").
   const storedOpps = await db
@@ -841,9 +845,14 @@ async function processOpportunityPage(p: {
     const changed = !stored || (oppUpdated !== null && (!stored.ghlUpdatedAt || oppUpdated > stored.ghlUpdatedAt));
     const needsFetch = !p.fetchedContacts.has(ghlContactId) && (p.full || !existing || changed);
 
-    // Does this opportunity own the contact's position?
+    // Does this opportunity own the contact's position? (F6 — deterministic, across pages and runs)
     const existingTracked = existing?.pipelineId ? p.trackedPipelineIds.has(existing.pipelineId) : false;
-    const takesPosition = p.pipelineTracked ? true : !existing?.pipelineId || !existingTracked;
+    const takesPosition = takesPositionRule({
+      candidate: { id: opp.id, followed: p.pipelineTracked, updatedAtMs: oppUpdated?.getTime() ?? null },
+      held: existing?.pipelineId
+        ? { opportunityId: existing.ghlOpportunityId ?? null, followed: existingTracked, updatedAtMs: existing.ghlOpportunityId ? (heldUpdated.get(existing.ghlOpportunityId) ?? null) : null }
+        : null,
+    });
     if (!needsFetch && !takesPosition) continue;
     if (!needsFetch && existing && existing.pipelineId === opp.pipelineId && existing.stageId === opp.pipelineStageId) continue;
 
@@ -965,7 +974,10 @@ async function processOpportunityPage(p: {
       .returning({ id: contacts.id });
     out.contactsUpserted += 1;
 
-    if (takesPosition) {
+    // F6: a move between two UNFOLLOWED pipelines updates the position silently — it is not funnel history, and
+    // it used to write 900–1,300 ping-pong rows per mirror run. A first sighting still records where they are.
+    const unfollowedToUnfollowed = Boolean(existing?.pipelineId) && !existingTracked && !p.pipelineTracked;
+    if (takesPosition && !unfollowedToUnfollowed) {
       const t = deriveTransition(
         { ghlOpportunityId: opp.id, pipelineId: opp.pipelineId, stageId: opp.pipelineStageId, lastStageChangeAt: opp.lastStageChangeAt, createdAt: opp.createdAt },
         existing ? { contactId: existing.id, pipelineId: existing.pipelineId, stageId: existing.stageId } : null,
@@ -1037,6 +1049,27 @@ async function processOpportunityPage(p: {
     out.transitions = inserted.length;
   }
   return out;
+}
+
+/**
+ * Which opportunity holds a contact's position (F6, 2026-09-30) — pure, deterministic. Before this, any
+ * unfollowed opportunity took a position held by another unfollowed one, so contacts with opportunities in
+ * several retired pipelines flipped on every pass (4,159 cross-pipeline transitions, up to 8 per contact).
+ *   1. nothing held → take it;  2. the held opportunity itself → update it;
+ *   3. followed beats unfollowed (both ways);  4. otherwise the MORE RECENTLY UPDATED wins — a tie keeps the
+ *      holder; an unknown holder date yields to a known candidate.
+ */
+export function takesPositionRule(input: {
+  candidate: { id: string; followed: boolean; updatedAtMs: number | null };
+  held: { opportunityId: string | null; followed: boolean; updatedAtMs: number | null } | null;
+}): boolean {
+  const { candidate: c, held: h } = input;
+  if (!h) return true;
+  if (h.opportunityId && h.opportunityId === c.id) return true;
+  if (c.followed !== h.followed) return c.followed;
+  if (h.updatedAtMs === null) return true;
+  if (c.updatedAtMs === null) return false;
+  return c.updatedAtMs > h.updatedAtMs;
 }
 
 /**

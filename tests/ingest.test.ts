@@ -10,7 +10,7 @@ import { runMigrations } from '@/db/migrate';
 import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments, syncLocks, ghlOpportunities } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
-import { runGhlSync, readMirrorCursor, GHL_LOCK, GHL_LOCK_TTL_MS } from '@/lib/ghl/ingest';
+import { runGhlSync, readMirrorCursor, GHL_LOCK, GHL_LOCK_TTL_MS, takesPositionRule } from '@/lib/ghl/ingest';
 import { acquireLock, releaseLock } from '@/lib/syncLock';
 import { DEFAULT_FOLLOWED_PIPELINE_ID } from '@/lib/ghl/followed';
 import { setGhlRateLimitForTests } from '@/lib/ghl/client';
@@ -494,5 +494,56 @@ describe('one GHL run at a time (F5, 2026-09-30: atomic lease)', () => {
   it('two runs started in the same instant: exactly one works, the other skips', async () => {
     const [a, b] = await Promise.all([runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 }), runGhlSync({ mode: 'delta', trigger: 'manual', maxPages: 1 })]);
     expect([a.skipped, b.skipped].filter(Boolean)).toHaveLength(1);
+  });
+});
+
+describe('F6: deterministic positions, no ping-pong between unfollowed pipelines', () => {
+  const H = (d: string) => Date.parse(`${d}T00:00:00Z`);
+  it('the rule (pure): holder updates itself · followed beats unfollowed · else most recently updated · tie keeps the holder', () => {
+    const held = (o: Partial<{ opportunityId: string; followed: boolean; updatedAtMs: number | null }> = {}) => ({ opportunityId: 'held', followed: false, updatedAtMs: H('2026-02-01'), ...o });
+    const cand = (o: Partial<{ id: string; followed: boolean; updatedAtMs: number | null }> = {}) => ({ id: 'cand', followed: false, updatedAtMs: H('2026-03-01'), ...o });
+    expect(takesPositionRule({ candidate: cand(), held: null })).toBe(true);
+    expect(takesPositionRule({ candidate: cand({ id: 'held', updatedAtMs: H('2025-01-01') }), held: held() })).toBe(true);
+    expect(takesPositionRule({ candidate: cand({ followed: true, updatedAtMs: H('2025-01-01') }), held: held() })).toBe(true);
+    expect(takesPositionRule({ candidate: cand({ updatedAtMs: H('2027-01-01') }), held: held({ followed: true }) })).toBe(false);
+    expect(takesPositionRule({ candidate: cand(), held: held() })).toBe(true);
+    expect(takesPositionRule({ candidate: cand({ updatedAtMs: H('2026-01-01') }), held: held() })).toBe(false);
+    expect(takesPositionRule({ candidate: cand({ updatedAtMs: H('2026-02-01') }), held: held() })).toBe(false); // tie
+    expect(takesPositionRule({ candidate: cand(), held: held({ updatedAtMs: null }) })).toBe(true);
+    expect(takesPositionRule({ candidate: cand({ updatedAtMs: null }), held: held() })).toBe(false);
+  });
+
+  it('a contact in two unfollowed pipelines: three mirror passes → same position, ONE (initial) transition; a newer update moves it silently', async () => {
+    await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
+    account.pipelines.push(
+      { id: 'pipe-ua', name: 'Retired A', stages: [{ id: 'st-ua', name: 'Old A', position: 0 }] },
+      { id: 'pipe-ub', name: 'Retired B', stages: [{ id: 'st-ub', name: 'Old B', position: 0 }] },
+    );
+    account.opportunities.push(
+      { id: 'opp-pa', name: 'PP', pipelineId: 'pipe-ua', pipelineStageId: 'st-ua', status: 'open', contactId: 'ct-pp', createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z' },
+      { id: 'opp-pb', name: 'PP', pipelineId: 'pipe-ub', pipelineStageId: 'st-ub', status: 'open', contactId: 'ct-pp', createdAt: '2025-02-01T00:00:00Z', updatedAt: '2025-02-01T00:00:00Z' },
+    );
+    account.contacts['ct-pp'] = { id: 'ct-pp', firstName: 'Ping', dateAdded: '2025-01-01T00:00:00Z' };
+    const pp = async () => (await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-pp')))[0];
+    const moves = async () => db.select().from(stageTransitions).where(eq(stageTransitions.contactId, (await pp()).id));
+    for (let i = 0; i < 3; i += 1) {
+      await setSetting('ghl_mirror_cursor', '');
+      await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'force' });
+    }
+    expect(await pp()).toMatchObject({ pipelineId: 'pipe-ub', ghlOpportunityId: 'opp-pb' }); // the more recently updated
+    expect((await moves()).map((t) => t.kind)).toEqual(['initial']);
+
+    // Retired A gets touched later → it takes the position, but no A↔B transition is written.
+    account.opportunities.find((o) => o.id === 'opp-pa')!.updatedAt = '2025-06-01T00:00:00Z';
+    await setSetting('ghl_mirror_cursor', '');
+    await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'force' });
+    expect(await pp()).toMatchObject({ pipelineId: 'pipe-ua', ghlOpportunityId: 'opp-pa' });
+    expect(await moves()).toHaveLength(1);
+    account.pipelines.splice(-2, 2);
+  });
+
+  it('a followed opportunity holds the position even when an unfollowed one is newer', async () => {
+    const [jane] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-1'));
+    expect(jane.pipelineId).toBe('pipe-1'); // opp-off (retired, newer) never took it
   });
 });
