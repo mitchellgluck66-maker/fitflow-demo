@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronRight } from 'lucide-react';
-import { formatPct, FUNNEL_MODE_LABELS, type Funnel, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
+import { formatPct, FUNNEL_MODE_LABELS, type Funnel, type ChipTone, type FunnelStageKey, type AppliedCaveat } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
 import { MaturingBadge } from './MaturingBadge';
 import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
@@ -24,7 +24,9 @@ export const FunnelStrip: React.FC<{
   rangeLabel: string;
   title?: string;
   maturity?: DataMaturity | null;
-}> = ({ funnel, conversions, href, rangeLabel, title, maturity }) => {
+  /** The Applied caveat (definition under review) — a one-line note under the Applied box. */
+  appliedCaveat?: AppliedCaveat | null;
+}> = ({ funnel, conversions, href, rangeLabel, title, maturity, appliedCaveat }) => {
   const stages = funnel.stages;
   const heading = title ?? (funnel.mode === 'cohort' ? `Funnel · ${FUNNEL_MODE_LABELS.cohort.label}` : 'Funnel');
 
@@ -117,6 +119,13 @@ export const FunnelStrip: React.FC<{
                         </span>
                       )}
                     </div>
+                    {s.key === 'applied' && appliedCaveat && (appliedCaveat.withoutFormRecord.length > 0 || appliedCaveat.otherPipelines.length > 0) && (
+                      <div className="text-[10px] leading-tight mt-0.5" style={{ color: 'var(--warning)' }} title={appliedCaveat.text}>
+                        {appliedCaveat.withoutFormRecord.length > 0 && `${appliedCaveat.withoutFormRecord.length} no form record`}
+                        {appliedCaveat.withoutFormRecord.length > 0 && appliedCaveat.otherPipelines.length > 0 && ' · '}
+                        {appliedCaveat.otherPipelines.length > 0 && `${appliedCaveat.otherPipelines.length} in other pipelines`}
+                      </div>
+                    )}
                   </div>
                   {isEnrolled && (
                     // Applied → enrolled share: a rate with a natural 0–100% frame.

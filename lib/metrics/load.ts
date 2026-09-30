@@ -6,13 +6,37 @@
  * functions in ./index.ts.
  */
 
-import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from './transitionRoles';
-import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments, ghlOpportunities } from '@/db';
-import { localDate, rangeToInstants } from '../dates';
-import { parseCurrency, type Currency } from '../money';
-import { loadMoneyContext } from '../money/store';
-import type { InputHealth, MetricsInput, PaymentRow, SpendRow } from './index';
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  toStage,
+  fromStage,
+  toStageJoin,
+  fromStageJoin,
+  resolvedToRole,
+  resolvedFromRole,
+} from "./transitionRoles";
+import {
+  db,
+  contacts,
+  stages,
+  pipelines,
+  stageTransitions,
+  appointments,
+  adSpend,
+  payments,
+  ghlOpportunities,
+} from "@/db";
+import { localDate, rangeToInstants } from "../dates";
+import { parseCurrency, type Currency } from "../money";
+import { loadMoneyContext } from "../money/store";
+import {
+  applicationSignal,
+  isApplicationFormSource,
+  type InputHealth,
+  type MetricsInput,
+  type PaymentRow,
+  type SpendRow,
+} from "./index";
 
 export interface LoadOptions {
   /** Widest calendar window needed (YYYY-MM-DD, inclusive). */
@@ -24,14 +48,19 @@ export interface LoadOptions {
 }
 
 function shiftDate(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
+  const [y, m, d] = date.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
 }
 
-export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput> {
-  const { start, end } = rangeToInstants({ start: opts.start, end: opts.end }, opts.timezone);
+export async function loadMetricsInput(
+  opts: LoadOptions,
+): Promise<MetricsInput> {
+  const { start, end } = rangeToInstants(
+    { start: opts.start, end: opts.end },
+    opts.timezone,
+  );
   const tz = opts.timezone;
 
   // Tracked pipelines (or the one requested).
@@ -71,43 +100,85 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     })
     .from(contacts)
     .leftJoin(stages, eq(contacts.stageId, stages.id))
-    .where(pipelineIds.length ? inArray(contacts.pipelineId, pipelineIds) : sql`false`);
+    .where(
+      pipelineIds.length
+        ? inArray(contacts.pipelineId, pipelineIds)
+        : sql`false`,
+    );
   const contactIds = contactRows.map((c) => c.id);
 
   // F14 (2026-09-30): "applied" = the APPLICATION — the followed-pipeline opportunity's createdAt (GHL counted 186
   // applications in August; dating by contact creation gave 98 and never counted a returning contact who re-applied).
-  const oppIds = Array.from(new Set(contactRows.map((c) => c.ghlOpportunityId).filter((x): x is string => Boolean(x))));
+  const oppIds = Array.from(
+    new Set(
+      contactRows
+        .map((c) => c.ghlOpportunityId)
+        .filter((x): x is string => Boolean(x)),
+    ),
+  );
   const oppCreated = new Map<string, Date | null>();
   const movedIn = new Map<string, Date>();
   if (oppIds.length) {
-    for (const o of await db.select({ id: ghlOpportunities.id, created: ghlOpportunities.ghlCreatedAt }).from(ghlOpportunities).where(inArray(ghlOpportunities.id, oppIds))) oppCreated.set(o.id, o.created);
+    for (const o of await db
+      .select({
+        id: ghlOpportunities.id,
+        created: ghlOpportunities.ghlCreatedAt,
+      })
+      .from(ghlOpportunities)
+      .where(inArray(ghlOpportunities.id, oppIds)))
+      oppCreated.set(o.id, o.created);
     // An application first seen in ANOTHER pipeline is dated by its entry into the followed one (flagged).
     const seen = await db
-      .select({ opp: stageTransitions.ghlOpportunityId, pipelineId: stageTransitions.pipelineId, at: stageTransitions.observedAt })
+      .select({
+        opp: stageTransitions.ghlOpportunityId,
+        pipelineId: stageTransitions.pipelineId,
+        at: stageTransitions.observedAt,
+      })
       .from(stageTransitions)
       .where(inArray(stageTransitions.ghlOpportunityId, oppIds));
-    const byOpp = new Map<string, Array<{ pipelineId: string | null; at: Date }>>();
-    for (const t of seen) if (t.opp) byOpp.set(t.opp, [...(byOpp.get(t.opp) ?? []), { pipelineId: t.pipelineId, at: t.at }]);
+    const byOpp = new Map<
+      string,
+      Array<{ pipelineId: string | null; at: Date }>
+    >();
+    for (const t of seen)
+      if (t.opp)
+        byOpp.set(t.opp, [
+          ...(byOpp.get(t.opp) ?? []),
+          { pipelineId: t.pipelineId, at: t.at },
+        ]);
     const followedSet = new Set(pipelineIds);
     for (const [opp, rows] of byOpp) {
       const sorted = rows.sort((a, b) => a.at.getTime() - b.at.getTime());
-      const firstElsewhere = sorted.find((r) => r.pipelineId && !followedSet.has(r.pipelineId));
-      const entered = sorted.find((r) => r.pipelineId && followedSet.has(r.pipelineId) && firstElsewhere && r.at > firstElsewhere.at);
+      const firstElsewhere = sorted.find(
+        (r) => r.pipelineId && !followedSet.has(r.pipelineId),
+      );
+      const entered = sorted.find(
+        (r) =>
+          r.pipelineId &&
+          followedSet.has(r.pipelineId) &&
+          firstElsewhere &&
+          r.at > firstElsewhere.at,
+      );
       if (firstElsewhere && entered) movedIn.set(opp, entered.at);
     }
   }
   const health: InputHealth = { applicantsWithoutDate: [], appliedFromMove: 0 };
   const appliedDate = (c: (typeof contactRows)[number]): string | null => {
-    if (c.origin === 'demo') return localDate(c.ghlCreatedAt ?? c.createdAt, tz); // fabricated sample rows have no applications
+    if (c.origin === "demo")
+      return localDate(c.ghlCreatedAt ?? c.createdAt, tz); // fabricated sample rows have no applications
     const opp = c.ghlOpportunityId;
     const moved = opp ? movedIn.get(opp) : undefined;
     if (moved) {
       health.appliedFromMove += 1;
       return localDate(moved, tz);
     }
-    const created = (opp ? oppCreated.get(opp) : null) ?? c.opportunityCreatedAt ?? null;
+    const created =
+      (opp ? oppCreated.get(opp) : null) ?? c.opportunityCreatedAt ?? null;
     if (created) return localDate(created, tz);
-    health.applicantsWithoutDate.push({ contactId: c.id, name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown' });
+    health.applicantsWithoutDate.push({
+      contactId: c.id,
+      name: `${c.firstName} ${c.lastName}`.trim() || c.email || "Unknown",
+    });
     return null;
   };
 
@@ -121,11 +192,65 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
           toRole: resolvedToRole,
           toStageId: stageTransitions.toStageId,
           observedAt: stageTransitions.observedAt,
+          opportunityId: stageTransitions.ghlOpportunityId,
         })
         .from(stageTransitions)
         .leftJoin(toStage, toStageJoin)
         .leftJoin(fromStage, fromStageJoin)
         .where(inArray(stageTransitions.contactId, contactIds))
+    : [];
+
+  // Applied caveat (2026-09-30): the stage each followed opportunity was FIRST observed in, and form-sourced
+  // applications the mirror saw created in UNFOLLOWED pipelines during the window (deferred routing issues).
+  const firstRole = new Map<string, string | null>();
+  for (const t of [...transitionRows].sort(
+    (a, b) => a.observedAt.getTime() - b.observedAt.getTime(),
+  )) {
+    if (t.opportunityId && !firstRole.has(t.opportunityId))
+      firstRole.set(t.opportunityId, t.toRole ?? null);
+  }
+  const followedIds = new Set(pipelineIds);
+  const otherPipelineApplications = pipelineIds.length
+    ? (
+        await db
+          .select({
+            oppId: ghlOpportunities.id,
+            contactId: contacts.id,
+            firstName: contacts.firstName,
+            lastName: contacts.lastName,
+            email: contacts.email,
+            source: contacts.attributionSource,
+            created: ghlOpportunities.ghlCreatedAt,
+            pipelineId: ghlOpportunities.pipelineId,
+            pipeline: pipelines.name,
+            contactPipelineId: contacts.pipelineId,
+          })
+          .from(ghlOpportunities)
+          // by GHL contact id: the mirror pass writes opportunities before it has the contact's local id
+          .innerJoin(contacts, eq(contacts.ghlContactId, ghlOpportunities.ghlContactId))
+          .leftJoin(pipelines, eq(pipelines.id, ghlOpportunities.pipelineId))
+          .where(
+            and(
+              gte(ghlOpportunities.ghlCreatedAt, start),
+              lte(ghlOpportunities.ghlCreatedAt, end),
+            ),
+          )
+      )
+        .filter(
+          (r) =>
+            !followedIds.has(r.pipelineId) &&
+            isApplicationFormSource(r.source) &&
+            r.created,
+        )
+        .map((r) => ({
+          contactId: r.contactId,
+          name: `${r.firstName} ${r.lastName}`.trim() || r.email || "Unknown",
+          on: localDate(r.created!, tz),
+          pipeline: r.pipeline ?? r.pipelineId,
+          alsoInFollowed: Boolean(
+            r.contactPipelineId && followedIds.has(r.contactPipelineId),
+          ),
+        }))
     : [];
 
   // Appointments: the whole window plus a tail on either side so to-do
@@ -138,7 +263,15 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       startTime: appointments.startTime,
     })
     .from(appointments)
-    .where(and(gte(appointments.startTime, new Date(start.getTime() - 120 * 86_400_000)), lte(appointments.startTime, new Date(end.getTime() + 120 * 86_400_000))));
+    .where(
+      and(
+        gte(
+          appointments.startTime,
+          new Date(start.getTime() - 120 * 86_400_000),
+        ),
+        lte(appointments.startTime, new Date(end.getTime() + 120 * 86_400_000)),
+      ),
+    );
 
   // Manual weekly rows are dated by their Sunday, so widen by a week each side.
   const spendRows = await db
@@ -162,7 +295,12 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       purchases: adSpend.purchases,
     })
     .from(adSpend)
-    .where(and(gte(adSpend.date, shiftDate(opts.start, -7)), lte(adSpend.date, shiftDate(opts.end, 7))));
+    .where(
+      and(
+        gte(adSpend.date, shiftDate(opts.start, -7)),
+        lte(adSpend.date, shiftDate(opts.end, 7)),
+      ),
+    );
 
   const paymentRows = await db
     .select({
@@ -188,11 +326,30 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
 
   // P1 #7: name the people payments are matched to even when they are outside the funnel scope (existing clients).
   const inScope = new Set(contactIds);
-  const outsideIds = Array.from(new Set(paymentRows.map((p) => p.contactId).filter((id): id is string => Boolean(id) && !inScope.has(id as string))));
+  const outsideIds = Array.from(
+    new Set(
+      paymentRows
+        .map((p) => p.contactId)
+        .filter(
+          (id): id is string => Boolean(id) && !inScope.has(id as string),
+        ),
+    ),
+  );
   const outsideContacts = outsideIds.length
-    ? (await db.select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, source: contacts.attributionSource }).from(contacts).where(inArray(contacts.id, outsideIds))).map((c) => ({
+    ? (
+        await db
+          .select({
+            id: contacts.id,
+            firstName: contacts.firstName,
+            lastName: contacts.lastName,
+            email: contacts.email,
+            source: contacts.attributionSource,
+          })
+          .from(contacts)
+          .where(inArray(contacts.id, outsideIds))
+      ).map((c) => ({
         id: c.id,
-        name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown',
+        name: `${c.firstName} ${c.lastName}`.trim() || c.email || "Unknown",
         source: c.source,
       }))
     : [];
@@ -202,8 +359,10 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
   // A code the business does not report in (only CAD / USD exist today) is
   // dropped and counted, never summed as if it were either.
   let unsupported = 0;
-  const withCurrency = <T extends { currency: string }>(rows: T[]): Array<Omit<T, 'currency'> & { currency: Currency }> => {
-    const out: Array<Omit<T, 'currency'> & { currency: Currency }> = [];
+  const withCurrency = <T extends { currency: string }>(
+    rows: T[],
+  ): Array<Omit<T, "currency"> & { currency: Currency }> => {
+    const out: Array<Omit<T, "currency"> & { currency: Currency }> = [];
     for (const r of rows) {
       const currency = parseCurrency(r.currency);
       if (currency) out.push({ ...r, currency });
@@ -216,20 +375,35 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
 
   const result: MetricsInput = {
     money: { ...money, unsupportedRows: unsupported },
-    contacts: contactRows.map((c) => ({
-      id: c.id,
-      name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown',
-      email: c.email,
-      source: c.source,
-      stageId: c.stageId,
-      stageName: c.stageName ?? null,
-      role: c.role ?? null,
-      appliedOn: appliedDate(c),
-      monetaryValueCents: c.monetaryValueCents ?? 0,
-      origin: c.origin,
-      campaign: c.campaign,
-      attribution: c.attribution ?? null,
-    })),
+    contacts: contactRows.map((c) => {
+      const on = appliedDate(c);
+      const sig = applicationSignal({
+        source: c.source,
+        contactCreatedOn: c.ghlCreatedAt ? localDate(c.ghlCreatedAt, tz) : null,
+        appliedOn: on,
+        firstStageRole: c.ghlOpportunityId
+          ? (firstRole.get(c.ghlOpportunityId) ?? null)
+          : null,
+        movedIn: Boolean(c.ghlOpportunityId && movedIn.has(c.ghlOpportunityId)),
+        origin: c.origin,
+      });
+      return {
+        id: c.id,
+        name: `${c.firstName} ${c.lastName}`.trim() || c.email || "Unknown",
+        email: c.email,
+        source: c.source,
+        stageId: c.stageId,
+        stageName: c.stageName ?? null,
+        role: c.role ?? null,
+        appliedOn: on,
+        applicationSignal: sig.signal,
+        applicationSignalReason: sig.reason,
+        monetaryValueCents: c.monetaryValueCents ?? 0,
+        origin: c.origin,
+        campaign: c.campaign,
+        attribution: c.attribution ?? null,
+      };
+    }),
     transitions: transitionRows.map((t) => ({
       contactId: t.contactId,
       fromRole: t.fromRole ?? null,
@@ -255,7 +429,11 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       refundedCents: p.refundedCents,
       currency: p.currency,
       status: p.status,
-      on: p.paidAt ? localDate(p.paidAt, tz) : p.failedAt ? localDate(p.failedAt, tz) : null,
+      on: p.paidAt
+        ? localDate(p.paidAt, tz)
+        : p.failedAt
+          ? localDate(p.failedAt, tz)
+          : null,
       origin: p.origin,
       email: p.email,
       customerName: p.customerName,
@@ -268,6 +446,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
   // Computed while mapping the contacts above (appliedDate fills it).
   result.health = health;
   result.outsideContacts = outsideContacts;
+  result.otherPipelineApplications = otherPipelineApplications;
   result.asOfMs = Date.now(); // F2: appointments after now are not "past" for show-rate coverage
   return result;
 }

@@ -145,7 +145,10 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   const consultRateDelta = computeDelta(consultRate, rateOf(scorecard.previousShowRates, 'Consult'));
   const roadmapRateDelta = computeDelta(roadmapRate, rateOf(scorecard.previousShowRates, 'Roadmap'));
   const pipeline: ScorecardStat[] = [
-    stat('applied', 'Applied', String(k.applied.current ?? 0), k.applied, 'count'),
+    stat('applied', 'Applied', String(k.applied.current ?? 0), k.applied, 'count',
+      scorecard.appliedCaveat.withoutFormRecord.length || scorecard.appliedCaveat.otherPipelines.length
+        ? { sub: `${scorecard.appliedCaveat.withoutFormRecord.length} no application form record${scorecard.appliedCaveat.otherPipelines.length ? ` · ${scorecard.appliedCaveat.otherPipelines.length} in other pipelines` : ''} · definition under review` }
+        : undefined),
     stat('consults_booked', 'Consults booked', String(k.consultsBooked.current ?? 0), k.consultsBooked, 'count'),
     stat('consult_show_rate', 'Consult show rate', formatPct(consultRate), consultRateDelta, 'pct', consultRate === null ? { sub: 'no decided consults' } : undefined),
     stat('roadmaps_booked', 'Roadmaps booked', String(k.roadmapsBooked.current ?? 0), k.roadmapsBooked, 'count'),
@@ -215,6 +218,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   const notes: ScorecardView['notes'] = [];
   if (awaiting) notes.push({ text: 'Revenue and ROAS will appear once Stripe is connected. Nothing here is estimated.', tone: 'info' });
   else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${money$(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
+  if (scorecard.appliedCaveat.withoutFormRecord.length || scorecard.appliedCaveat.otherPipelines.length) notes.push({ text: `Applied: ${scorecard.appliedCaveat.text} (${scorecard.appliedCaveat.withoutFormRecord.map((p) => p.name).join(', ')}${scorecard.appliedCaveat.otherPipelines.length ? `; other pipelines: ${scorecard.appliedCaveat.otherPipelines.map((p) => p.name).join(', ')}` : ''})`, tone: 'warn' });
   if (rev.unclassifiedCount > 0) notes.push({ text: `${rev.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, tone: 'warn' });
   if (m.unattributedInitialCount > 0) notes.push({ text: `${money$(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
   for (const r of scorecard.showRates) if (r.withheld) notes.push({ text: `${r.type} show rate not shown: ${r.withheld}.`, tone: 'warn' });

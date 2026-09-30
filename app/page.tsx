@@ -13,7 +13,7 @@ import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
-import { DataHealthNotice, marketingWarnings, inputWarnings } from '@/components/DataHealth';
+import { DataHealthNotice, marketingWarnings, inputWarnings, appliedCaveatWarnings } from '@/components/DataHealth';
 import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
@@ -99,7 +99,7 @@ function CommandCenter() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
-        <DataHealthNotice items={[...inputWarnings(data.inputHealth), ...marketingWarnings(marketing, scorecard.revenue)]} />
+        <DataHealthNotice items={[...appliedCaveatWarnings(scorecard.appliedCaveat), ...inputWarnings(data.inputHealth), ...marketingWarnings(marketing, scorecard.revenue)]} />
 
         {/* ---- Row 1: Initial cash · Enrollments · Paid CAC · Blended CAC · ROAS ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
@@ -248,7 +248,7 @@ function CommandCenter() {
             icon={CalendarCheck}
             accent="accent"
             sparkline={spark('consultsBooked')}
-            subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied`}
+            subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied${scorecard.appliedCaveat.withoutFormRecord.length ? ` (${scorecard.appliedCaveat.withoutFormRecord.length} no form record)` : ''}`}
           />
           <KpiDeltaTile
             label="Cost per roadmap booked"
@@ -276,6 +276,7 @@ function CommandCenter() {
         {/* ---- Funnel summary strip (the deep-dive lives on /funnel) ---- */}
         <FunnelStrip
           funnel={scorecard.cohort.funnel}
+          appliedCaveat={scorecard.appliedCaveat}
           conversions={scorecard.cohort.conversions}
           href={`/funnel?${search.toString()}`}
           rangeLabel={`applicants of ${range.resolvedLabel} and where they are now — a cohort, so it differs from the in-period tiles above`}

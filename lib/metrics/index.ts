@@ -91,6 +91,14 @@ export interface ContactRow {
   /** utm_campaign from GHL attribution — joins to ad platform campaigns by name. */
   campaign?: string | null;
   /**
+   * The application-form signal (2026-09-30 caveat, docs/applied-reconciliation-2026-09-20.md): 'form' when the
+   * contact's GHL source is an application form AND the contact was created for this application or its
+   * opportunity was first seen at Applied; 'none' for a manual entry into a later stage, a non-form contact, or a
+   * moved-in opportunity. `applicationSignalReason` says which. Set by the loader; fixtures may omit it.
+   */
+  applicationSignal?: 'form' | 'none';
+  applicationSignalReason?: string | null;
+  /**
    * paid | organic | null (not yet classified). Paid CAC and ROAS use ONLY
    * contacts classed `paid`; organic/direct must never leak into them.
    */
@@ -198,6 +206,11 @@ export interface MetricsInput {
   appointments: AppointmentRow[];
   spend: SpendRow[];
   payments: PaymentRow[];
+  /**
+   * Form-sourced applications the mirror saw created in an UNFOLLOWED pipeline (routing / workflow issues —
+   * deferred item 3). Never counted; shown in the Applied caveat.
+   */
+  otherPipelineApplications?: Array<{ contactId: string; name: string; on: string; pipeline: string; alsoInFollowed: boolean }>;
   /** Loader diagnostics (optional; fixtures omit it). */
   health?: InputHealth;
   /**
@@ -688,6 +701,59 @@ export function computeShowRates(input: MetricsInput, range: Range): ShowRate[] 
       return { ...t, coverage, withheld, rate: covered && decided > 0 ? t.showed / decided : null };
     })
     .sort((a, b) => a.type.localeCompare(b.type));
+}
+
+// ---------------------------------------------------------------------------
+// Applied caveat (2026-09-30) — the definition of Applied is under review (docs/deferred.md #1). Until it is
+// decided, every Applied number says how many of its rows have no application-form record and how many form
+// applicants landed in other pipelines. Nothing here changes a count.
+// ---------------------------------------------------------------------------
+
+/** The GHL contact sources the application forms write ("New Application 7.10", "Fit Physician Application (B)", …). */
+export function isApplicationFormSource(source: string | null | undefined): boolean {
+  return /application/i.test((source ?? '').trim());
+}
+
+/**
+ * Pure: does this counted application carry a form record? A form-sourced contact created for this application
+ * (within a day of it), or one whose opportunity was first observed at Applied, does. A pre-existing form contact
+ * dropped straight into a later stage, a non-form contact, or a moved-in opportunity does not.
+ */
+export function applicationSignal(c: { source: string | null; contactCreatedOn: string | null; appliedOn: string | null; firstStageRole: string | null; movedIn?: boolean; origin?: string }): { signal: 'form' | 'none'; reason: string } {
+  // A fabricated row has no GHL form record to check; the sample-data banner already says it is not real.
+  if (c.origin === 'demo') return { signal: 'form', reason: 'sample data' };
+  if (c.movedIn) return { signal: 'none', reason: 'opportunity moved in from another pipeline' };
+  if (!isApplicationFormSource(c.source)) return { signal: 'none', reason: `contact source is ${c.source ? `"${c.source}"` : 'empty'}, not an application form` };
+  const newContact = Boolean(c.contactCreatedOn && c.appliedOn && Math.abs(Date.parse(c.contactCreatedOn) - Date.parse(c.appliedOn)) <= 86_400_000);
+  if (newContact) return { signal: 'form', reason: 'new contact created by the application form' };
+  if (c.firstStageRole === 'applied') return { signal: 'form', reason: 'returning contact, application entered at Applied' };
+  if (c.firstStageRole === null) return { signal: 'form', reason: 'form-sourced contact; first stage not observed' };
+  return { signal: 'none', reason: `pre-existing form contact entered directly at ${c.firstStageRole.replace(/_/g, ' ')}` };
+}
+
+export interface AppliedCaveat {
+  applied: number;
+  /** Counted applications with no application-form record, with why. */
+  withoutFormRecord: Array<{ contactId: string; name: string; reason: string }>;
+  /** Form applicants whose opportunity was created in an unfollowed pipeline in the range. */
+  otherPipelines: Array<{ contactId: string; name: string; pipeline: string; alsoInFollowed: boolean }>;
+  /** One line for tiles, data health and the AI: "52 applied · 12 have no application form record · 3 applicants in other pipelines. Definition under review." */
+  text: string;
+}
+
+export function computeAppliedCaveat(input: MetricsInput, range: Range, mode: FunnelMode = 'period'): AppliedCaveat {
+  const ids = membershipFor(input, range, mode).applied;
+  const byId = new Map(input.contacts.map((c) => [c.id, c]));
+  const withoutFormRecord = ids
+    .map((id) => byId.get(id))
+    .filter((c): c is ContactRow => Boolean(c) && c!.applicationSignal === 'none')
+    .map((c) => ({ contactId: c.id, name: c.name, reason: c.applicationSignalReason ?? 'no application form record' }));
+  const otherPipelines = (input.otherPipelineApplications ?? []).filter((o) => inRange(o.on, range)).map(({ contactId, name, pipeline, alsoInFollowed }) => ({ contactId, name, pipeline, alsoInFollowed }));
+  const parts = [`${ids.length} applied`];
+  if (withoutFormRecord.length) parts.push(`${withoutFormRecord.length} ${withoutFormRecord.length === 1 ? 'has' : 'have'} no application form record`);
+  if (otherPipelines.length) parts.push(`${otherPipelines.length} applicant${otherPipelines.length === 1 ? '' : 's'} in other pipelines`);
+  const text = `${parts.join(' · ')}. Definition under review.`;
+  return { applied: ids.length, withoutFormRecord, otherPipelines, text };
 }
 
 export interface Cac {
@@ -1346,6 +1412,8 @@ export interface Scorecard {
   timeInStage: TimeInStage[];
   /** True when every count in the funnel is zero — digests skip sending. */
   empty: boolean;
+  /** The Applied caveat for the range (period mode; the cohort set is the same people). */
+  appliedCaveat: AppliedCaveat;
 }
 
 export function computeScorecard(
@@ -1418,6 +1486,7 @@ export function computeScorecard(
     },
     timeInStage: computeTimeInStage(input, range),
     empty: funnel.stages.every((s) => s.count === 0),
+    appliedCaveat: computeAppliedCaveat(input, range),
   };
 }
 

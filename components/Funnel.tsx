@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { formatCents, formatPct, FUNNEL_STAGES, FUNNEL_MODE_LABELS, type Funnel as FunnelData, type ChipTone, type FunnelStageKey } from '@/lib/metrics';
+import { formatCents, formatPct, FUNNEL_STAGES, FUNNEL_MODE_LABELS, type Funnel as FunnelData, type ChipTone, type FunnelStageKey, type AppliedCaveat } from '@/lib/metrics';
 import { formatRangeLabel } from '@/lib/dates';
 import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
@@ -33,10 +33,19 @@ export const Funnel: React.FC<{
   rowHeight?: number;
   /** Maturing-data disclaimer: badges the history-dependent stages and every conversion chip while active. */
   maturity?: DataMaturity | null;
-}> = ({ funnel, conversions, baseline, rangeLabel, compact, rowHeight, maturity }) => {
+  /** The Applied caveat (definition under review): counts under the Applied row, people in the drawer. */
+  appliedCaveat?: AppliedCaveat | null;
+}> = ({ funnel, conversions, baseline, rangeLabel, compact, rowHeight, maturity, appliedCaveat }) => {
   const stages = funnel.stages;
   const max = Math.max(...stages.map((s) => s.count), 1);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  /** -2 = the applications without a form record; -3 = form applicants in other pipelines (the caveat's people). */
+  const caveatOpen =
+    openIndex === -2 && appliedCaveat
+      ? { label: 'Applied · no application form record', count: appliedCaveat.withoutFormRecord.length, contactIds: appliedCaveat.withoutFormRecord.map((p) => p.contactId), shareOfApplied: null }
+      : openIndex === -3 && appliedCaveat
+        ? { label: 'Form applicants in other pipelines', count: appliedCaveat.otherPipelines.length, contactIds: appliedCaveat.otherPipelines.map((p) => p.contactId), shareOfApplied: null }
+        : null;
   const baselineLabel = formatRangeLabel(baseline.start, baseline.end);
   const cohort = funnel.mode === 'cohort';
   const modeLabel = FUNNEL_MODE_LABELS[funnel.mode].label;
@@ -57,6 +66,8 @@ export const Funnel: React.FC<{
   const open =
     openIndex === null
       ? null
+      : caveatOpen
+        ? caveatOpen
       : openIndex === -1
         ? { label: 'Previous leads', count: funnel.previousLeads.count, contactIds: funnel.previousLeads.contactIds, shareOfApplied: null }
         : stages[openIndex];
@@ -146,6 +157,22 @@ export const Funnel: React.FC<{
                 {s.withheld ? '—' : s.count}
               </div>
             </button>
+            {s.key === 'applied' && appliedCaveat && (appliedCaveat.withoutFormRecord.length > 0 || appliedCaveat.otherPipelines.length > 0) && (
+              <div className="pl-[6px] pb-1 text-[11px] flex flex-wrap items-center gap-x-1.5" style={{ color: 'var(--warning)' }} data-testid="applied-caveat">
+                {appliedCaveat.withoutFormRecord.length > 0 && (
+                  <button type="button" className="underline focus-ring rounded" onClick={() => setOpenIndex(-2)} title="Manual entries into later stages and non-form contacts — click for the names">
+                    {appliedCaveat.withoutFormRecord.length} no application form record
+                  </button>
+                )}
+                {appliedCaveat.withoutFormRecord.length > 0 && appliedCaveat.otherPipelines.length > 0 && <span>·</span>}
+                {appliedCaveat.otherPipelines.length > 0 && (
+                  <button type="button" className="underline focus-ring rounded" onClick={() => setOpenIndex(-3)} title="Form applicants whose opportunity was created in an unfollowed pipeline — click for the names">
+                    {appliedCaveat.otherPipelines.length} applicant{appliedCaveat.otherPipelines.length === 1 ? '' : 's'} in other pipelines
+                  </button>
+                )}
+                <span style={{ color: 'var(--text-quaternary)' }}>· definition under review</span>
+              </div>
+            )}
           </React.Fragment>
         );
       })}
@@ -213,7 +240,9 @@ export const Funnel: React.FC<{
           open
             ? openIndex === -1
               ? `${rangeLabel} · parked previous leads, outside conversion math`
-              : `${rangeLabel} · ${modeLabel} · ${formatPct(open.shareOfApplied)} of applied`
+              : caveatOpen
+                ? `${rangeLabel} · ${modeLabel} · ${openIndex === -2 ? `counted in the ${appliedCaveat?.applied ?? 0} applied` : 'not counted'} · definition under review`
+                : `${rangeLabel} · ${modeLabel} · ${formatPct(open.shareOfApplied)} of applied`
             : undefined
         }
         contactIds={open?.contactIds ?? []}

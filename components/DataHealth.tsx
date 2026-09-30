@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import type { InputHealth, MarketingMetrics, Revenue } from '@/lib/metrics';
+import type { AppliedCaveat, InputHealth, MarketingMetrics, Revenue } from '@/lib/metrics';
 import { formatCents } from '@/lib/metrics';
 
 /**
@@ -90,6 +90,49 @@ export function inputWarnings(h: InputHealth | undefined | null): React.ReactNod
     );
   }
   return out;
+}
+
+/** Names, first five linked, then "and N more" — the people are one click away. */
+const NameList: React.FC<{ people: Array<{ contactId: string; name: string; title?: string }> }> = ({ people }) => (
+  <>
+    {people.slice(0, 5).map((p, i) => (
+      <React.Fragment key={p.contactId}>
+        {i > 0 && ', '}
+        <Link href={`/clients/${p.contactId}`} className="underline" title={p.title}>
+          {p.name}
+        </Link>
+      </React.Fragment>
+    ))}
+    {people.length > 5 && ` and ${people.length - 5} more`}
+  </>
+);
+
+/**
+ * The Applied caveat (2026-09-30): the definition of Applied is under review (docs/deferred.md #1). Until it is
+ * decided, every Applied number says how many rows have no application-form record and how many form applicants
+ * landed in other pipelines — with the people one click away. Nothing is changed or hidden.
+ */
+export function appliedCaveatWarnings(c: AppliedCaveat | undefined | null): React.ReactNode[] {
+  if (!c || (c.withoutFormRecord.length === 0 && c.otherPipelines.length === 0)) return [];
+  return [
+    <span key="applied-caveat">
+      <strong>Applied {c.applied}</strong> · definition under review.
+      {c.withoutFormRecord.length > 0 && (
+        <>
+          {' '}
+          <strong>{c.withoutFormRecord.length}</strong> {c.withoutFormRecord.length === 1 ? 'has' : 'have'} no application form record (manual entries or non-form contacts):{' '}
+          <NameList people={c.withoutFormRecord.map((p) => ({ contactId: p.contactId, name: p.name, title: p.reason }))} />.
+        </>
+      )}
+      {c.otherPipelines.length > 0 && (
+        <>
+          {' '}
+          <strong>{c.otherPipelines.length}</strong> form applicant{c.otherPipelines.length === 1 ? '' : 's'} landed in other pipelines and {c.otherPipelines.length === 1 ? 'is' : 'are'} not counted:{' '}
+          <NameList people={c.otherPipelines.map((p) => ({ contactId: p.contactId, name: p.name, title: `${p.pipeline}${p.alsoInFollowed ? ' · also has an application in the followed pipeline' : ''}` }))} />.
+        </>
+      )}
+    </span>,
+  ];
 }
 
 export const DataHealthNotice: React.FC<{ items: React.ReactNode[] }> = ({ items }) => {

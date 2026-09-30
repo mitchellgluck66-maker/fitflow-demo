@@ -113,7 +113,7 @@ describe('P2 #12: the Command Center says which mode each number is in', () => {
     const fs = await import('fs');
     const src = fs.readFileSync('app/page.tsx', 'utf8');
     expect(src).toContain('subtext={`in period · ${marketing.paidEnrollments} paid');
-    expect(src).toContain('subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied`}');
+    expect(src).toContain('subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied${');
     expect(src).toContain('a cohort, so it differs from the in-period tiles above');
   });
 });

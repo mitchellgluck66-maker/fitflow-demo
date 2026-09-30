@@ -150,7 +150,13 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       .filter((c) => c.tone === 'warn')
       .slice(0, 5)
       .map((c) => ({ from: c.from, to: c.to, current: round(c.current), previous: round(c.previous) })),
-    dataCaveats: dataCaveats(result.maturity),
+    dataCaveats: [
+      ...dataCaveats(result.maturity),
+      // Applied caveat (2026-09-30): the definition is under review; the model must say so when it cites Applied.
+      ...(result.scorecard.appliedCaveat.withoutFormRecord.length || result.scorecard.appliedCaveat.otherPipelines.length
+        ? [`Applied (definition under review): ${result.scorecard.appliedCaveat.text} Mention this whenever you cite Applied or cost per lead.`]
+        : []),
+    ],
     deepLinks,
   };
 }

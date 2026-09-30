@@ -11,7 +11,7 @@ import { ChartTooltip } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { Funnel } from '@/components/Funnel';
 import { useScorecard } from '@/components/useScorecard';
-import { DataHealthNotice, inputWarnings } from '@/components/DataHealth';
+import { DataHealthNotice, inputWarnings, appliedCaveatWarnings } from '@/components/DataHealth';
 
 import { ROLE_LABELS } from '@/lib/ghl/roles';
 import { FUNNEL_MODE_LABELS, type FunnelMode } from '@/lib/metrics';
@@ -150,7 +150,7 @@ function FunnelTab() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="funnel figures" />
-        <DataHealthNotice items={inputWarnings(data.inputHealth)} />
+        <DataHealthNotice items={[...appliedCaveatWarnings(data.scorecard.appliedCaveat), ...inputWarnings(data.inputHealth)]} />
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
           <Card padding="lg" className="lg:col-span-3">
@@ -167,7 +167,7 @@ function FunnelTab() {
                 description={cohort ? 'A cohort needs applicants in the selected dates. Try a wider range.' : 'Try Last 30 days, or run a sync from Setup to pull the latest opportunities.'}
               />
             ) : (
-              <Funnel funnel={funnel} conversions={conversions} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} maturity={data.maturity} />
+              <Funnel funnel={funnel} conversions={conversions} baseline={data.baseline} rangeLabel={range.resolvedLabel} rowHeight={44} maturity={data.maturity} appliedCaveat={scorecard.appliedCaveat} />
             )}
             <p className="text-[12px] mt-3 pt-3" style={{ color: 'var(--text-tertiary)', borderTop: '1px solid var(--border-subtle)' }}>
               {cohort

@@ -282,6 +282,7 @@ function ScorecardPage() {
 
         <FunnelStrip
           funnel={result.scorecard.cohort.funnel}
+          appliedCaveat={result.scorecard.appliedCaveat}
           conversions={result.scorecard.cohort.conversions}
           href={`/funnel?${query}&mode=cohort`}
           rangeLabel={`${view.title} · who applied then, and where they are now`}

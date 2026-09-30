@@ -147,6 +147,10 @@ export function buildAskContext(result: ScorecardResult): AskContext {
   const { scorecard } = result;
   const m = scorecard.marketing;
   const dataHealth: string[] = [];
+  if (scorecard.appliedCaveat.withoutFormRecord.length || scorecard.appliedCaveat.otherPipelines.length) {
+    const c = scorecard.appliedCaveat;
+    dataHealth.push(`Applied caveat (definition under review, docs/deferred.md #1): ${c.text} No-form rows: ${c.withoutFormRecord.map((p) => `${p.name} (${p.reason})`).join('; ')}.${c.otherPipelines.length ? ` Other pipelines: ${c.otherPipelines.map((p) => `${p.name} (${p.pipeline})`).join('; ')}.` : ''} State this caveat whenever you cite Applied or cost per lead.`);
+  }
   if (scorecard.revenue.awaitingStripe) dataHealth.push('Stripe is not connected: no revenue, initial cash or ROAS exists.');
   if (m.noSpendData) dataHealth.push('No ad spend recorded for the period: every cost metric and ROAS is unavailable.');
   if (m.contractValueMissing.length) dataHealth.push(`LTV:CAC withheld: ${m.contractValueMissing.length} new client(s) have no contract value in GHL (${m.contractValueMissing.map((p) => p.name).join(', ')}).`);
