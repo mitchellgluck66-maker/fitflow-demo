@@ -28,6 +28,7 @@ import {
   date,
   index,
   uniqueIndex,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 // ---------------------------------------------------------------------------
@@ -790,3 +791,75 @@ export type AnalystNote = typeof analystNotes.$inferSelect;
 export type AnalystThread = typeof analystThreads.$inferSelect;
 export type AnalystTurn = typeof analystTurns.$inferSelect;
 export type AnalystMessage = typeof analystMessages.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Applied reconciliation (docs/plan-reconciliation-2026-09-30.md, migration 0018). Recomputed in
+// full every day from the mirror; definition-agnostic (facts + class; verdicts from
+// lib/reconcile/definitions.ts). RLS on.
+// ---------------------------------------------------------------------------
+
+export const appliedLedger = pgTable(
+  'applied_ledger',
+  {
+    /** The GHL opportunity id, or `contact:<id>` for a counted contact with no opportunity row in the mirror. */
+    key: text('key').primaryKey(),
+    opportunityId: text('opportunity_id'),
+    ghlContactId: text('ghl_contact_id'),
+    contactId: text('contact_id'),
+    name: text('name').notNull(),
+    pipelineId: text('pipeline_id'),
+    pipelineName: text('pipeline_name'),
+    /** The pipeline is followed NOW. */
+    pipelineFollowed: boolean('pipeline_followed').notNull(),
+    holdsPosition: boolean('holds_position').notNull(),
+    firstRole: text('first_role'),
+    stageNow: text('stage_now'),
+    contactSource: text('contact_source'),
+    formSource: boolean('form_source').notNull(),
+    contactCreatedOn: date('contact_created_on'),
+    contactCreatedEqualsOpportunity: boolean('contact_created_equals_opportunity').notNull().default(false),
+    opportunityCreatedOn: date('opportunity_created_on'),
+    /** The engine's Applied date for a counted row (moved-in re-dated); null when not counted. */
+    appliedOn: date('applied_on'),
+    movedInOn: date('moved_in_on'),
+    parked: boolean('parked').notNull().default(false),
+    alsoInFollowed: boolean('also_in_followed').notNull().default(false),
+    /** The business day the row belongs to (applied_on for counted rows, else the opportunity's creation). */
+    ledgerOn: date('ledger_on').notNull(),
+    utmCampaign: text('utm_campaign'),
+    campaignKey: text('campaign_key'),
+    /** A1 | A2 | U | A3 | C | D | M | P | S | X | XN | unresolved */
+    class: text('class').notNull(),
+    reason: text('reason').notNull(),
+    /** Copied from the engine; null = unresolved. */
+    verdictCurrent: boolean('verdict_current'),
+    /** deferred #1; null = unresolved. */
+    verdictCandidate: boolean('verdict_candidate'),
+    ledgerVersion: text('ledger_version').notNull(),
+    computedAt: timestamp('computed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [index('applied_ledger_on_idx').on(t.ledgerOn), index('applied_ledger_campaign_idx').on(t.campaignKey, t.ledgerOn), index('applied_ledger_contact_idx').on(t.ghlContactId)],
+);
+
+/** Meta "Website Submit Applications" per campaign per ACCOUNT day vs FitFlow's applications tracked to that campaign. */
+export const appliedRatioDaily = pgTable(
+  'applied_ratio_daily',
+  {
+    campaignId: text('campaign_id').notNull(),
+    /** The Meta ACCOUNT day (timezone in `metaDayTz`). */
+    date: date('date').notNull(),
+    campaignName: text('campaign_name').notNull(),
+    campaignKey: text('campaign_key').notNull(),
+    metaDayTz: text('meta_day_tz').notNull(),
+    /** null = not fetched; 0 only when the day's request succeeded. */
+    metaSubmits: integer('meta_submits'),
+    fitflowApplied: integer('fitflow_applied').notNull().default(0),
+    fitflowFormApplicants: integer('fitflow_form_applicants').notNull().default(0),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true, mode: 'date' }),
+    computedAt: timestamp('computed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.campaignId, t.date] }), index('applied_ratio_key_idx').on(t.campaignKey, t.date)],
+);
+
+export type AppliedLedgerRow = typeof appliedLedger.$inferSelect;
+export type AppliedRatioDailyRow = typeof appliedRatioDaily.$inferSelect;

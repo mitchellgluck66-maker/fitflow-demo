@@ -16,7 +16,9 @@ export type MarkerFamily =
   | 'meta.spend'
   | 'stripe.payments'
   | 'stripe.completeness'
-  | 'fx.rates';
+  | 'fx.rates'
+  | 'applied.ledger'
+  | 'applied.ratio';
 
 export interface Marker {
   family: MarkerFamily;

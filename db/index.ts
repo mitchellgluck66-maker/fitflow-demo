@@ -128,6 +128,8 @@ export {
   analystThreads,
   analystTurns,
   analystMessages,
+  appliedLedger,
+  appliedRatioDaily,
   SEMANTIC_ROLES,
 } from './schema';
 export type {

@@ -22,6 +22,7 @@ import { computeFunnel, computeMarketing, computeRevenueSummary, computeShowRate
 import { getGhlConfig } from '../lib/ghl/config';
 import { listAllOpportunities, countOpportunities, OPPORTUNITY_STATUSES } from '../lib/ghl/client';
 import { readReconcileSummary } from '../lib/ghl/reconcile';
+import { readAppliedSummary } from '../lib/reconcile/appliedLedger';
 import { getStripeConfig } from '../lib/stripe/config';
 import { listAll } from '../lib/stripe/client';
 import { getMetaConfig } from '../lib/meta/config';
@@ -339,6 +340,8 @@ const MARKER_KINDS: Record<MarkerFamily, string[] | null> = {
   'stripe.payments': ['stripe_delta', 'stripe_reconcile', 'stripe_backfill'],
   'stripe.completeness': ['stripe_completeness'],
   'fx.rates': ['fx_boc'],
+  'applied.ledger': ['applied_ledger'],
+  'applied.ratio': ['applied_ratio'],
 };
 
 async function health(ghlLiveTotal: number | null) {
@@ -406,6 +409,30 @@ function report(date: string, tz: string, RANGES: Range[], asOf: Date, OUT: stri
   return failN;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// 7. Applied reconciliation ledger (docs/plan-reconciliation-2026-09-30.md): the ledger's current-definition count
+//    for last week must equal the engine's applied (copied from the engine by construction — this guards the copy).
+async function appliedLedgerCheck(RANGES: Range[], engineApplied: Record<string, number>) {
+  const summary = await readAppliedSummary();
+  if (!summary) {
+    check('Applied ledger', 'reconciled', false, 'never ran — the dispatch step applied_ledger has not completed');
+    return null;
+  }
+  const week = RANGES.find((r) => r.key === 'week');
+  if (week) {
+    const [row] = await rows<{ current: string; candidate: string; unresolved: string }>(sql`
+      select count(*) filter (where verdict_current) ::text current,
+             count(*) filter (where verdict_candidate) ::text candidate,
+             count(*) filter (where verdict_current is null) ::text unresolved
+      from applied_ledger where ledger_on between ${week.start}::date and ${week.end}::date`);
+    const engine = engineApplied.week;
+    const detail = `ledger current ${row.current} · candidate ${row.candidate} (deferred #1, not in use) · unresolved ${row.unresolved} · engine ${engine ?? 'not computed'} · ledger through ${summary.through}`;
+    if (engine === undefined) check('Applied ledger', 'current = engine applied (last week)', false, `${detail} — run with the engine step to compare`);
+    else check('Applied ledger', 'current = engine applied (last week)', Number(row.current) === engine, detail);
+  }
+  return summary;
+}
+
 async function main() {
   const what = process.argv[2] ?? 'all';
   const tz = await getTimezone(); // throws when not configured (F8) — never New York by default
@@ -446,6 +473,7 @@ async function main() {
     const ghlOut = sources.ghl as Record<string, any>;
     const liveTotal = ghlOut && !ghlOut.error ? Object.values(ghlOut).reduce((t: number, v: any) => t + (typeof v?.liveTotal === 'number' ? v.liveTotal : 0), 0) : null;
     sources.health = await health(liveTotal);
+    sources.appliedLedger = await appliedLedgerCheck(RANGES, engineApplied);
     extra.appliedByRange = ghlOut?.appliedByRange ?? {};
     fs.writeFileSync(path.join(OUT, 'sources.json'), JSON.stringify(sources, null, 2));
   }
