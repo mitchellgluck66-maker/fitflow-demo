@@ -205,7 +205,17 @@ describe('askDashboard', () => {
     const r = await askDashboard({ question: 'Forecast?', contextOverride: ctx });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/\$9,999/);
+    expect(r.errorKind).toBe('grounding');
     expect((await db.select().from(aiReports).where(eq(aiReports.kind, 'ask'))).length).toBe(before);
+  });
+
+  it('an Anthropic rejection is errorKind "api" with the status and request id (the card words it "AI request rejected")', async () => {
+    const ctx = buildAskContext(fakeResult());
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'bad schema' } }), { status: 400, headers: { 'content-type': 'application/json', 'request-id': 'req_ask_1' } }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await askDashboard({ question: 'Why?', contextOverride: ctx });
+    expect(r).toMatchObject({ ok: false, errorKind: 'api', answer: null });
+    expect(r.error).toMatch(/^Anthropic 400 · invalid_request_error: bad schema \(request_id req_ask_1\)$/);
   });
 
   it('rate-limits the sixth question inside a minute', async () => {
@@ -214,7 +224,7 @@ describe('askDashboard', () => {
     vi.stubGlobal('fetch', fetchSpy);
     for (let i = 0; i < ASK_RATE_LIMIT; i += 1) expect((await askDashboard({ question: `q${i}`, contextOverride: ctx })).ok).toBe(true);
     const sixth = await askDashboard({ question: 'one more', contextOverride: ctx });
-    expect(sixth).toMatchObject({ ok: false, rateLimited: true });
+    expect(sixth).toMatchObject({ ok: false, rateLimited: true, errorKind: 'rate_limit' });
     expect(fetchSpy).toHaveBeenCalledTimes(ASK_RATE_LIMIT);
   });
 

@@ -91,7 +91,7 @@ describe('the wire request askClaude sends', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const r = await askClaude({ system: 's', user: 'u', inputSchema: prompts.NARRATIVE_TOOL_SCHEMA, schema: z.unknown() });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/^Anthropic 400: /);
+    expect(r.error).toMatch(/^Anthropic 400 · invalid_request_error: /);
     expect(r.error).toContain('req_contract_1');
     expect(r.error).not.toContain('sk-ant-contract-test-0000');
   });

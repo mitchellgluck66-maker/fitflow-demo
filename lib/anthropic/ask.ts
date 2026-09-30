@@ -63,6 +63,8 @@ export interface AskResult {
   model: string | null;
   generatedAt: string | null;
   error?: string;
+  /** What kind of failure (2026-09-30): the Ask card words an `api` rejection as "AI request rejected: …" with Retry. */
+  errorKind?: 'api' | 'grounding' | 'rate_limit' | 'input';
 }
 
 export async function askDashboard(params: {
@@ -75,7 +77,7 @@ export async function askDashboard(params: {
   contextOverride?: AskContext;
 }): Promise<AskResult> {
   const question = params.question.trim().slice(0, 500);
-  if (!question) return { ok: false, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: 'Ask a question first.' };
+  if (!question) return { ok: false, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: 'Ask a question first.', errorKind: 'input' };
 
   const config = await getAnthropicConfig();
   if (!config.configured) {
@@ -84,7 +86,7 @@ export async function askDashboard(params: {
 
   const limit = checkAskRateLimit();
   if (!limit.ok) {
-    return { ok: false, rateLimited: true, retryAfterSec: limit.retryAfterSec, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: `Rate limit: ${ASK_RATE_LIMIT} questions per minute. Try again in ${limit.retryAfterSec}s.` };
+    return { ok: false, rateLimited: true, retryAfterSec: limit.retryAfterSec, reportId: null, question, answer: null, citations: [], currency: null, period: null, model: null, generatedAt: null, error: `Rate limit: ${ASK_RATE_LIMIT} questions per minute. Try again in ${limit.retryAfterSec}s.`, errorKind: 'rate_limit' };
   }
 
   const result = await getScorecard({ range: params.range ?? 'this_week', compare: params.compare ?? 'previous_period', start: params.start, end: params.end });
@@ -100,7 +102,7 @@ export async function askDashboard(params: {
     maxTokens: 1200,
   });
   if (!answer.ok || !answer.data) {
-    return { ok: false, notConfigured: answer.notConfigured, reportId: null, question, answer: null, citations: [], currency: null, period, model: answer.model, generatedAt: null, error: answer.error };
+    return { ok: false, notConfigured: answer.notConfigured, reportId: null, question, answer: null, citations: [], currency: null, period, model: answer.model, generatedAt: null, error: answer.error, errorKind: 'api' };
   }
 
   const grounding = verifyAnswerNumbers(answer.data.answer, answer.data.citations, context);
@@ -116,6 +118,7 @@ export async function askDashboard(params: {
       model: answer.model,
       generatedAt: null,
       error: `The answer cited numbers that are not in the dashboard data (${grounding.unknown.slice(0, 5).join(', ')}) and was discarded. Ask again, or narrow the question.`,
+      errorKind: 'grounding',
     };
   }
 

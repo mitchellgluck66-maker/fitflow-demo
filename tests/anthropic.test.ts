@@ -293,7 +293,7 @@ describe('Setup Verify = a real strict structured call', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const conn = await testConnection();
     expect(conn.ok).toBe(false);
-    expect(conn.message).toMatch(/^Verification failed: Anthropic 401: .*invalid x-api-key.*req_verify_1/);
+    expect(conn.message).toMatch(/^Verification failed: Anthropic 401 · authentication_error: invalid x-api-key \(request_id req_verify_1\)$/);
   });
 });
 
@@ -311,7 +311,7 @@ describe('anthropic_error incident', () => {
     await call();
     const r = await call();
     expect(fetchSpy).toHaveBeenCalledTimes(2); // a 400 is never retried
-    expect(r.error).toMatch(/Anthropic 400: .*maxItems.*req_400/);
+    expect(r.error).toMatch(/Anthropic 400 · invalid_request_error: For 'array' type, property 'maxItems' is not supported \(request_id req_400\)/);
     const rows = await open();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ severity: 'critical' });

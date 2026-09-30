@@ -116,12 +116,19 @@ export async function askClaude<T>(params: {
   }
 }
 
-/** "Anthropic 400: <message> (request_id req_…)" — the id is what Anthropic support needs. */
+/**
+ * "Anthropic 400 · invalid_request_error: <message> (request_id req_…)". Reads the API's own error body (the SDK's
+ * `err.error`) instead of its raw JSON-in-a-string message; the request id is what Anthropic support needs.
+ */
 export function describeError(err: unknown): string {
+  if (err instanceof Anthropic.APIConnectionError) return `Anthropic connection error: ${err.message}`;
   if (err instanceof Anthropic.APIError) {
-    const id = err.requestID;
-    const base = `Anthropic ${err.status ?? 'error'}: ${err.message}`;
-    return id && !base.includes(id) ? `${base} (request_id ${id})` : base;
+    const body = err.error as { error?: { type?: string; message?: string }; request_id?: string | null } | undefined;
+    const detail = body?.error?.message
+      ? `${body.error.type ? `${body.error.type}: ` : ''}${body.error.message}`
+      : err.message.replace(new RegExp(`^${err.status} `), '');
+    const id = err.requestID ?? body?.request_id ?? null;
+    return `Anthropic ${err.status ?? 'error'} · ${detail}${id ? ` (request_id ${id})` : ''}`;
   }
   return err instanceof Error ? err.message : String(err);
 }

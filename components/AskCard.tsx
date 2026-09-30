@@ -47,7 +47,8 @@ export const AskCard: React.FC = () => {
   const [history, setHistory] = useState<QA[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // kind 'api' = Anthropic rejected / failed the request → "AI request rejected: …" + Retry (2026-09-30).
+  const [error, setError] = useState<{ text: string; kind: 'api' | 'grounding' | 'rate_limit' | 'other'; question: string } | null>(null);
   const [latest, setLatest] = useState<QA | null>(null);
   const [drawer, setDrawer] = useState(false);
 
@@ -80,7 +81,13 @@ export const AskCard: React.FC = () => {
       const res = await fetch('/api/anthropic/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const d = await res.json();
       if (!res.ok || !d.ok) {
-        setError(d.error ?? d.detail ?? 'Could not answer');
+        const kind = d.errorKind === 'api' || d.errorKind === 'grounding' || d.errorKind === 'rate_limit' ? d.errorKind : res.status >= 500 ? 'api' : 'other';
+        setError({ text: d.error ?? d.detail ?? `HTTP ${res.status} with no error text`, kind, question: text });
+        return;
+      }
+      if (typeof d.answer !== 'string' || !d.answer.trim()) {
+        // Never render an empty answer as if it were one.
+        setError({ text: 'The AI returned an empty answer.', kind: 'api', question: text });
         return;
       }
       const qa: QA = { id: d.reportId, question: d.question, answer: d.answer, citations: d.citations ?? [], currency: d.currency ?? null, period: d.period, model: d.model, generatedAt: d.generatedAt };
@@ -88,7 +95,7 @@ export const AskCard: React.FC = () => {
       setHistory((h) => [qa, ...h]);
       setQuestion('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError({ text: e instanceof Error ? e.message : String(e), kind: 'api', question: text });
     } finally {
       setBusy(false);
     }
@@ -165,12 +172,25 @@ export const AskCard: React.FC = () => {
         )}
 
         {error && (
-          <p className="text-[12.5px] mt-3" role="alert" style={{ color: 'var(--negative-text, var(--danger))' }}>
-            {error}
-          </p>
+          <div className="flex items-start gap-3 mt-3" role="alert">
+            <p className="text-[12.5px] flex-1" style={{ color: 'var(--negative-text, var(--danger))' }}>
+              {error.kind === 'api' ? `AI request rejected: ${error.text}` : error.text}
+            </p>
+            {error.kind !== 'rate_limit' && (
+              <button
+                type="button"
+                onClick={() => ask(error.question)}
+                disabled={busy}
+                className="focus-ring shrink-0 text-[12px] font-medium px-2.5 py-1 rounded-[6px]"
+                style={{ border: '1px solid var(--border-default, var(--border))', color: 'var(--text-secondary)' }}
+              >
+                Retry
+              </button>
+            )}
+          </div>
         )}
 
-        {latest && (
+        {latest && latest.answer?.trim() && (
           <div className="mt-4">
             <div className="text-[12px] font-medium mb-1" style={{ color: 'var(--text-tertiary)' }}>
               Q · {latest.question}
