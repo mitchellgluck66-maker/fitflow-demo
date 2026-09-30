@@ -260,12 +260,36 @@ describe('remap suggestion + connection test', () => {
     const [stage] = await db.select().from(stages).where(eq(stages.id, 'st-weird'));
     expect(stage.semanticRole).toBeNull(); // suggestion only
 
-    fetchSpy.mockImplementation(async () =>
-      new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } }),
-    );
-    fetchSpy.mockClear();
+  });
+});
+
+// 2026-09-30: Verify used to send a plain ping (no tools) and said "Connected" for a key whose every feature 400'd.
+describe('Setup Verify = a real strict structured call', () => {
+  const reply = (content: unknown[], stop = 'tool_use') =>
+    new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5', stop_reason: stop, content, usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+  it('sends a strict, sanitized tool and says "Connected · verified with a structured call · <model>"', async () => {
+    await setSetting(ANTHROPIC_KEYS.apiKey, 'sk-ant-test-key-1234', { secret: true });
+    fetchSpy.mockImplementation(async () => reply([{ type: 'tool_use', id: 't', name: 'submit_check', input: { status: 'ok', note: 'all good' } }]));
+    vi.stubGlobal('fetch', fetchSpy);
     const conn = await testConnection();
-    expect(conn.ok).toBe(true);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(conn).toMatchObject({ ok: true, message: 'Connected · verified with a structured call · claude-sonnet-5' });
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.tools[0]).toMatchObject({ name: 'submit_check', strict: true });
+    expect(JSON.stringify(body.tools[0].input_schema)).not.toContain('maxLength');
+  });
+
+  it('a text-only reply is NOT connected', async () => {
+    fetchSpy.mockImplementation(async () => reply([{ type: 'text', text: 'ok' }], 'end_turn'));
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await testConnection()).toMatchObject({ ok: false, message: 'Verification failed: No structured answer returned.' });
+  });
+
+  it('a bad key shows the exact API error', async () => {
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }), { status: 401, headers: { 'content-type': 'application/json', 'request-id': 'req_verify_1' } }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const conn = await testConnection();
+    expect(conn.ok).toBe(false);
+    expect(conn.message).toMatch(/^Verification failed: Anthropic 401: .*invalid x-api-key.*req_verify_1/);
   });
 });

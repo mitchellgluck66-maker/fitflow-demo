@@ -79,8 +79,9 @@ export const AnthropicCard: React.FC = () => {
         body: JSON.stringify({ range: 'this_week', compare: 'previous_period', force: true }),
       }).then((r) => r.json());
       setToast({
-        message: data.notConfigured ? 'Connect Anthropic first' : data.ok ? `${data.findings?.length ?? 0} finding${data.findings?.length === 1 ? '' : 's'} generated` : 'Generation failed',
-        detail: data.error,
+        message: data.notConfigured ? 'Connect Anthropic first' : data.ok ? `${data.findings?.length ?? 0} finding${data.findings?.length === 1 ? '' : 's'} generated` : 'AI request rejected',
+        // Never a bare "failed": the exact API / validation error (with its request_id) is the detail.
+        detail: data.ok ? undefined : (data.error ?? data.detail ?? 'No error text returned'),
         type: data.ok ? 'success' : 'error',
       });
       await load();

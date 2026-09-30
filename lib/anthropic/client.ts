@@ -6,7 +6,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { getAnthropicConfig } from './config';
 import { toStrictToolSchema } from './strictSchema';
 
@@ -97,19 +97,32 @@ export function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** One tiny request to prove the key works. */
+/**
+ * Setup → Anthropic "Verify": the SAME call path every feature uses — askClaude with a strict tool whose
+ * schema carries a limit the sanitizer must move (maxLength). A plain ping said "Connected" for a key that
+ * could not run a single feature (2026-09-30), so "Connected" now means a structured call succeeded.
+ */
+export const VERIFY_TOOL_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'note'],
+  properties: {
+    status: { type: 'string', enum: ['ok'] },
+    note: { type: 'string', maxLength: 40, description: 'Two or three words.' },
+  },
+} as const;
+
 export async function testConnection(): Promise<{ ok: boolean; configured: boolean; message: string; model?: string }> {
   const config = await getAnthropicConfig();
   if (!config.configured || !config.key) return { ok: false, configured: false, message: 'No Anthropic API key set.' };
-  try {
-    const client = makeClient(config.key);
-    const res = await client.messages.create({
-      model: config.model,
-      max_tokens: 16,
-      messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
-    });
-    return { ok: true, configured: true, message: `Connected (${res.model}).`, model: res.model };
-  } catch (err) {
-    return { ok: false, configured: true, message: scrub(describeError(err), config.key) };
-  }
+  const res = await askClaude({
+    system: 'You are a connectivity check. Call the tool with status "ok".',
+    user: 'Confirm the connection.',
+    inputSchema: VERIFY_TOOL_SCHEMA as unknown as Record<string, unknown>,
+    schema: z.object({ status: z.literal('ok'), note: z.string() }),
+    toolName: 'submit_check',
+    maxTokens: 64,
+  });
+  if (!res.ok) return { ok: false, configured: true, message: `Verification failed: ${res.error ?? 'no structured answer'}`, model: config.model };
+  return { ok: true, configured: true, message: `Connected · verified with a structured call · ${res.model ?? config.model}`, model: res.model ?? config.model };
 }
