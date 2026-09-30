@@ -41,6 +41,7 @@ export interface InsightsResult {
   error?: string;
   /** Why no generation was attempted (fresh card within minIntervalMs). */
   skipped?: string;
+  usage?: { inputTokens: number; outputTokens: number } | null;
 }
 
 async function findCached(inputHash: string) {
@@ -107,7 +108,7 @@ export async function runInsights(params: { range?: string | null; compare?: str
     .insert(aiReports)
     .values({ kind: 'insight', periodStart: base.periodStart, periodEnd: base.periodEnd, model: content.model, inputHash, content: content as unknown as Record<string, unknown> })
     .returning({ id: aiReports.id });
-  return { ok: true, cached: false, reportId: row.id, findings: content.findings, generatedAt: content.generatedAt, model: content.model, ...base };
+  return { ok: true, cached: false, reportId: row.id, findings: content.findings, generatedAt: content.generatedAt, model: content.model, usage: answer.usage, ...base };
 }
 
 /** Latest stored insights for a period (no generation). */

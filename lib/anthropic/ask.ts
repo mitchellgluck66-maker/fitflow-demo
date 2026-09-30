@@ -63,6 +63,7 @@ export interface AskResult {
   model: string | null;
   generatedAt: string | null;
   error?: string;
+  usage?: { inputTokens: number; outputTokens: number } | null;
   /** What kind of failure (2026-09-30): the Ask card words an `api` rejection as "AI request rejected: …" with Retry. */
   errorKind?: 'api' | 'grounding' | 'rate_limit' | 'input';
 }
@@ -139,7 +140,7 @@ export async function askDashboard(params: {
     .values({ kind: 'ask', periodStart: period.start, periodEnd: period.end, model: content.model, inputHash: content.contextHash, content: content as unknown as Record<string, unknown> })
     .returning({ id: aiReports.id });
 
-  return { ok: true, reportId: row.id, question, answer: content.answer, citations: content.citations, currency: content.currency ?? null, period, model: content.model, generatedAt: content.generatedAt };
+  return { ok: true, reportId: row.id, question, answer: content.answer, citations: content.citations, currency: content.currency ?? null, period, model: content.model, generatedAt: content.generatedAt, usage: answer.usage };
 }
 
 export interface AskHistoryItem {

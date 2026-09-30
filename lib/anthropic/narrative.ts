@@ -25,9 +25,16 @@ export interface NarrativeResult {
   periodEnd: string;
   model: string | null;
   error?: string;
+  usage?: { inputTokens: number; outputTokens: number } | null;
+  /** True when dryRun: the paragraph was generated and validated but NOT stored. */
+  dryRun?: boolean;
 }
 
-export async function runWeeklyNarrative(kind: NarrativeKind, opts: { force?: boolean } = {}): Promise<NarrativeResult> {
+/**
+ * `dryRun` (the smoke test, 2026-09-30): generate + validate, never store. Monday's digest reuses whatever
+ * paragraph is stored for the period, so a smoke run must not leave one behind.
+ */
+export async function runWeeklyNarrative(kind: NarrativeKind, opts: { force?: boolean; dryRun?: boolean } = {}): Promise<NarrativeResult> {
   const result = await getScorecard({ range: kind === 'weekly' ? 'last_week' : 'last_month', compare: 'previous_period' });
   const input = buildInsightInput(result);
   const inputHash = hashInsightInput(input);
@@ -61,6 +68,7 @@ export async function runWeeklyNarrative(kind: NarrativeKind, opts: { force?: bo
     return { ok: false, notConfigured: answer.notConfigured, cached: false, paragraph: null, model: answer.model, ...base, error: answer.error };
   }
   const paragraph = answer.data.paragraph.trim();
+  if (opts.dryRun) return { ok: true, cached: false, paragraph, model: answer.model, usage: answer.usage, dryRun: true, ...base };
   await db.insert(aiReports).values({
     kind: REPORT_KIND[kind],
     periodStart: base.periodStart,
@@ -69,7 +77,7 @@ export async function runWeeklyNarrative(kind: NarrativeKind, opts: { force?: bo
     inputHash,
     content: { paragraph, generatedAt: new Date().toISOString(), input, usage: answer.usage },
   });
-  return { ok: true, cached: false, paragraph, model: answer.model, ...base };
+  return { ok: true, cached: false, paragraph, model: answer.model, usage: answer.usage, ...base };
 }
 
 /** Read-only lookup used by the email builder. */

@@ -38,6 +38,7 @@ export interface RemapSuggestion {
   rationale: string | null;
   model: string | null;
   error?: string;
+  usage?: { inputTokens: number; outputTokens: number } | null;
 }
 
 export async function suggestRoleForStage(stageId: string): Promise<RemapSuggestion> {
@@ -70,5 +71,5 @@ export async function suggestRoleForStage(stageId: string): Promise<RemapSuggest
     return { ok: false, notConfigured: answer.notConfigured, stageId, stageName: stage.name, role: null, confidence: null, rationale: null, model: answer.model, error: answer.error };
   }
   const role = isSemanticRole(answer.data.role) ? answer.data.role : 'other';
-  return { ok: true, stageId, stageName: stage.name, role, confidence: Math.round(answer.data.confidence * 100) / 100, rationale: answer.data.rationale, model: answer.model };
+  return { ok: true, stageId, stageName: stage.name, role, confidence: Math.round(answer.data.confidence * 100) / 100, rationale: answer.data.rationale, model: answer.model, usage: answer.usage };
 }

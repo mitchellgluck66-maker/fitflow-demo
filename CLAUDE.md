@@ -742,6 +742,53 @@ daily to-do never sent) and the run returned 500.
 - Tests: `tests/dispatch.test.ts` (ordering, starvation simulation, status
   contract, gates), `tests/dispatch-state.test.ts` (incident lifecycle).
 
+## AI calls (2026-09-30 — the strict-schema 400)
+
+The first live "Ask" returned `Anthropic 400: For 'array' type, property 'maxItems' is not
+supported`. Unit tests mocked `fetch`, and Verify was a plain ping, so nothing had exercised the
+API's rules.
+
+- **One call path.** Every feature (Ask, Insights, narrative, remap, Verify) goes through
+  `lib/anthropic/client.ts#askClaude`. It sends a forced strict tool whose schema is
+  `toStrictToolSchema(schema)` (`lib/anthropic/strictSchema.ts`).
+  - The sanitizer removes everything strict tool use rejects: `minimum`/`maximum`/`multipleOf`,
+    `minLength`/`maxLength`, `pattern`, `maxItems`, `minItems` > 1, unsupported `format` values.
+    It appends each removed limit to the field description, and closes every object
+    (`additionalProperties: false`, all fields required).
+  - Schemas in `prompts.ts` state the REAL limits. The Zod response schemas enforce them:
+    findings > 3 and citations > 30 are trimmed with a warning, remap confidence is clamped to 0–1,
+    and any other violation fails with its path.
+  - **Contract test** `tests/anthropic-schema.test.ts` checks every `*_TOOL_SCHEMA` and the wire
+    body `askClaude` sends. Never send a strict schema any other way.
+- **Errors** read `Anthropic <status> · <type>: <message> (request_id …)`. Anthropic returns no id
+  on auth errors.
+- **Retries and the incident.** No SDK retries; a transient failure (429, 529 overloaded, 5xx,
+  408/409, network) is retried once.
+  - Still failing → ONE open `anthropic_error` incident at **warning**.
+  - 400/401/403, other 4xx, or a missing or invalid structured answer → **critical**.
+  - The next success resolves it (`lib/anthropic/incident.ts`).
+- **Verify** (Setup → Anthropic) makes a real strict structured call. It shows "Connected ·
+  verified with a structured call · <model>", or "Verification failed: <exact error>".
+- **Ask card:** an API failure reads "AI request rejected: …" with a Retry button (`errorKind`
+  api / grounding / rate_limit / input).
+- **Dispatch:** a step whose credentials are missing is `skipped` ("not configured — no credentials
+  for this step"), never `succeeded`. A skip resets the stuck counter, so it never opens
+  `dispatch_stuck` and never returns 500. A healthy dispatch with Google unconfigured returns HTTP
+  200:
+  `{"ok":true,"partial":false,"failed":[],"stuck":[],"deferred":[],"steps":{"stripe":{"status":"succeeded",…},"google":{"status":"skipped","reason":"not configured — no credentials for this step"},…}}`.
+  `dispatch:insights` reasons: "generated N findings", "served from cache — inputs unchanged",
+  "insight for this period generated … — regenerates at most every 20h", or the API error.
+- **Live proof:** `npm run smoke:anthropic` (`lib/anthropic/smoke.ts`).
+  - Uses the stored key and the database `.env.local` points at. Needs `CREDENTIALS_KEY` there to
+    decrypt a stored key; it says so when it's missing.
+  - Prints `PASS|FAIL|SKIP <feature> · <model> · <in>/<out> tokens · <output>` and exits 0 only
+    when all 4 PASS. SKIP means nothing was exercised: NOT verified.
+  - Writes 1 `ask` + 1 `insight` row. The narrative is a dry run (`runWeeklyNarrative(…, {dryRun})`)
+    and is never stored, because Monday's digest reuses the stored paragraph. Remap writes nothing.
+- `MODEL_OPTIONS` may only list models that accept the forced `tool_choice` askClaude sends.
+  Opus 5.5, Sonnet 5.5 and Fable 5.1 reject it, and the contract test fails if one is added before
+  `askClaude` handles `auto`.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
