@@ -165,6 +165,8 @@ export const contacts = pgTable(
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
     utmContent: text('utm_content'),
+    /** F3 (2026-09-30): parsed from the landing URL when GHL's structured field is empty. */
+    utmTerm: text('utm_term'),
     entryFunnel: text('entry_funnel'),
     /** Click ids / landing URL / GHL session source from the first-touch attribution (Phase G). */
     fbclid: text('fbclid'),

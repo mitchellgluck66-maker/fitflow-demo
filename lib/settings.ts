@@ -64,6 +64,8 @@ export const SETTING_KEYS = {
   stripeCompleteness: 'stripe_completeness',
   /** Ingestion v2 (2026-09-30): the last cron invocation {route, at, via} — the scheduler-silent check (lib/sync/scheduler.ts). */
   schedulerLastRun: 'scheduler_last_run',
+  /** F3 (2026-09-30): the first-run utm backfill's completion {version, at, counts} (lib/attribution/utmBackfill.ts). */
+  utmBackfill: 'utm_backfill',
   /** Dispatch fairness + stuck detection (lib/dispatch.ts): per-step history, JSON. */
   dispatchState: 'dispatch_state',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */

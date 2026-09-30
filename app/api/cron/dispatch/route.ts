@@ -23,6 +23,7 @@ import { readDispatchState, writeDispatchState, syncStuckIncidents } from '@/lib
 import { recordScheduledRun, schedulerVia } from '@/lib/sync/scheduler';
 import { sweepIncidentNoise } from '@/lib/incidents/noise';
 import { runNightlyPrune } from '@/lib/syncRunsPrune';
+import { runUtmBackfill } from '@/lib/attribution/utmBackfill';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -112,6 +113,8 @@ export async function GET(request: NextRequest) {
       run: () => runReconcile({ trigger: 'cron' }),
     },
     { name: 'sweep', run: () => sweepIncidentNoise() },
+    // F3: fill every existing contact's empty utm_* from its landing URL — once (then "done"); sync fills new ones.
+    { name: 'utm_backfill', run: () => runUtmBackfill() },
     // sync_runs retention: once per local day, rows > 30 days (the newest per kind + status always kept).
     { name: 'prune', run: () => runNightlyPrune(today, { force }) },
     { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },

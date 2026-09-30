@@ -18,6 +18,7 @@
  * organic/direct must never leak into them (CLAUDE.md "Attribution classes").
  */
 
+import { parseUrlParams } from './utm';
 import type { AttributionClass } from '@/db/schema';
 
 /** Tokens that mark a paid source. Extend here, in one place. */
@@ -57,14 +58,10 @@ export function isPaidValue(value: string | null | undefined): boolean {
   return t.some((x) => PAID_TOKENS.includes(x));
 }
 
-/** Pull fbclid / gclid out of a landing URL's query string. */
+/** Pull fbclid / gclid out of a landing URL's query string (the shared, never-throwing parser — F3). */
 export function clickIdsFromUrl(url: string | null | undefined): { fbclid: string | null; gclid: string | null } {
-  if (!url) return { fbclid: null, gclid: null };
-  const grab = (key: string): string | null => {
-    const m = url.match(new RegExp(`[?&#]${key}=([^&#\\s]+)`, 'i'));
-    return m ? decodeURIComponent(m[1]) : null;
-  };
-  return { fbclid: grab('fbclid'), gclid: grab('gclid') };
+  const p = parseUrlParams(url);
+  return { fbclid: p.fbclid, gclid: p.gclid };
 }
 
 export function classifyAttribution(s: AttributionSignals): AttributionResult {

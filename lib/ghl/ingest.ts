@@ -58,6 +58,7 @@ import { acquireLock, releaseLock } from '../syncLock';
 import { readMarker, writeMarker } from '../sync/markers';
 import { runPaymentMatching } from '../stripe/matching';
 import { classifyAttribution } from '../attribution/classify';
+import { fillFromUrl } from '../attribution/utm';
 import { isDefaultFollowedPipeline } from './followed';
 import { sweepIncidentNoise } from '../incidents/noise';
 
@@ -874,12 +875,17 @@ async function processOpportunityPage(p: {
     const email = full?.email ?? embedded?.email ?? null;
     const phone = full?.phone ?? embedded?.phone ?? null;
     const firstTouch = full?.attributions?.find((a) => a.isFirst) ?? full?.attributions?.[0] ?? full?.attributionSource ?? null;
+    // F3: GHL's structured utm fields win; anything empty is filled from the landing URL's own parameters.
+    const utm = fillFromUrl(
+      { utmSource: firstTouch?.utmSource, utmMedium: firstTouch?.utmMedium ?? firstTouch?.medium, utmCampaign: firstTouch?.utmCampaign, utmContent: firstTouch?.utmContent, fbclid: firstTouch?.fbclid, gclid: firstTouch?.gclid },
+      firstTouch?.url,
+    ).values;
     const attribution = classifyAttribution({
-      fbclid: firstTouch?.fbclid ?? null,
-      gclid: firstTouch?.gclid ?? null,
+      fbclid: utm.fbclid,
+      gclid: utm.gclid,
       url: firstTouch?.url ?? null,
-      utmSource: firstTouch?.utmSource ?? null,
-      utmMedium: firstTouch?.utmMedium ?? firstTouch?.medium ?? null,
+      utmSource: utm.utmSource,
+      utmMedium: utm.utmMedium,
       source: full?.source ?? opp.source ?? null,
       sessionSource: firstTouch?.sessionSource ?? null,
     });
@@ -903,12 +909,13 @@ async function processOpportunityPage(p: {
       emailNormalized: normalizeEmail(email),
       phoneNormalized: normalizePhone(phone),
       attributionSource: full?.source ?? opp.source ?? null,
-      utmSource: firstTouch?.utmSource ?? null,
-      utmMedium: firstTouch?.utmMedium ?? firstTouch?.medium ?? null,
-      utmCampaign: firstTouch?.utmCampaign ?? null,
-      utmContent: firstTouch?.utmContent ?? null,
-      fbclid: firstTouch?.fbclid ?? null,
-      gclid: firstTouch?.gclid ?? null,
+      utmSource: utm.utmSource,
+      utmMedium: utm.utmMedium,
+      utmCampaign: utm.utmCampaign,
+      utmContent: utm.utmContent,
+      utmTerm: utm.utmTerm,
+      fbclid: utm.fbclid,
+      gclid: utm.gclid,
       sessionSource: firstTouch?.sessionSource ?? null,
       attributionUrl: firstTouch?.url ?? null,
       attributionClass: attribution.attributionClass,
@@ -940,6 +947,7 @@ async function processOpportunityPage(p: {
           utmMedium: undefined,
           utmCampaign: undefined,
           utmContent: undefined,
+          utmTerm: undefined,
           fbclid: undefined,
           gclid: undefined,
           sessionSource: undefined,
