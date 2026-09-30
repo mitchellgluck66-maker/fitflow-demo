@@ -22,7 +22,7 @@
  * run after every sync; manual matches persist.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, payments, syncRuns, syncIncidents } from '@/db';
 import { getDayBounds } from '../day';
 import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
@@ -43,6 +43,7 @@ import {
 } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
+import { writeMarker } from '../sync/markers';
 
 export type StripeSyncMode = 'delta' | 'reconcile' | 'backfill';
 
@@ -117,6 +118,7 @@ export function chargeRow(charge: StripeCharge, meta: UpsertMeta): PaymentInsert
     description: charge.description ?? charge.failure_message ?? null,
     paidAt: charge.status === 'succeeded' ? created : null,
     failedAt: charge.status === 'failed' ? created : null,
+    stripeCreatedAt: created,
     metadata: { ...(charge.metadata ?? {}), invoice: invoiceId, failure_message: charge.failure_message ?? null },
     source: 'stripe',
     origin: 'stripe',
@@ -144,6 +146,7 @@ export function subscriptionRow(sub: StripeSubscription, meta: UpsertMeta): Paym
     customerName: customer?.name ?? null,
     intervalMonths,
     paidAt: unixToDate(sub.current_period_start) ?? unixToDate(sub.created),
+    stripeCreatedAt: unixToDate(sub.created),
     source: 'stripe',
     origin: 'stripe',
     syncedAt: meta.syncedAt,
@@ -163,6 +166,7 @@ export function refundRow(refund: StripeRefund, meta: UpsertMeta): PaymentInsert
     currency: (refund.currency ?? 'usd').toUpperCase(),
     description: refund.reason ?? null,
     paidAt: unixToDate(refund.created),
+    stripeCreatedAt: unixToDate(refund.created),
     metadata: { charge: chargeId },
     source: 'stripe',
     origin: 'stripe',
@@ -218,15 +222,44 @@ export async function upsertSubscriptions(subs: StripeSubscription[], meta: Upse
 export async function upsertRefunds(refunds: StripeRefund[], meta: UpsertMeta): Promise<number> {
   const rows = refunds.map((r) => refundRow(r, meta));
   const n = await upsertRows(rows, false);
-  // Reflect each refund on its parent charge (the engine subtracts refundedCents). Refunds are few.
-  for (const r of rows) {
-    if (!r.metadata.charge) continue;
+  const parents = Array.from(new Set(rows.map((r) => r.metadata.charge).filter((c): c is string => Boolean(c))));
+  await applyRefundsToParents(parents, meta);
+  return n;
+}
+
+/**
+ * Reflect refunds on their parent charges — the F12 bug class (2026-09-30: ch_3UAvd1, $1,000 USD, fully refunded
+ * in Stripe, refunded_cents 0 in the mirror, counted as cash). The parent's refunded amount is the SUM of its
+ * refund rows (several partial refunds used to keep only one), `status` becomes 'refunded' when it covers the
+ * amount, and a parent we have never stored is FETCHED and stored — an UPDATE of a missing row was a silent no-op.
+ */
+export async function applyRefundsToParents(chargeIds: string[], meta: UpsertMeta): Promise<{ fetchedParents: number; missingParents: string[] }> {
+  const out = { fetchedParents: 0, missingParents: [] as string[] };
+  for (const chargeId of chargeIds) {
+    const [parent] = await db.select({ id: payments.id }).from(payments).where(eq(payments.stripeId, chargeId)).limit(1);
+    if (!parent) {
+      const charge = await fetchCharge(chargeId);
+      if (!charge) {
+        out.missingParents.push(chargeId);
+        continue;
+      }
+      await upsertCharges([charge], meta); // carries Stripe's own amount_refunded / refunded
+      out.fetchedParents += 1;
+    }
+    const [{ refunded }] = await db
+      .select({ refunded: sql<number>`coalesce(sum(${payments.amountCents}), 0)::int` })
+      .from(payments)
+      .where(and(eq(payments.kind, 'refund'), inArray(payments.status, ['succeeded', 'pending']), sql`${payments.metadata}->>'charge' = ${chargeId}`));
     await db
       .update(payments)
-      .set({ refundedCents: sql`greatest(${payments.refundedCents}, ${r.amountCents})`, updatedAt: meta.syncedAt })
-      .where(eq(payments.stripeId, r.metadata.charge));
+      .set({
+        refundedCents: sql`greatest(${payments.refundedCents}, ${Number(refunded)})`,
+        status: sql`case when greatest(${payments.refundedCents}, ${Number(refunded)}) >= ${payments.amountCents} and ${payments.amountCents} > 0 then 'refunded' else ${payments.status} end`,
+        updatedAt: meta.syncedAt,
+      })
+      .where(eq(payments.stripeId, chargeId));
   }
-  return n;
+  return out;
 }
 
 /** Single-row forms for the webhook. */
@@ -398,9 +431,9 @@ export async function runStripeSync(options: {
         do {
           const page = await listPage(PHASE_QUERY[phase].path, PHASE_QUERY[phase].query(sinceUnix, mode), after, config);
           if (page.error) {
-            if (phase === 'charges') return finish('failed', page.error);
-            warnings.push(`${phase}: ${page.error}`);
-            break;
+            // F12: a failed refunds (or subscriptions) read is a FAILED run — the high-water mark must not move past
+            // data we never saw (a swallowed /v1/refunds error left refunds out of the mirror for good).
+            return finish('failed', `${phase}: ${page.error}`);
           }
           await ingestPage(phase, page.items);
           after = page.lastId;
@@ -421,12 +454,9 @@ export async function runStripeSync(options: {
         const page = await listPage(q.path, q.query(c.sinceUnix, mode), c.startingAfter, config);
         pages += 1;
         if (page.error) {
-          if (c.phase === 'charges') {
-            await writeStripeCursor({ ...c, stats });
-            return finish('failed', page.error);
-          }
-          warnings.push(`${c.phase[0].toUpperCase()}${c.phase.slice(1)}: ${page.error}`);
-          page.lastId = null;
+          // Any phase: keep the cursor on this page, fail the run with the reason (F12 — never skip a phase silently).
+          await writeStripeCursor({ ...c, stats });
+          return finish('failed', `${c.phase}: ${page.error}`);
         } else {
           await ingestPage(c.phase, page.items);
         }
@@ -461,6 +491,8 @@ export async function runStripeSync(options: {
       const prior = await getSetting(SETTING_KEYS.stripeDeltaSince);
       if (!prior || new Date(prior).getTime() < new Date(cycleStart).getTime()) await setSetting(SETTING_KEYS.stripeDeltaSince, cycleStart);
     }
+    // Freshness marker (Ingestion v2): written only here, after this run read Stripe to completion.
+    await writeMarker({ family: 'stripe.payments', runId: run.id, fetched: stats.charges + stats.subscriptions + stats.refunds, detail: `${mode} · ${stats.charges} charges, ${stats.refunds} refunds, ${stats.subscriptions} subscriptions` });
     return finish('succeeded');
   } catch (err) {
     captureException(err, { source: 'stripe' });

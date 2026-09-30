@@ -464,6 +464,8 @@ export const payments = pgTable(
     description: text('description'),
     paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
     failedAt: timestamp('failed_at', { withTimezone: true, mode: 'date' }),
+    /** Stripe's own `created` — the day the completeness sweep buckets a row by (F12, 2026-09-30). */
+    stripeCreatedAt: timestamp('stripe_created_at', { withTimezone: true, mode: 'date' }),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
     ...provenance,
     ...timestamps,

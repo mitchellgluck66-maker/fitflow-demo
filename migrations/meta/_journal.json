@@ -99,6 +99,13 @@
       "when": 1790777336957,
       "tag": "0013_f1_ghl_opportunities",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790778311585,
+      "tag": "0014_f12_payments_stripe_created",
+      "breakpoints": true
     }
   ]
 }

@@ -59,6 +59,9 @@ export const SETTING_KEYS = {
   stripeDeltaSince: 'stripe_delta_since',
   stripeReconcileCompletedAt: 'stripe_reconcile_completed_at',
   stripeSyncCursor: 'stripe_sync_cursor',
+  /** F12 (2026-09-30): the per-day completeness sweep — its cursor and its last summary (lib/stripe/completeness.ts). */
+  stripeCompletenessCursor: 'stripe_completeness_cursor',
+  stripeCompleteness: 'stripe_completeness',
   /** Dispatch fairness + stuck detection (lib/dispatch.ts): per-step history, JSON. */
   dispatchState: 'dispatch_state',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */

@@ -39,7 +39,15 @@ export async function POST(request: NextRequest) {
   let handled = false;
 
   try {
-    if (type.startsWith('charge.')) {
+    // Refund events FIRST (F12, 2026-09-30): `charge.refund.updated` also starts with "charge.", and a Refund
+    // object parses as a charge — it used to be stored as a cash charge keyed re_….
+    if (type.startsWith('refund.') || type.startsWith('charge.refund.')) {
+      const refund = StripeRefundSchema.safeParse(object);
+      if (refund.success) {
+        await upsertRefund(refund.data, meta);
+        handled = true;
+      }
+    } else if (type.startsWith('charge.') && (object as { object?: string } | null)?.object !== 'refund') {
       const charge = StripeChargeSchema.safeParse(object);
       if (charge.success) {
         await upsertCharge(charge.data, meta);
@@ -58,12 +66,6 @@ export async function POST(request: NextRequest) {
       const sub = StripeSubscriptionSchema.safeParse(object);
       if (sub.success) {
         await upsertSubscription(sub.data, meta);
-        handled = true;
-      }
-    } else if (type.startsWith('refund.') || type === 'charge.refund.updated') {
-      const refund = StripeRefundSchema.safeParse(object);
-      if (refund.success) {
-        await upsertRefund(refund.data, meta);
         handled = true;
       }
     }

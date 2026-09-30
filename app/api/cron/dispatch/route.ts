@@ -7,6 +7,7 @@ import { runReconcile } from '@/lib/ghl/reconcile';
 import { runMetaSync } from '@/lib/meta/ingest';
 import { runMetaTokenCheck } from '@/lib/meta/token';
 import { runScheduledStripeSync } from '@/lib/stripe/ingest';
+import { runStripeCompleteness } from '@/lib/stripe/completeness';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
@@ -87,6 +88,8 @@ export async function GET(request: NextRequest) {
 
   const steps: DispatchStep[] = [
     { name: 'stripe', ownsRun: true, run: () => runScheduledStripeSync({ budgetMs: 15_000 }) },
+    // F12: the per-day completeness sweep since backfill_from — refills any day that differs (Sep 2–11 included).
+    { name: 'stripe_completeness', ownsRun: true, timeoutMs: 90_000, run: () => runStripeCompleteness({ trigger: 'cron', budgetMs: 75_000 }) },
     { name: 'meta', ownsRun: true, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
     // H2: one debug_token GET — when does the stored Meta token expire? (7-day warning incident)
     { name: 'meta_token', timeoutMs: 10_000, run: () => runMetaTokenCheck() },
