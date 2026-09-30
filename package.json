@@ -18,6 +18,7 @@
     "verify:readonly": "bash scripts/verify-readonly.sh",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "smoke:analyst": "tsx scripts/smoke-analyst.ts",
+    "analyst:brief": "tsx scripts/analyst-brief.ts",
     "reconcile:ghl": "tsx scripts/reconcile-ghl.ts",
     "smoke:fx": "tsx scripts/smoke-fx.ts",
     "verify": "tsx scripts/verify.ts",

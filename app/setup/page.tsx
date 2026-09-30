@@ -34,6 +34,7 @@ import { MetaCard } from '@/components/setup/MetaCard';
 import { StripeCard } from '@/components/setup/StripeCard';
 import { GoogleAdsCard } from '@/components/setup/GoogleAdsCard';
 import { AnthropicCard } from '@/components/setup/AnthropicCard';
+import { AnalystCard } from '@/components/setup/AnalystCard';
 import { SyncHealth } from '@/components/setup/SyncHealth';
 import { IncidentLog } from '@/components/setup/IncidentLog';
 import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
@@ -774,6 +775,9 @@ export default function SetupPage() {
         <StripeCard />
         <GoogleAdsCard />
         <AnthropicCard />
+
+        {/* ---- FitFlow Analyst (plan 2026-09-30, Wave 1) ---- */}
+        <AnalystCard />
 
         {/* ---- Sync health (Phase D) ---- */}
         <SyncHealth />
