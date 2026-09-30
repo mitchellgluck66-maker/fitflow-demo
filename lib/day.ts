@@ -69,9 +69,8 @@ export function getDayBounds(
   };
 }
 
-/** Today's date as YYYY-MM-DD in the given timezone. */
-export function todayInTimezone(timeZone: string): string {
-  const now = new Date();
+/** Today's date as YYYY-MM-DD in the given timezone (at `now`, default the current instant). */
+export function todayInTimezone(timeZone: string, now: Date = new Date()): string {
   const dtf = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',

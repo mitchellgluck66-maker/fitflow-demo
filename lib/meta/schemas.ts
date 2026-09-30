@@ -49,7 +49,10 @@ export const MetaPagedSchema = z.object({
 export const MetaAccountSchema = z.object({
   id: z.string().min(1),
   name: optionalString,
+  /** The account's currency — every spend number Meta returns for it is in this currency (F13, 2026-09-30). */
   currency: optionalString,
+  /** The account's reporting timezone — Meta's date_start days are in this zone. */
+  timezone_name: optionalString,
   account_status: z.number().nullish(),
 });
 export type MetaAccount = z.infer<typeof MetaAccountSchema>;
@@ -124,3 +127,11 @@ export const MetaDebugTokenSchema = z.object({
   }),
 });
 export type MetaDebugToken = z.infer<typeof MetaDebugTokenSchema>;
+
+/** One row of the account-level daily spend (the completeness check, F13). */
+export const MetaAccountDayRowSchema = z.object({
+  date_start: z.string().min(1),
+  spend: numString,
+  account_currency: optionalString,
+});
+export type MetaAccountDayRow = z.infer<typeof MetaAccountDayRowSchema>;

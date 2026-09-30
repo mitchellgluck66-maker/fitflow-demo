@@ -7,6 +7,7 @@ import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, 
 import { Card, CardHeader, PageHeader, PageBody, PageLoader, SampleDataBanner, EmptyState, Toast, Button } from '@/components';
 import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
+import { useBusinessTimezone } from '@/components/BusinessTimezone';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { CampaignTable } from '@/components/CampaignTable';
 import { SpendEntry } from '@/components/SpendEntry';
@@ -17,6 +18,7 @@ import { DisplayedMetricsPanel, useDisplayedMetrics } from '@/components/Display
 import { computeDelta, formatCents } from '@/lib/metrics';
 
 function AdsTab() {
+  const businessTz = useBusinessTimezone().timezone;
   const { data, loading, error } = useScorecard();
   const display = useDisplayedMetrics();
   const show = (key: string) => display.enabled.has(key);
@@ -248,6 +250,12 @@ function AdsTab() {
           />
           <CampaignTable campaigns={ads.campaigns} previous={ads.previousCampaigns} comparisonLabel={cmpLabel} displayed={display.enabled} awaitingStripe={revenue.awaitingStripe} />
         </Card>
+
+        {/* F8/F13 (2026-09-30): the one-hour boundary difference is documented, not hidden. */}
+        <p className="text-[11.5px] px-1" style={{ color: 'var(--text-tertiary)' }}>
+          Meta reports each day in the ad account&apos;s own timezone (America/Los_Angeles); FitFlow&apos;s business days are{' '}
+          {businessTz ?? 'the business timezone'}. At a day boundary a day&apos;s Meta spend can differ by up to an hour from a strict business-day cut.
+        </p>
 
         <Card padding="lg">
           <CardHeader

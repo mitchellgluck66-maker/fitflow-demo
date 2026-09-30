@@ -74,6 +74,10 @@ export const SETTING_KEYS = {
    * re-run resume a partial backfill instead of restarting.
    */
   metaBackfillCursor: 'meta_backfill_cursor',
+  /** F13 (2026-09-30): the Meta ad account as last read — {id, name, currency, timezone, checkedAt}. */
+  metaAccount: 'meta_account',
+  /** The daily account-level Meta spend check's last summary (lib/meta/ingest#runMetaSpendCheck). */
+  metaSpendCheck: 'meta_spend_check',
   /** Maturing-data disclaimer (lib/metrics/maturity.ts): first day with complete stage history, and the day the notice retires. */
   historyCompleteSince: 'history_complete_since',
   disclaimerSunset: 'disclaimer_sunset',

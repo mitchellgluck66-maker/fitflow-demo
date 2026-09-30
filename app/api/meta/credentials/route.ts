@@ -54,13 +54,19 @@ export async function POST(request: NextRequest) {
     const verification = config.configured
       ? await testConnection()
       : { ok: false, configured: false, message: 'Both an access token and an ad account id are required.' };
+    // F13: persist the account as Meta states it (the next sync re-reads and relabels against the same values).
+    const acct = 'account' in verification ? verification.account : undefined;
+    if (verification.ok && acct?.currency) {
+      await setSetting(SETTING_KEYS.metaAccount, JSON.stringify({ id: acct.id, name: acct.name ?? null, currency: acct.currency.toUpperCase(), timezone: acct.timezone_name ?? null, checkedAt: new Date().toISOString() }));
+    }
     return NextResponse.json({
       ok: verification.ok,
       verification: {
         ok: verification.ok,
         message: verification.message,
-        accountName: verification.account?.name ?? null,
-        currency: verification.account?.currency ?? null,
+        accountName: acct?.name ?? null,
+        currency: acct?.currency?.toUpperCase() ?? null,
+        timezone: acct?.timezone_name ?? null,
       },
       configured: config.configured,
       source: config.source,

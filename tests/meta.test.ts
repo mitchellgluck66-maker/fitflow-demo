@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, adSpend, syncRuns } from '@/db';
+import { db, adSpend, syncRuns, syncIncidents } from '@/db';
 import { getSetting, setSetting, SETTING_KEYS, BACKFILL_DEFAULTS } from '@/lib/settings';
 import { META_KEYS, normalizeAdAccountId } from '@/lib/meta/config';
 import { MetaInsightRowSchema, leadsFromActions, purchasesFromActions, landingPageViewsFromActions, actionsByType } from '@/lib/meta/schemas';
@@ -52,6 +52,11 @@ const page2 = {
 };
 
 const calls: string[] = [];
+/** The fake ad account's currency (the real one is CAD — F13). */
+let accountCurrency: string | null = 'USD';
+/** Extra account-level spend per day (dollars) that the ad rows do not contain — simulates a mirror hole. */
+const accountExtra = new Map<string, number>();
+let lastRange = '{}';
 /** Windows (by their `since` date) the insights endpoint should 500 on. */
 const failSince = new Set<string>();
 /** The `since` of every insights window requested, in order. */
@@ -61,14 +66,29 @@ const fakeFetch = vi.fn(async (input: string | URL) => {
   const url = new URL(String(input));
   calls.push(url.toString());
   const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
-  if (url.pathname === '/v21.0/act_123') return json({ id: 'act_123', name: 'Fit Physician', currency: 'USD', account_status: 1 });
+  if (url.pathname === '/v21.0/act_123') return json({ id: 'act_123', name: 'Fit Physician', currency: accountCurrency, timezone_name: 'America/Los_Angeles', account_status: 1 });
+  if (url.pathname === '/v21.0/act_123/insights' && url.searchParams.get('level') === 'account') {
+    // Account-level daily totals = what Meta's UI shows: the sum of the ad rows per day (optionally skewed).
+    const byDay = new Map<string, number>();
+    for (const r of [...page1.data, ...page2.data]) byDay.set(r.date_start, (byDay.get(r.date_start) ?? 0) + Number(r.spend));
+    for (const [d, extra] of accountExtra) byDay.set(d, (byDay.get(d) ?? 0) + extra);
+    return json({ data: [...byDay].map(([date_start, spend]) => ({ date_start, spend: spend.toFixed(2), account_currency: accountCurrency })), paging: {} });
+  }
   if (url.pathname === '/v21.0/act_123/insights') {
     const range = JSON.parse(url.searchParams.get('time_range') ?? '{}') as { since?: string };
     if (!url.searchParams.get('after')) requestedWindows.push(range.since ?? '?');
     if (range.since && failSince.has(range.since)) {
       return json({ error: { message: 'unknown error', code: 1 } }, 500);
     }
-    return url.searchParams.get('after') === 'x' ? json(page2) : json(page1);
+    // Like Meta: only rows inside the requested time_range.
+    // Meta's paging.next keeps every parameter; the fake's page-2 URL does not, so remember the window.
+    if (url.searchParams.get('time_range')) lastRange = url.searchParams.get('time_range')!;
+    const r2 = JSON.parse(lastRange) as { since?: string; until?: string };
+    const inRange = (p: typeof page1 | typeof page2) => ({ ...p, data: p.data.filter((d) => (!r2.since || d.date_start >= r2.since) && (!r2.until || d.date_start <= r2.until)) });
+    return url.searchParams.get('after') === 'x' ? json(inRange(page2)) : json(inRange(page1));
+  }
+  if (url.pathname === '/v21.0/act_bad') {
+    return json({ error: { message: `Invalid request ${url.toString()}`, code: 100 } }, 400);
   }
   if (url.pathname === '/v21.0/act_bad/insights') {
     return json({ error: { message: `Invalid request ${url.toString()}`, code: 100 } }, 400);
@@ -144,8 +164,9 @@ describe('runMetaSync', () => {
   it('follows paging, upserts ad×day rows in cents, and is idempotent', async () => {
     const r = await runMetaSync({ mode: 'backfill', trigger: 'cli', since: '2026-08-10' });
     expect(r.ok).toBe(true);
-    expect(r.requestsUsed).toBe(2);
-    expect(r.stats).toMatchObject({ rows: 3, days: 2, campaigns: 2, spendCents: 1234 + 50 + 700 });
+    // account read (currency/timezone) + 2 insight pages + 1 account-level completeness check (F13)
+    expect(r.requestsUsed).toBe(4);
+    expect(r.stats).toMatchObject({ rows: 3, days: 2, campaigns: 2, spendCents: 1234 + 50 + 700, checkedDays: 2, refetchedDays: 0 });
 
     const rows = await db.select().from(adSpend).where(eq(adSpend.origin, 'meta'));
     expect(rows).toHaveLength(3);
@@ -228,5 +249,90 @@ describe('runMetaSync', () => {
     expect(r.error).toContain('[token]');
     const [run] = await db.select().from(syncRuns).where(eq(syncRuns.id, r.runId));
     expect(run.error ?? '').not.toContain(TOKEN);
+  });
+});
+
+// F13 (2026-09-30): the ad account is CAD. Every spend row carries the account's currency — never a USD default.
+describe('Meta currency from the source (F13)', () => {
+  const run = () => runMetaSync({ mode: 'delta', trigger: 'cli' });
+  const metaRows = () => db.select().from(adSpend).where(eq(adSpend.origin, 'meta'));
+
+  beforeAll(async () => {
+    await setSetting(META_KEYS.adAccountId, '123');
+  });
+
+  it('a CAD account: rows are stored as CAD, and rows mislabelled by the old USD default are relabelled once, visibly', async () => {
+    accountCurrency = 'CAD';
+    const before = await metaRows();
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.every((r) => r.currency === 'USD')).toBe(true); // what the old code stored
+    const r = await run();
+    expect(r.ok, r.error).toBe(true);
+    expect(r.currency).toBe('CAD');
+    expect(r.stats.relabelled).toBe(before.length);
+    expect((await metaRows()).every((x) => x.currency === 'CAD')).toBe(true);
+    const incidents = await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'meta_currency_relabelled'));
+    expect(incidents.at(-1)?.message).toBe(`Relabelled ${before.length} Meta spend rows to CAD — the ad account's currency (they had been stored with a different label).`);
+    expect(JSON.parse((await getSetting(SETTING_KEYS.metaAccount))!)).toMatchObject({ id: 'act_123', currency: 'CAD', timezone: 'America/Los_Angeles' });
+    const again = await run();
+    expect(again.stats.relabelled).toBe(0); // idempotent
+    const marker = JSON.parse((await getSetting('marker:meta.spend'))!);
+    expect(marker).toMatchObject({ runId: again.runId });
+    expect(marker.detail).toMatch(/· CAD/);
+  });
+
+  it('no currency from Meta: the run FAILS closed, writes 0 rows and opens a critical incident', async () => {
+    accountCurrency = null;
+    const markerBefore = await getSetting('marker:meta.spend');
+    await db.delete(adSpend);
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('Meta did not return the account currency — spend not stored');
+    expect(await metaRows()).toHaveLength(0);
+    expect((await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'meta_currency'))).at(-1)).toMatchObject({ severity: 'critical' });
+    expect(await getSetting('marker:meta.spend')).toBe(markerBefore); // no fresh marker for a run that stored nothing
+    const [row] = await db.select().from(syncRuns).where(eq(syncRuns.id, r.runId));
+    expect(row).toMatchObject({ status: 'failed' });
+    expect((row.stats as Record<string, unknown>).reason).toBe('Meta did not return the account currency — spend not stored');
+  });
+
+  it('an unsupported account currency fails closed too', async () => {
+    accountCurrency = 'EUR';
+    const r = await run();
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/Meta account currency EUR is not supported/);
+    expect(await metaRows()).toHaveLength(0);
+  });
+
+  it('a row whose account_currency contradicts the account fails the run (meta_currency_mismatch)', async () => {
+    accountCurrency = 'CAD';
+    const original = page2.data[0];
+    page2.data[0] = { ...original, account_currency: 'USD' } as typeof original;
+    const r = await run();
+    page2.data[0] = original;
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/says USD but the account is CAD — spend not stored/);
+  });
+
+  it('account-level check: a mirror hole is re-fetched and healed; a day that still differs fails with the numbers', async () => {
+    accountCurrency = 'CAD';
+    await setSetting(SETTING_KEYS.metaSpendCheck, ''); // due now
+    await run();
+    // A hole: the mirror lost 2026-08-11 (as the Phase L outage did for Stripe). Not in the 3-day delta window? It is —
+    // so fake it as older by deleting AFTER the delta: run the check directly by forcing it next run.
+    await db.delete(adSpend).where(eq(adSpend.date, '2026-08-11'));
+    await setSetting(SETTING_KEYS.metaSpendCheck, '');
+    const healed = await runMetaSync({ mode: 'delta', trigger: 'cli', since: '2026-08-12' }); // delta window excludes 08-11
+    expect(healed.ok, healed.error).toBe(true);
+    expect(healed.stats).toMatchObject({ refetchedDays: 1 });
+    expect((await metaRows()).some((r) => r.date === '2026-08-11')).toBe(true);
+
+    accountExtra.set('2026-08-10', 5); // Meta's account total has $5 the ad rows never show
+    await setSetting(SETTING_KEYS.metaSpendCheck, '');
+    const bad = await run();
+    accountExtra.clear();
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toBe('Meta spend differs from the mirror after re-fetch on 1 day(s): 2026-08-10 Meta 1784 vs mirror 1284');
+    expect((await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'meta_spend_mismatch'))).at(-1)).toMatchObject({ severity: 'critical' });
   });
 });

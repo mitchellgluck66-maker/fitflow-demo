@@ -6,7 +6,7 @@
 
 import type { z } from 'zod';
 import { META_BASE_URL, getMetaConfig } from './config';
-import { MetaAccountSchema, MetaInsightRowSchema, MetaPagedSchema, parseMany, type MetaAccount, type MetaInsightRow } from './schemas';
+import { MetaAccountSchema, MetaAccountDayRowSchema, MetaInsightRowSchema, MetaPagedSchema, parseMany, type MetaAccount, type MetaAccountDayRow, type MetaInsightRow } from './schemas';
 
 export interface MetaResult<T> {
   ok: boolean;
@@ -80,9 +80,40 @@ export async function testConnection(): Promise<{ ok: boolean; configured: boole
   if (!config.configured) {
     return { ok: false, configured: false, message: 'Not connected. Paste a long-lived access token and the ad account id.' };
   }
-  const res = await metaRequest(`/${config.adAccountId}`, { fields: 'id,name,currency,account_status' }, MetaAccountSchema);
+  const res = await fetchAccount();
   if (!res.ok || !res.data) return { ok: false, configured: true, message: res.error ?? 'Connection failed' };
-  return { ok: true, configured: true, message: `Connected to ${res.data.name ?? res.data.id} (${res.data.currency ?? 'USD'}).`, account: res.data };
+  // F13: the currency is reported as Meta states it — never assumed. Without it, spend cannot be stored.
+  if (!res.data.currency) return { ok: false, configured: true, message: `Connected to ${res.data.name ?? res.data.id}, but Meta did not return the account currency — spend cannot be stored.`, account: res.data };
+  return { ok: true, configured: true, message: `Connected to ${res.data.name ?? res.data.id} (${res.data.currency.toUpperCase()} · ${res.data.timezone_name ?? 'timezone unknown'}).`, account: res.data };
+}
+
+/** The ad account: id, name, currency, timezone. Every Meta run reads it first (F13, 2026-09-30). */
+export async function fetchAccount(): Promise<MetaResult<MetaAccount>> {
+  const config = await getMetaConfig();
+  return metaRequest(`/${config.adAccountId}`, { fields: 'id,name,currency,timezone_name,account_status' }, MetaAccountSchema);
+}
+
+/** Account-level spend per day for [since, until] — what Meta's own UI totals; the mirror must add up to it. */
+export async function fetchAccountDailySpend(params: { since: string; until: string }): Promise<{ rows: MetaAccountDayRow[]; requests: number; error?: string }> {
+  const config = await getMetaConfig();
+  const rows: MetaAccountDayRow[] = [];
+  let next: string | undefined;
+  let requests = 0;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const res = await metaRequest(
+      `/${config.adAccountId}/insights`,
+      { fields: 'spend,account_currency', level: 'account', time_increment: 1, time_range: JSON.stringify({ since: params.since, until: params.until }), limit: 500 },
+      MetaPagedSchema,
+      next,
+    );
+    requests += 1;
+    if (!res.ok || !res.data) return { rows, requests, error: res.error };
+    const parsed = parseMany(MetaAccountDayRowSchema, res.data.data, 'account day');
+    rows.push(...parsed.valid);
+    if (!res.data.paging?.next) break;
+    next = res.data.paging.next;
+  }
+  return { rows, requests };
 }
 
 export interface InsightsFetch {
@@ -106,7 +137,8 @@ export async function fetchInsights(params: { since: string; until: string; leve
     const res = await metaRequest(
       `/${config.adAccountId}/insights`,
       {
-        fields: 'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,reach,frequency,cpm,cpc,inline_link_clicks,actions',
+        // account_currency (F13): each row states its currency; it is never defaulted.
+        fields: 'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,account_currency,impressions,clicks,reach,frequency,cpm,cpc,inline_link_clicks,actions',
         level: params.level ?? 'ad',
         time_increment: 1,
         time_range: JSON.stringify({ since: params.since, until: params.until }),
