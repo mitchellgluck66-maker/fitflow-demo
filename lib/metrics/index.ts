@@ -1488,6 +1488,14 @@ function normalizeCampaign(name: string | null | undefined): string {
  * contact's utm_campaign. Manual weekly spend appears as one "Manual entry"
  * row per platform so the table is never empty while Meta is unconnected.
  */
+/**
+ * P2 #11 (2026-09-30): an API campaign with spend but not one lead attributed to it is "not tracked yet" — its
+ * tracked columns and ROAS are shown as "—", never as a row of zeros and 0.00× (which read as findings).
+ */
+export function isCampaignUntracked(c: Pick<CampaignRow, 'from' | 'tracked'>): boolean {
+  return c.from === 'api' && c.tracked.applied === 0;
+}
+
 export function computeCampaignTable(raw: MetricsInput, range: Range): CampaignRow[] {
   const input = inReportingCurrency(raw);
   const ccy = input.money.reporting;

@@ -8,6 +8,7 @@ import {
   computeSpend,
   computeAdsKpis,
   computeCampaignTable,
+  isCampaignUntracked,
   computeRevenueSummary,
   matchPayments,
   type MetricsInput,
@@ -142,6 +143,17 @@ const ADS: MetricsInput = {
 
 describe('campaign table', () => {
   const rows = computeCampaignTable(ADS, R);
+
+  // P2 #11 (2026-09-30): a campaign no lead carries yet is "not tracked", not a row of zeros and 0.00× ROAS.
+  it('an API campaign with spend but no attributed lead is untracked; a manual row and a tracked campaign are not', () => {
+    const untracked = rows.find((r) => r.campaignName === 'Retarget')!;
+    const tracked = rows.find((r) => r.campaignName === 'Summer Shred')!;
+    const manual = rows.find((r) => r.campaignName === 'Manual entry (google)')!;
+    expect(isCampaignUntracked(untracked)).toBe(untracked.tracked.applied === 0 && untracked.from === 'api');
+    expect(isCampaignUntracked({ from: 'api', tracked: { ...tracked.tracked, applied: 0 } })).toBe(true);
+    expect(isCampaignUntracked({ from: 'api', tracked: { ...tracked.tracked, applied: 1 } })).toBe(false);
+    expect(isCampaignUntracked(manual)).toBe(false); // manual rows already render "—" for a different reason
+  });
 
   it('aggregates spend/impressions/clicks/platform leads per campaign, sorted by spend', () => {
     expect(rows.map((r) => [r.campaignName, r.spendCents, r.impressions, r.clicks, r.platformLeads])).toEqual([

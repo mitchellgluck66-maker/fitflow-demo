@@ -8,7 +8,7 @@ import { PeopleDrawer } from './PeopleDrawer';
 import { FilterBar, NoMatches } from './FilterBar';
 import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
-import { computeDelta, formatCents, formatDelta, type CampaignRow, type Currency, type Delta, type FunnelStageKey } from '@/lib/metrics';
+import { computeDelta, formatCents, formatDelta, isCampaignUntracked, type CampaignRow, type Currency, type Delta, type FunnelStageKey } from '@/lib/metrics';
 import { DEFAULT_DISPLAYED_METRICS } from '@/lib/metrics/display';
 
 /** Platform-reported columns, keyed by displayed-metric key. */
@@ -50,6 +50,7 @@ const DeltaChip: React.FC<{ delta: Delta; label: string | null } & ({ kind: 'cen
     >
       <Icon size={10} strokeWidth={2.4} />
       {delta.pct !== null ? `${Math.abs(delta.pct * 100).toFixed(0)}%` : text()}
+      {label && <span style={{ opacity: 0.7, fontWeight: 500 }}>vs prev</span>}
     </span>
   );
 };
@@ -145,7 +146,7 @@ export const CampaignTable: React.FC<{
                 )}
               </tr>
               <tr style={{ background: 'var(--surface-sunken)' }}>
-                <SortableHeader label="Spend" sortKey="spend" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: '1px solid var(--border-subtle)' }} />
+                <SortableHeader label={comparisonLabel ? <span>Spend <span className="font-normal normal-case tracking-normal" style={{ color: 'var(--text-quaternary)' }}>· Δ {comparisonLabel}</span></span> : 'Spend'} sortKey="spend" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: '1px solid var(--border-subtle)' }} />
                 {platformCols.map((col) => (
                   <SortableHeader key={col.key} label={col.label} sortKey={col.sortKey} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={hs} />
                 ))}
@@ -162,6 +163,8 @@ export const CampaignTable: React.FC<{
                 const prev = prevByKey.get(c.key);
                 const spendDelta = computeDelta(c.spendCents, prev?.spendCents ?? null, true);
                 const enrolledDelta = computeDelta(c.tracked.enrolled, prev?.tracked.enrolled ?? null);
+                // P2 #11: an API campaign with spend but not one lead attributed to it is "not tracked yet", never a row of zeros and 0.00×.
+                const notTracked = isCampaignUntracked(c);
                 return (
                   <tr key={c.key} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <td className="px-3 py-2.5">
@@ -198,6 +201,11 @@ export const CampaignTable: React.FC<{
                             <span title="Manual spend has no campaign to attribute contacts to" style={{ color: 'var(--text-quaternary)' }}>
                               —
                             </span>
+                          ) : notTracked ? (
+                            // P2 #11: no lead in the period carries this campaign — the zeros were not a finding.
+                            <span title="No lead in this period carries this campaign name (utm_campaign) yet, so nothing can be tracked to it. The first-run utm job and each sync fill this in." style={{ color: 'var(--text-quaternary)' }}>
+                              {i === 0 ? 'not tracked yet' : '—'}
+                            </span>
                           ) : (
                             <>
                               <button
@@ -227,6 +235,10 @@ export const CampaignTable: React.FC<{
                         ) : awaitingStripe ? (
                           <span title="Connect Stripe for ROAS" style={{ color: 'var(--text-quaternary)' }}>
                             awaiting Stripe
+                          </span>
+                        ) : notTracked ? (
+                          <span title="ROAS needs leads tracked to this campaign; none carry its name yet" style={{ color: 'var(--text-quaternary)' }}>
+                            —
                           </span>
                         ) : (
                           <>
