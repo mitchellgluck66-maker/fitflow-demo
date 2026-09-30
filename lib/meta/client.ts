@@ -6,7 +6,7 @@
 
 import type { z } from 'zod';
 import { META_BASE_URL, getMetaConfig } from './config';
-import { MetaAccountSchema, MetaAccountDayRowSchema, MetaInsightRowSchema, MetaPagedSchema, parseMany, type MetaAccount, type MetaAccountDayRow, type MetaInsightRow } from './schemas';
+import { MetaAccountSchema, MetaAccountDayRowSchema, MetaCampaignSubmitRowSchema, MetaInsightRowSchema, MetaPagedSchema, SUBMIT_APPLICATION_ACTION, parseMany, type MetaAccount, type MetaAccountDayRow, type MetaInsightRow } from './schemas';
 
 export interface MetaResult<T> {
   ok: boolean;
@@ -127,6 +127,56 @@ export interface InsightsFetch {
 const MAX_PAGES = 50;
 
 /** Daily insights at ad level for [since, until] (YYYY-MM-DD, inclusive). */
+/** The exact request the Applied ratio monitor sends (the contract test pins it): explicit report time and windows. */
+export const CAMPAIGN_SUBMITS_QUERY = {
+  fields: 'campaign_id,campaign_name,conversions',
+  level: 'campaign',
+  time_increment: 1,
+  action_report_time: 'conversion',
+  action_attribution_windows: JSON.stringify(['7d_click', '1d_view']),
+  limit: 500,
+} as const;
+
+export interface CampaignSubmitsFetch {
+  /** One row per campaign per account day. `submits` is 0 when the day's row carries no submit action. */
+  rows: Array<{ campaignId: string; campaignName: string; date: string; submits: number }>;
+  rejected: number;
+  warnings: string[];
+  requests: number;
+  error?: string;
+}
+
+/**
+ * Meta "Website Submit Applications" per campaign per day, GET only, for the Applied ratio monitor
+ * (lib/reconcile/appliedRatio.ts). Windows and report time are explicit so a Meta default change can never move the series.
+ */
+export async function fetchCampaignSubmits(params: { since: string; until: string }): Promise<CampaignSubmitsFetch> {
+  const config = await getMetaConfig();
+  const out: CampaignSubmitsFetch = { rows: [], rejected: 0, warnings: [], requests: 0 };
+  let next: string | undefined;
+  let page = 0;
+  while (page < MAX_PAGES) {
+    const res = await metaRequest(`/${config.adAccountId}/insights`, { ...CAMPAIGN_SUBMITS_QUERY, time_range: JSON.stringify({ since: params.since, until: params.until }) }, MetaPagedSchema, next);
+    out.requests += 1;
+    page += 1;
+    if (!res.ok || !res.data) {
+      out.error = res.error;
+      return out;
+    }
+    const parsed = parseMany(MetaCampaignSubmitRowSchema, res.data.data, 'campaign submits');
+    out.rejected += parsed.rejected;
+    out.warnings.push(...parsed.warnings);
+    for (const r of parsed.valid) {
+      const submits = (r.conversions ?? []).filter((a) => a.action_type === SUBMIT_APPLICATION_ACTION).reduce((s, a) => s + a.value, 0);
+      out.rows.push({ campaignId: r.campaign_id, campaignName: r.campaign_name ?? r.campaign_id, date: r.date_start, submits });
+    }
+    if (!res.data.paging?.next) break;
+    next = res.data.paging.next;
+  }
+  if (page >= MAX_PAGES) out.warnings.push(`Campaign submits paging stopped at ${MAX_PAGES} pages.`);
+  return out;
+}
+
 export async function fetchInsights(params: { since: string; until: string; level?: 'ad' }): Promise<InsightsFetch> {
   const config = await getMetaConfig();
   const out: InsightsFetch = { rows: [], rejected: 0, warnings: [], requests: 0 };

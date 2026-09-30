@@ -36,6 +36,20 @@ export const MetaInsightRowSchema = z.object({
 });
 export type MetaInsightRow = z.infer<typeof MetaInsightRowSchema>;
 
+/**
+ * Campaign-level daily "Website Submit Applications" (docs/applied-reconciliation-2026-09-20.md §4): Ads Manager's
+ * column is the `conversions` field's `submit_application_website` action — NOT the `actions` map.
+ */
+export const MetaCampaignSubmitRowSchema = z.object({
+  date_start: z.string().min(1),
+  date_stop: z.string().min(1),
+  campaign_id: z.string().min(1),
+  campaign_name: optionalString,
+  conversions: z.array(MetaActionSchema).nullish(),
+});
+export type MetaCampaignSubmitRow = z.infer<typeof MetaCampaignSubmitRowSchema>;
+export const SUBMIT_APPLICATION_ACTION = 'submit_application_website';
+
 export const MetaPagedSchema = z.object({
   data: z.array(z.unknown()).default([]),
   paging: z
