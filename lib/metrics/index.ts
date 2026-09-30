@@ -6,41 +6,18 @@
  * The Command Center, the Funnel tab, the emails and the AI layer all call the
  * SAME functions, so they can never disagree.
  *
- * Definitions (an "event in range" means its local calendar date, in the
- * business timezone, falls inside the inclusive range):
- *   applied          contacts whose GHL contact was created in range
- *   consult_booked   contacts who ENTERED the consult_booked role in range
- *   consult_showed   contacts with a Consult appointment that showed in range
- *   roadmap_booked   contacts who entered roadmap_booked in range
- *   roadmap_showed   contacts with a Roadmap appointment that showed in range
- *                    (or who entered the roadmap_showed role in range)
- *   enrolled         contacts who entered the enrolled role in range
- *   previous leads   contacts who entered previous_lead in range — its own row,
- *                    never in the stage chain; contacts whose FIRST observed
- *                    stage was previous_lead (re-engaged old leads) are
- *                    excluded from every stage above
- *   cohort mode      the cohort is everyone who applied in range; each later
- *                    stage counts cohort members who EVER reached it OR ANY
- *                    LATER STAGE (people skip stages in GHL), so every stage is
- *                    a subset of the one before and no conversion exceeds
- *                    100%. In-period mode counts events in range; its ratios
- *                    are capped at 100% and flagged `capped`. A "showed" stage
- *                    whose attendance is not recorded is withheld and skipped
- *                    by the conversion chain (`conversionFrom` spans the gap).
- *   awaiting rebook  (daily to-do) everyone currently in consult_rescheduled /
- *                    roadmap_rescheduled, every day until they leave the role
- *   show rate        showed ÷ (showed + no-show), per appointment type
- *   cost per client  spend in range ÷ enrolled in range (null when 0 enrolled)
- *   cash collected   succeeded payments net of refunds, split by payment class:
- *                    initial (a customer's first kept charge) vs recurring
- *   ROAS             PAID-attributed initial cash in range ÷ spend in range
- *                    (recurring cash and organic clients never enter it)
- *   Paid CAC         spend ÷ enrollments whose contact is attribution `paid`
- *   Blended CAC      spend ÷ ALL enrollments (organic included)
- *   LTV:CAC          Σ contract value of the period's new clients ÷ spend
- *                    (= avg contract value ÷ blended CAC); withheld with a
- *                    warning while any new client has no contract value
- *   cost per roadmap spend ÷ roadmap_booked reached in range
+ * DEFINITIONS LIVE IN lib/metrics/glossary.ts (the single source since
+ * 2026-09-30: one entry per metric with its definition, formula and a
+ * `worked(input, range)` that calls the same functions below). The prompts,
+ * the Analyst and the "What does this mean?" box all read from there; do not
+ * restate a formula here or anywhere else. Two structural rules worth
+ * keeping in view while reading this file:
+ *   - an "event in range" means its local calendar date, in the business
+ *     timezone, falls inside the inclusive range;
+ *   - cohort mode counts "reached this stage or any later one" so every
+ *     stage is a subset of the one before; in-period ratios are capped at
+ *     100% and flagged `capped`; a "showed" stage with no attendance data is
+ *     withheld and skipped by the conversion chain (`conversionFrom`).
  *
  * Money is integer cents everywhere, and every amount carries its currency.
  * Each public function first puts its input into the REPORTING currency
