@@ -13,6 +13,8 @@ import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
 import { runAnalystBriefStep } from '@/lib/analyst/briefService';
 import { runAnalystSweepStep } from '@/lib/analyst/service';
+import { runAppliedLedgerStep } from '@/lib/reconcile/appliedLedger';
+import { runAppliedRatioStep } from '@/lib/reconcile/appliedRatio';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
 import { inSendWindow, localHour, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
@@ -117,6 +119,9 @@ export async function GET(request: NextRequest) {
       skip: reconcileGate({ trackedCompletedAt: trackedMarker?.completedAt ?? null, ghlRunLive: liveGhl.length > 0 }),
       run: () => runReconcile({ trigger: 'cron' }),
     },
+    // Applied reconciliation (docs/plan-reconciliation-2026-09-30.md): the ledger once per local day after GHL, then the Meta ratio.
+    { name: 'applied_ledger', after: ['ghl'], ownsRun: true, timeoutMs: 30_000, run: () => runAppliedLedgerStep({ force }) },
+    { name: 'applied_ratio', after: ['applied_ledger'], ownsRun: true, timeoutMs: 45_000, run: () => runAppliedRatioStep({ force }) },
     { name: 'sweep', run: () => sweepIncidentNoise() },
     // F3: fill every existing contact's empty utm_* from its landing URL — once (then "done"); sync fills new ones.
     { name: 'utm_backfill', run: () => runUtmBackfill() },

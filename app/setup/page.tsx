@@ -35,6 +35,7 @@ import { StripeCard } from '@/components/setup/StripeCard';
 import { GoogleAdsCard } from '@/components/setup/GoogleAdsCard';
 import { AnthropicCard } from '@/components/setup/AnthropicCard';
 import { AnalystCard } from '@/components/setup/AnalystCard';
+import { ReconciliationCard } from '@/components/setup/ReconciliationCard';
 import { SyncHealth } from '@/components/setup/SyncHealth';
 import { IncidentLog } from '@/components/setup/IncidentLog';
 import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
@@ -781,6 +782,9 @@ export default function SetupPage() {
 
         {/* ---- Sync health (Phase D) ---- */}
         <SyncHealth />
+
+        {/* ---- Applied reconciliation (plan 2026-09-30) ---- */}
+        <ReconciliationCard />
 
         {/* ---- Incident log ---- */}
         <IncidentLog />
