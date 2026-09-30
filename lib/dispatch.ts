@@ -13,6 +13,19 @@
  *   - a step that would start after the invocation budget is recorded as
  *     skipped, never silently dropped.
  * Pure over its inputs (steps + clock) so it is unit-testable.
+ *
+ * 2026-09-30 (production: stripe timed out at 25 s, then reconcile / sweep /
+ * prune / insights / daily were "time budget reached" on EVERY run for days —
+ * the daily to-do never sent):
+ *   - FAIRNESS: `orderSteps` runs never-succeeded and starved steps first,
+ *     then the least-recently-successful, so a budget-deferred step is at the
+ *     front of the next run. `after` keeps real dependencies (narrative before
+ *     its digest) whatever the ranking.
+ *   - HONEST STATUS: a budget skip is `deferred`, not an error. `assessDispatch`
+ *     → HTTP 200 with partial:true for deferrals / single timeouts; 500 ONLY
+ *     when a step failed, or the same step timed out / was deferred
+ *     STUCK_THRESHOLD consecutive runs (then an incident names it).
+ *   - History lives in settings.dispatch_state (`nextDispatchState`).
  */
 
 export interface DispatchStep {
@@ -24,13 +37,17 @@ export interface DispatchStep {
   timeoutMs?: number;
   /** True when the step writes its own sync_runs row (sources); false → dispatch records one. */
   ownsRun?: boolean;
+  /** Steps that must run earlier in the same dispatch when both are present (e.g. a narrative before its digest). */
+  after?: string[];
 }
 
 export type StepOutcome =
   | { status: 'succeeded'; durationMs: number; result: unknown }
   | { status: 'failed'; durationMs: number; error: string; result?: unknown }
   | { status: 'timed_out'; durationMs: number; error: string }
-  | { status: 'skipped'; reason: string };
+  | { status: 'skipped'; reason: string }
+  /** Not started because the invocation budget ran out — it goes to the front of the next dispatch. */
+  | { status: 'deferred'; reason: string };
 
 export interface DispatchOutcome {
   ok: boolean;
@@ -69,7 +86,7 @@ export function statsForOutcome(outcome: StepOutcome): Record<string, number | s
 
 /** The one-line reason behind an outcome, read from the outcome itself or the step's own result. Null when it simply ran. */
 export function outcomeReason(outcome: StepOutcome): string | null {
-  if (outcome.status === 'skipped') return outcome.reason;
+  if (outcome.status === 'skipped' || outcome.status === 'deferred') return outcome.reason;
   if (outcome.status === 'timed_out') return outcome.error;
   if (outcome.status === 'failed') return outcome.error;
   const r = outcome.result;
@@ -109,7 +126,7 @@ export async function runDispatch(
     if (step.skip) {
       outcome = { status: 'skipped', reason: step.skip };
     } else if (now() - startedAt >= budgetMs) {
-      outcome = { status: 'skipped', reason: 'time budget reached before this step; it runs on the next dispatch' };
+      outcome = { status: 'deferred', reason: 'time budget reached before this step; it runs first on the next dispatch' };
     } else {
       const t0 = now();
       const timeoutMs = step.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
@@ -141,6 +158,132 @@ export async function runDispatch(
     }
   }
 
-  const ok = Object.values(outcomes).every((o) => o.status === 'succeeded' || o.status === 'skipped');
+  const ok = Object.values(outcomes).every((o) => o.status === 'succeeded' || o.status === 'skipped' || o.status === 'deferred');
   return { ok, order, steps: outcomes, durationMs: now() - startedAt };
+}
+
+// ---------------------------------------------------------------------------
+// Fairness + stuck detection (2026-09-30). Pure; the route persists the state.
+// ---------------------------------------------------------------------------
+
+/** A step timed out or was deferred this many consecutive dispatches → stuck: HTTP 500 + an incident. */
+export const STUCK_THRESHOLD = 3;
+
+export interface StepHistory {
+  /** ISO time of the last run whose outcome was `succeeded`. */
+  lastSucceededAt?: string;
+  /** Consecutive dispatches in which the step timed out or was deferred. Reset by any other outcome. */
+  stuck: number;
+  lastStuck?: 'timed_out' | 'deferred';
+}
+export type DispatchState = Record<string, StepHistory>;
+
+export function parseDispatchState(raw: string | null | undefined): DispatchState {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as DispatchState) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Run order for one dispatch: (a) steps that never succeeded or are starved
+ * (stuck > 0) first — most-starved first — then (b) the rest by least-recently
+ * successful. Ties keep the declared order. A step's `after` dependencies
+ * (when present in this run) are pulled forward to run just before it.
+ */
+export function orderSteps<T extends Pick<DispatchStep, 'name' | 'after'>>(steps: T[], state: DispatchState): T[] {
+  const declared = new Map(steps.map((s, i) => [s.name, i]));
+  const rank = (s: T) => {
+    const h = state[s.name];
+    const starved = !h?.lastSucceededAt || (h?.stuck ?? 0) > 0;
+    return { group: starved ? 0 : 1, stuck: h?.stuck ?? 0, last: h?.lastSucceededAt ? Date.parse(h.lastSucceededAt) : 0 };
+  };
+  const sorted = [...steps].sort((a, b) => {
+    const ra = rank(a), rb = rank(b);
+    if (ra.group !== rb.group) return ra.group - rb.group;
+    if (ra.group === 0 && ra.stuck !== rb.stuck) return rb.stuck - ra.stuck;
+    if (ra.group === 1 && ra.last !== rb.last) return ra.last - rb.last;
+    return declared.get(a.name)! - declared.get(b.name)!;
+  });
+  // Dependencies are HOISTED to just before their dependent (they inherit its priority) — a starved step is never
+  // held back behind a dependency that ranks low.
+  const byName = new Map(steps.map((s) => [s.name, s]));
+  const out: T[] = [];
+  const placed = new Set<string>();
+  const place = (s: T, seen: Set<string>) => {
+    if (placed.has(s.name) || seen.has(s.name)) return;
+    seen.add(s.name);
+    for (const d of s.after ?? []) {
+      const dep = byName.get(d);
+      if (dep) place(dep, seen);
+    }
+    out.push(s);
+    placed.add(s.name);
+  };
+  for (const s of sorted) place(s, new Set());
+  return out;
+}
+
+/** Fold one dispatch's outcomes into the history. */
+export function nextDispatchState(state: DispatchState, outcomes: Record<string, StepOutcome>, nowIso: string): DispatchState {
+  const out: DispatchState = { ...state };
+  for (const [name, o] of Object.entries(outcomes)) {
+    const prev = state[name] ?? { stuck: 0 };
+    if (o.status === 'timed_out' || o.status === 'deferred') {
+      out[name] = { ...prev, stuck: (prev.stuck ?? 0) + 1, lastStuck: o.status };
+    } else {
+      out[name] = { ...prev, stuck: 0, lastStuck: undefined, ...(o.status === 'succeeded' ? { lastSucceededAt: nowIso } : {}) };
+    }
+  }
+  return out;
+}
+
+export interface DispatchAssessment {
+  /** 200 unless something is actually broken. */
+  httpStatus: 200 | 500;
+  ok: boolean;
+  /** Some step was deferred or timed out this run (it continues next run). */
+  partial: boolean;
+  failed: Array<{ name: string; error: string }>;
+  stuck: Array<{ name: string; count: number; as: 'timed_out' | 'deferred' }>;
+  deferred: string[];
+}
+
+/** The status contract: 5xx only for a failure or a step stuck STUCK_THRESHOLD runs in a row. */
+export function assessDispatch(outcomes: Record<string, StepOutcome>, state: DispatchState, threshold = STUCK_THRESHOLD): DispatchAssessment {
+  const failed: DispatchAssessment['failed'] = [];
+  const stuck: DispatchAssessment['stuck'] = [];
+  const deferred: string[] = [];
+  for (const [name, o] of Object.entries(outcomes)) {
+    if (o.status === 'failed') failed.push({ name, error: o.error });
+    if (o.status === 'timed_out' || o.status === 'deferred') {
+      deferred.push(name);
+      const count = state[name]?.stuck ?? 0;
+      if (count >= threshold) stuck.push({ name, count, as: o.status });
+    }
+  }
+  const ok = failed.length === 0 && stuck.length === 0;
+  return { httpStatus: ok ? 200 : 500, ok, partial: deferred.length > 0, failed, stuck, deferred };
+}
+
+/** The dispatch runs GHL itself only when no GHL run has finished OK (succeeded / partial) for this long. */
+export const GHL_FALLBACK_AFTER_MS = 2 * 60 * 60 * 1000;
+
+/** Skip reason for the dispatch's ghl step, or null when the fallback is due. */
+export function ghlFallbackGate(lastOkFinishedAt: Date | null, now: Date): string | null {
+  if (!lastOkFinishedAt) return null;
+  const ageMs = now.getTime() - lastOkFinishedAt.getTime();
+  if (ageMs >= GHL_FALLBACK_AFTER_MS) return null;
+  return `GHL synced ${Math.max(0, Math.round(ageMs / 60_000))} min ago (/api/cron/sync-ghl) — the dispatch runs GHL only as a fallback after ${GHL_FALLBACK_AFTER_MS / 3_600_000} h`;
+}
+
+/** Skip reason for reconcile, or null when eligible: the tracked phases of the current cycle are complete and no GHL run is live. */
+export function reconcileGate(input: { cursorPhase: string | null; trackedCompletedAt: string | null; ghlRunLive: boolean }): string | null {
+  if (input.ghlRunLive) return 'a GHL sync is running — reconcile waits for a still mirror';
+  if (input.cursorPhase === 'tracked' || input.cursorPhase === 'appointments') return `waiting for the tracked phases of the GHL cycle — paused in phase ${input.cursorPhase}`;
+  if (!input.cursorPhase && !input.trackedCompletedAt) return 'waiting for the tracked phases of the GHL cycle — none completed yet';
+  return null;
 }

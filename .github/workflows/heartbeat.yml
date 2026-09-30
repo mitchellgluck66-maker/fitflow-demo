@@ -16,8 +16,12 @@
 #   APP_URL      production origin, e.g. https://fitflow.vercel.app (no path)
 #   CRON_SECRET  the SAME value as Vercel's CRON_SECRET env var
 #
-# A non-2xx from either route fails the run (red X in Actions). The dispatch
-# returns 500 when any of its steps failed; the log lists each step's outcome.
+# A non-2xx from either route fails the run (red X in Actions), and a red X
+# means something is actually broken: the dispatch returns 500 ONLY when a
+# step failed or the same step timed out / was deferred 3 runs in a row
+# (it also opens a `dispatch_stuck` incident). Steps merely deferred for the
+# time budget → 200 with partial:true; they run first next time. The log
+# lists each step's outcome in the order it ran.
 name: Cron heartbeat
 
 on:
@@ -68,5 +72,10 @@ jobs:
           code=$(curl -sS --max-time 90 -o body.json -w '%{http_code}' \
             -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/dispatch") || code="curl-exit-$?"
           echo "HTTP $code"
-          jq -r '"ok=\(.ok) localHour=\(.localHour) \(.durationMs)ms", (.steps // {} | to_entries[] | "  \(.key): \(.value.status) \(.value.reason // .value.error // "")")' body.json 2>/dev/null || head -c 300 body.json 2>/dev/null || true
+          # 200 = healthy (partial=true only means some steps were deferred to the next run and go first there).
+          # 500 = a step FAILED, or one was stuck (timed out / deferred 3 runs in a row) — see failed / stuck.
+          jq -r '"ok=\(.ok) partial=\(.partial) localHour=\(.localHour) \(.durationMs)ms",
+                 (if (.failed // []) | length > 0 then "FAILED: \(.failed | map(.name + " (" + .error + ")") | join(", "))" else empty end),
+                 (if (.stuck // []) | length > 0 then "STUCK: \(.stuck | map(.name + " ×" + (.count|tostring) + " " + .as) | join(", "))" else empty end),
+                 ((.order // [])[] as $k | "  \($k): \(.steps[$k].status) \(.steps[$k].reason // .steps[$k].error // "")")' body.json 2>/dev/null || head -c 300 body.json 2>/dev/null || true
           case "$code" in 2??) ;; *) echo "::error::dispatch returned $code"; exit 1 ;; esac

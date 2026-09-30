@@ -664,8 +664,9 @@ cycle) had never run.
     no run row, cursor untouched) while another `ghl_delta`/`ghl_backfill`
     row is live and not stale (overlapping runs would diff the same contacts
     into duplicate `stage_transitions`). Manual Sync now says "Not started".
-  - `stripe` (last 7 days), `meta` (last 3 days), `google`: upserts keyed by
-    external id. `meta_token`: one GET; one open incident at most.
+  - `stripe` (incremental delta hourly, 7-day reconcile daily — see
+    "Dispatch fairness + Stripe delta"), `meta` (last 3 days), `google`:
+    upserts keyed by external id. `meta_token`: one GET; one open incident at most.
   - `reconcile`: `limit=1` counts per followed stage; one incident per
     stage, refreshed/resolved — idempotent. `sweep`: idempotent.
   - `insights`: the dispatch passes `INSIGHT_MIN_INTERVAL_MS` (20 h) — a
@@ -690,11 +691,56 @@ cycle) had never run.
   prune to ~30 days. Keep the per-step reasons; prune, never go quiet.
 - **Red ✗ triage**: open the run log → the failing step's reason. 401 =
   secret mismatch with Vercel; 503/500 "CRON_SECRET is not configured" =
-  Vercel env; curl-exit-28 = 90 s timeout (a step outran its budget); no
+  Vercel env; 500 with `stuck` = a step not completing 3 runs in a row (see
+  its `dispatch_stuck` incident); curl-exit-28 = 90 s timeout; no
   runs at all mid-month = Actions minutes exhausted (Settings → Billing).
   Tests: `tests/ingest.test.ts` → "one GHL run at a time",
   `tests/email.test.ts` (heartbeat-safe / retries), `tests/anthropic.test.ts`
   (minIntervalMs, once per period), `tests/dispatch.test.ts` (reasons).
+
+## Dispatch fairness + Stripe delta (2026-09-30 — production heartbeat 500)
+
+Finding (prod `sync_runs`): `stripe_reconcile` took ~49 s EVERY run with only
+5 Stripe requests — it upserted ~330 rows (all 278 subscriptions + 7 days of
+charges) one round trip each (~145 ms to Supabase). The dispatch timed it out
+at 25 s, then GHL's 30 s ate the rest, so reconcile / sweep / prune / insights
+/ **daily** were "time budget reached" on every run since at least 09-26 (the
+daily to-do never sent) and the run returned 500.
+
+- **Stripe** (`lib/stripe/ingest.ts`): `delta` (hourly steady state) lists
+  charges / subscriptions / refunds CREATED since `settings.stripe_delta_since`
+  − 1 h overlap; one INSERT … ON CONFLICT per page (`upsertCharges` /
+  `upsertSubscriptions` / `upsertRefunds`, `excluded.*`, refunded_cents only
+  grows); matching + classification only when rows were written. Estimated
+  ~1–3 s. `reconcile` (7-day charges/refunds + EVERY subscription, catches
+  cancellations) runs when `stripe_reconcile_completed_at` is ≥ 20 h old
+  (`scheduledStripeMode`), page by page with `stripe_sync_cursor`, stopping
+  new pages at `budgetMs` (≥ 1 page per run) → `partial`, resumed next run;
+  the marker = the cycle's start. Backfill is resumable the same way. Row
+  kind `stripe_delta` is in every freshness / sync-health list. The client
+  resolves the (encrypted) key once per list, not per page. Matching picks
+  the oldest contact on a shared email/phone (deterministic).
+  `npm run sync:stripe -- --delta`. `tests/stripe-incremental.test.ts`.
+- **Fairness** (`lib/dispatch.ts#orderSteps`, history in
+  `settings.dispatch_state` via `lib/dispatchState.ts`): never-succeeded or
+  starved (stuck > 0) steps first, most starved first; then
+  least-recently-successful; ties = declared order. `after` deps (reconcile
+  after ghl; weekly/monthly after their narrative) are HOISTED to run just
+  before the dependent. A budget skip is `deferred` (sync_runs status
+  `deferred`), not `skipped`.
+- **GHL in the dispatch is a fallback**: `ghlFallbackGate` skips it unless no
+  GHL run finished OK (succeeded / partial) for 2 h — the heartbeat's
+  `/api/cron/sync-ghl` call normally covers it. Reconcile eligibility reads
+  the persisted cycle (`reconcileGate`: cursor phase / tracked marker / no
+  live GHL run), never "did ghl run earlier in this dispatch".
+- **Status contract** (`assessDispatch`): 200 `{ok:true, partial}` when steps
+  were merely deferred or timed out once; **500 only** for a failed step, or
+  the same step timed out / deferred `STUCK_THRESHOLD` (3) runs in a row —
+  that also opens ONE `dispatch_stuck` critical incident naming the step
+  (refreshed while stuck, auto-resolved when it completes). Body carries
+  `failed`, `stuck`, `deferred`, `order`. A red ✗ in Actions now means broken.
+- Tests: `tests/dispatch.test.ts` (ordering, starvation simulation, status
+  contract, gates), `tests/dispatch-state.test.ts` (incident lifecycle).
 
 ## Working agreements
 
