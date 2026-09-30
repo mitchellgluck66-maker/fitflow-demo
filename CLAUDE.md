@@ -845,3 +845,35 @@ ingestion so a stale or incomplete mirror cannot go unnoticed and repairs itself
 - Commit small, descriptive; never commit secrets or `db/*.db`.
 - When GHL's real response shape differs from the docs (some fields are undocumented),
   prefer runtime evidence: log the shape once, adapt, note it here.
+
+## Definition of done (Mitchell, 2026-09-30) — applies to EVERY change
+
+Why: the 2026-09-29 verification and the first live AI call found features that "passed" but did
+not work. Examples: the Ask/Insights tool schemas used `maxItems`/`minimum`, which strict tool use
+rejects (HTTP 400). The unit tests mocked `fetch`, so they never saw the API's rules, and the key
+"Verify" button only sent a plain ping. Others: the GHL freshness marker said "fresh" for a frozen
+pipeline, Meta currency silently defaulted to USD, and show rates rendered 0% with no input data.
+From now on:
+
+1. **The plan states, for each feature or fix:**
+   - (a) what it does;
+   - (b) **what it looks like when it works**: the exact screen text, API response and DB rows;
+   - (c) **what it looks like when it fails**: the visible error, the incident and the `sync_runs`
+     status, which must never be a blank, a 0, or "succeeded";
+   - (d) **how it is verified**: the automated test AND the live command, with its expected output.
+2. **No silent fallbacks.**
+   - Never default a missing currency, timezone, status or count; fail closed and surface it.
+   - A step that did nothing is `skipped` with a reason, never `succeeded`.
+   - A freshness or completion marker is written only by the code that did the work, in that run.
+3. **Mocks are not proof.** Every external integration needs:
+   - (i) a contract test of the exact request we send against the provider's documented limits
+     (fails CI if anyone adds an unsupported field);
+   - (ii) a live smoke script (`npm run smoke:<provider>`) that exercises the real call path with
+     the stored credentials and prints PASS/FAIL per feature.
+4. **Credential "Verify" buttons exercise the same call path the feature uses**, not a cheaper ping.
+5. **Report back with evidence:**
+   - the test output;
+   - the live smoke output (Mitchell runs it if it needs his machine);
+   - what was NOT verified.
+
+   Never report "done" on unit tests alone.
