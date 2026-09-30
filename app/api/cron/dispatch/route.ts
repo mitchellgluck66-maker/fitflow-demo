@@ -12,6 +12,7 @@ import { runFxSync } from '@/lib/fx/boc';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
 import { runAnalystBriefStep } from '@/lib/analyst/briefService';
+import { runAnalystSweepStep } from '@/lib/analyst/service';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
 import { inSendWindow, localHour, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
@@ -123,6 +124,8 @@ export async function GET(request: NextRequest) {
     { name: 'prune', run: () => runNightlyPrune(today, { force }) },
     // Analyst brief (plan item 3): engine only, once per local day after the sources; a build error keeps the previous brief.
     { name: 'analyst_brief', run: () => runAnalystBriefStep({ force }) },
+    // Amendment 1: orphaned Analyst turns (no heartbeat for 5 min) → failed + incident, hourly, panel or no panel.
+    { name: 'analyst_sweep', run: () => runAnalystSweepStep() },
     { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },
     // Narratives wait for the send window so the run that sends the digest writes its narrative first (once per period).
     { name: 'narrative_weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },

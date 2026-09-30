@@ -121,6 +121,18 @@ export function makeAnalystClient(key: string): Anthropic {
   return new Anthropic({ apiKey: key, maxRetries: 0, fetch: globalThis.fetch, timeout: 600_000 });
 }
 
+/** The slice of the SDK the loop uses (lib/analyst/run.ts#AnalystClient), so tests can hand it a fake stream. */
+export function loopClient(client: Anthropic) {
+  return {
+    beta: {
+      messages: {
+        stream: (params: BetaParams) => client.beta.messages.stream(params),
+        create: (params: BetaParams) => client.beta.messages.create(params),
+      },
+    },
+  };
+}
+
 /** Non-empty thinking text under `display: "updates"` is a progress update; everything else is hidden reasoning. */
 export function progressUpdates(message: Pick<BetaMessage, 'content'>): string[] {
   return message.content.filter((b): b is Anthropic.Beta.Messages.BetaThinkingBlock => b.type === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim().length > 0).map((b) => b.thinking.trim());

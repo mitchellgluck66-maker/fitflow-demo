@@ -778,8 +778,8 @@ const BY_NAME = new Map(ANALYST_TOOLS.map((t) => [t.definition.name, t]));
  * and correct; it never rejects the round and never returns an empty success. PII is scrubbed and the
  * result is size-capped.
  */
-export async function runAnalystTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
-  const t = BY_NAME.get(name);
+export async function runAnalystTool(name: string, input: unknown, ctx: ToolContext, tools: readonly AnalystTool[] = ANALYST_TOOLS): Promise<ToolResult> {
+  const t = tools === ANALYST_TOOLS ? BY_NAME.get(name) : tools.find((x) => x.definition.name === name);
   const base = { ref: ctx.ref, freshness: ctx.freshness };
   if (!t) return { ...base, range: null, currency: 'CAD', fx: '', data: null, error: `unknown tool "${name}"` };
   const args = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
