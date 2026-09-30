@@ -334,6 +334,16 @@ The first import against Jake's real accounts surfaced five issues; all fixed:
 - **Payment re-match**: a GHL sync that upserts contacts immediately re-runs
   Stripe payment matching (first run matched 0/324 because contacts arrived
   after payments). Manual matches never overwritten.
+- **Dates against raw SQL (2026-09-30, stripe_completeness's first scheduled run
+  failed with 22007).** A JS `Date` compared with a raw sql`` expression (e.g.
+  `coalesce(stripe_created_at, paid_at, failed_at)`) has no column to encode it;
+  drizzle's postgres-js driver passes it through and postgres-js writes
+  `Date.toString()`, which Postgres rejects. PGlite serializes Dates itself, so
+  the tests never saw it. **Every such bound goes through `lib/sqlTime#tsParam`
+  (ISO + `::timestamptz`) or `isoDayParam` for a YYYY-MM-DD value.** A typed
+  timestamp column encodes its own Dates and needs neither.
+  `tests/sql-date-params.test.ts` replays the postgres-js wire rule on real
+  Postgres and fails the build on the old shape.
 
 ## Setup page layout (2026-09-01 — condensed for real-data scale)
 

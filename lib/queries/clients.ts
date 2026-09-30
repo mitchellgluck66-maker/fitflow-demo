@@ -6,7 +6,8 @@
  * is editable in FitFlow.
  */
 
-import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { isoDayParam } from '../sqlTime';
 import { alias } from 'drizzle-orm/pg-core';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, payments } from '@/db';
 import type { SemanticRole, AttributionClass } from '@/db/schema';
@@ -291,6 +292,19 @@ function many(value: string | string[] | null | undefined): string[] {
   return list.map((v) => v.trim()).filter(Boolean);
 }
 
+/**
+ * The Applied date range (YYYY-MM-DD, inclusive). The applied date is a raw coalesce(...) with no column type, so the
+ * bounds go through tsParam (ISO + ::timestamptz) — a bare Date reached postgres-js as Date.toString() and Postgres
+ * refused it (22007; 2026-09-30). A malformed day is a named RangeError, never "Invalid Date" sent to Postgres.
+ */
+export function appliedRangeConditions(params: Pick<ClientListParams, 'from' | 'to'>): SQL[] {
+  const applied = sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`;
+  const out: SQL[] = [];
+  if (params.from) out.push(gte(applied, isoDayParam(params.from, '00:00:00', 'from')));
+  if (params.to) out.push(lte(applied, isoDayParam(params.to, '23:59:59.999', 'to')));
+  return out;
+}
+
 export async function listClients(params: ClientListParams = {}): Promise<ClientListResult> {
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
   const offset = Math.max(params.offset ?? 0, 0);
@@ -333,8 +347,7 @@ export async function listClients(params: ClientListParams = {}): Promise<Client
       ),
     );
   }
-  if (params.from) conditions.push(gte(sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`, new Date(`${params.from}T00:00:00Z`)));
-  if (params.to) conditions.push(lte(sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`, new Date(`${params.to}T23:59:59.999Z`)));
+  conditions.push(...appliedRangeConditions(params));
   const where = conditions.length ? and(...conditions) : undefined;
 
   const appliedExpr = sql`coalesce(${contacts.ghlCreatedAt}, ${contacts.createdAt})`;

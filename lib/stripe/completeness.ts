@@ -14,6 +14,7 @@
  */
 
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { tsParam } from '../sqlTime';
 import { db, payments, syncRuns, syncIncidents } from '@/db';
 import { getDayBounds, addDays, todayInTimezone } from '../day';
 import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
@@ -114,10 +115,14 @@ export function bookFromCharges(charges: StripeCharge[], timezone: string): DayB
   return book;
 }
 
-/** Mirror side: stored charges/invoices bucketed the same way (created, else paid/failed time for pre-F12 rows). */
-async function mirrorBook(startMs: number, endMs: number, timezone: string): Promise<DayBook> {
+/**
+ * Mirror side: stored charges/invoices bucketed the same way (created, else paid/failed time for pre-F12 rows).
+ * The range bounds go through tsParam: `at` is a raw coalesce(...) with no column type, so a bare Date would reach
+ * postgres-js as Date.toString() (the 2026-09-30 22007 crash). Exported so tests can replay it on real Postgres.
+ */
+export function mirrorBookQuery(startMs: number, endMs: number, timezone: string) {
   const at = sql`coalesce(${payments.stripeCreatedAt}, ${payments.paidAt}, ${payments.failedAt})`;
-  const rows = await db
+  return db
     .select({
       day: sql<string>`to_char(${at} at time zone ${timezone}, 'YYYY-MM-DD')`,
       currency: payments.currency,
@@ -126,8 +131,12 @@ async function mirrorBook(startMs: number, endMs: number, timezone: string): Pro
       refunded: sql<number>`coalesce(sum(${payments.refundedCents}), 0)::int`,
     })
     .from(payments)
-    .where(and(eq(payments.origin, 'stripe'), inArray(payments.kind, ['charge', 'invoice']), gte(at, new Date(startMs)), lt(at, new Date(endMs))))
+    .where(and(eq(payments.origin, 'stripe'), inArray(payments.kind, ['charge', 'invoice']), gte(at, tsParam(new Date(startMs))), lt(at, tsParam(new Date(endMs)))))
     .groupBy(sql`1`, payments.currency);
+}
+
+async function mirrorBook(startMs: number, endMs: number, timezone: string): Promise<DayBook> {
+  const rows = await mirrorBookQuery(startMs, endMs, timezone);
   const book: DayBook = new Map();
   for (const r of rows) {
     const byCcy = book.get(r.day) ?? new Map<string, DayTotals>();

@@ -30,6 +30,8 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (error) {
+    // a malformed from/to (lib/sqlTime#isoDayParam) is the caller's error, said by name — never a 500, never "Invalid Date" sent to Postgres
+    if (error instanceof RangeError) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ error: 'Failed to list clients', detail: String(error) }, { status: 500 });
   }
 }
