@@ -17,7 +17,7 @@ import { getScorecard } from '../metrics/service';
 import { buildInsightInput, hashInsightInput, validateInsights, InsightsAnswerSchema, type InsightFinding, type InsightInput } from '../metrics/insights';
 import { askClaude } from './client';
 import { getAnthropicConfig } from './config';
-import { INSIGHTS_SYSTEM, INSIGHTS_TOOL_SCHEMA } from './prompts';
+import { INSIGHTS_SYSTEM, insightsToolSchema } from './prompts';
 
 export interface InsightsContent {
   findings: InsightFinding[];
@@ -25,6 +25,8 @@ export interface InsightsContent {
   model: string;
   input: InsightInput;
   usage?: { inputTokens: number; outputTokens: number } | null;
+  /** Links that were not offered and fell back to the Command Center (the finding is kept). */
+  warnings?: string[];
 }
 
 export interface InsightsResult {
@@ -42,6 +44,8 @@ export interface InsightsResult {
   /** Why no generation was attempted (fresh card within minIntervalMs). */
   skipped?: string;
   usage?: { inputTokens: number; outputTokens: number } | null;
+  /** Links that were not offered and fell back to the Command Center (the finding is kept). */
+  warnings?: string[];
 }
 
 async function findCached(inputHash: string) {
@@ -90,7 +94,8 @@ export async function runInsights(params: { range?: string | null; compare?: str
   const answer = await askClaude({
     system: INSIGHTS_SYSTEM,
     user: `Metrics snapshot (JSON):\n${JSON.stringify(input)}`,
-    inputSchema: INSIGHTS_TOOL_SCHEMA as unknown as Record<string, unknown>,
+    // `link` is an enum of THIS snapshot's deepLinks keys (strict mode supports enum) — mapped to URLs below.
+    inputSchema: insightsToolSchema(Object.keys(input.deepLinks)) as unknown as Record<string, unknown>,
     schema: InsightsAnswerSchema,
     toolName: 'submit_findings',
     maxTokens: 1500,
@@ -103,12 +108,13 @@ export async function runInsights(params: { range?: string | null; compare?: str
     return { ok: false, cached: false, reportId: null, findings: [], generatedAt: null, model: answer.model, ...base, error: validated.error };
   }
 
-  const content: InsightsContent = { findings: validated.findings, generatedAt: new Date().toISOString(), model: answer.model ?? config.model, input, usage: answer.usage };
+  for (const w of validated.warnings) console.warn(`[insights] ${w}`);
+  const content: InsightsContent = { findings: validated.findings, warnings: validated.warnings, generatedAt: new Date().toISOString(), model: answer.model ?? config.model, input, usage: answer.usage };
   const [row] = await db
     .insert(aiReports)
     .values({ kind: 'insight', periodStart: base.periodStart, periodEnd: base.periodEnd, model: content.model, inputHash, content: content as unknown as Record<string, unknown> })
     .returning({ id: aiReports.id });
-  return { ok: true, cached: false, reportId: row.id, findings: content.findings, generatedAt: content.generatedAt, model: content.model, usage: answer.usage, ...base };
+  return { ok: true, cached: false, reportId: row.id, findings: content.findings, generatedAt: content.generatedAt, model: content.model, usage: answer.usage, warnings: validated.warnings, ...base };
 }
 
 /** Latest stored insights for a period (no generation). */

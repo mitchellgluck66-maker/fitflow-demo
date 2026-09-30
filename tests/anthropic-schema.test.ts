@@ -44,6 +44,14 @@ describe('every strict tool schema, sanitized', () => {
     expect(prompts.INSIGHTS_TOOL_SCHEMA.properties.findings.maxItems).toBe(3);
   });
 
+  it('insightsToolSchema(keys): link is an enum of exactly those keys, and the sanitized schema is still clean', () => {
+    const keys = ['funnel', 'ads', 'command_center', 'stage:consult_showed', 'source:Facebook Ads'];
+    const sent = toStrictToolSchema(prompts.insightsToolSchema(keys)) as { properties: { findings: { items: { properties: { link: { enum: string[] } } } } } };
+    expect(findUnsupportedKeywords(sent)).toEqual([]);
+    expect(sent.properties.findings.items.properties.link.enum).toEqual(keys);
+    expect((prompts.INSIGHTS_TOOL_SCHEMA.properties.findings.items.properties.link as { enum?: unknown }).enum).toBeUndefined(); // constant untouched
+  });
+
   it('closes open objects, drops unsupported formats and minItems > 1, keeps minItems 0/1 and supported formats', () => {
     const s = toStrictToolSchema({
       type: 'object',

@@ -172,12 +172,31 @@ export type InsightFinding = z.infer<typeof InsightFindingSchema>;
 /** At most 3 findings: extra ones are trimmed (with a warning), not a failure — strict tool use cannot enforce maxItems. */
 export const InsightsAnswerSchema = z.object({ findings: z.preprocess((v) => trimArray(v, 3, 'findings'), z.array(InsightFindingSchema).max(3)) });
 
-/** Validate Claude's answer AND pin every link to one of the offered deep links. */
-export function validateInsights(answer: unknown, deepLinks: Record<string, string>): { ok: true; findings: InsightFinding[] } | { ok: false; error: string } {
+/** Where a finding goes when its link names nothing we offered. */
+export const FALLBACK_LINK_KEY = 'command_center';
+
+/**
+ * Validate Claude's answer and resolve every finding's link to a URL we offered. The link may be a deepLinks KEY
+ * (what the per-call enum asks for) or one of the URLs themselves. An unknown link never discards the answer
+ * (2026-09-30 hotfix): the finding keeps its text, links to the Command Center, and a warning says so.
+ */
+export function validateInsights(
+  answer: unknown,
+  deepLinks: Record<string, string>,
+): { ok: true; findings: InsightFinding[]; warnings: string[] } | { ok: false; error: string } {
   const parsed = InsightsAnswerSchema.safeParse(answer);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid' };
-  const allowed = new Set(Object.values(deepLinks));
-  const bad = parsed.data.findings.find((f) => !allowed.has(f.link));
-  if (bad) return { ok: false, error: `link not in deepLinks: ${bad.link}` };
-  return { ok: true, findings: parsed.data.findings };
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { ok: false, error: `Answer failed validation at ${issue?.path.join('.') || '(root)'}: ${issue?.message ?? 'invalid'}` };
+  }
+  const urls = new Set(Object.values(deepLinks));
+  const fallback = deepLinks[FALLBACK_LINK_KEY] ?? Object.values(deepLinks)[0] ?? '/';
+  const warnings: string[] = [];
+  const findings = parsed.data.findings.map((f) => {
+    if (Object.prototype.hasOwnProperty.call(deepLinks, f.link)) return { ...f, link: deepLinks[f.link] };
+    if (urls.has(f.link)) return f;
+    warnings.push(`finding "${f.title}": link "${f.link}" is not one we offered — linked to the Command Center instead`);
+    return { ...f, link: fallback };
+  });
+  return { ok: true, findings, warnings };
 }

@@ -20,7 +20,7 @@ Rules:
 - Never mention data that is not in the JSON. Do not give generic advice.
 - Money is integer cents in money.currency (the reporting currency). Write any money you cite in dollars with that code, e.g. "$1,605 CAD"; never drop the code or convert currencies.
 - If dataCaveats is non-empty, any finding that cites an affected number (consults booked, roadmaps booked, cost per lead/consult/roadmap, stage→stage conversion) must say it is provisional in its detail. When dataCaveats is empty, never mention data maturity.
-- Choose "link" from the provided deepLinks values only — the one that best lets a human drill into the finding.
+- Choose "link" from the KEYS of the provided deepLinks object only (e.g. "stage:consult_booked", "ads") — the one that best lets a human drill into the finding.
 - severity: "warning" for deterioration, "good" for improvement, "info" for a neutral but notable fact.
 - Titles ≤ 90 characters, details ≤ 240 characters, plain English, no hype.`;
 
@@ -42,12 +42,31 @@ export const INSIGHTS_TOOL_SCHEMA = {
           metric: { type: 'string', maxLength: 60, description: 'The metric this is about, e.g. consult_show_rate, cac, applied.' },
           direction: { type: 'string', enum: ['up', 'down', 'flat'] },
           severity: { type: 'string', enum: ['info', 'warning', 'good'] },
-          link: { type: 'string', description: 'One of the deepLinks values from the input.' },
+          link: { type: 'string', description: 'One of the deepLinks KEYS from the input (the call narrows this to an enum of them).' },
         },
       },
     },
   },
 } as const;
+
+/**
+ * The insights tool schema for ONE call: `link` is an enum of that snapshot's deepLinks KEYS (strict tool use
+ * supports enum), so the model can only name a link that exists. The key is mapped to its URL after validation
+ * (lib/metrics/insights#validateInsights). 2026-09-30 hotfix: the model returned a key ("stage:consult_showed")
+ * where the old schema asked for a URL, and the whole answer was discarded.
+ */
+export function insightsToolSchema(linkKeys: string[]): typeof INSIGHTS_TOOL_SCHEMA {
+  const base = INSIGHTS_TOOL_SCHEMA.properties.findings.items;
+  return {
+    ...INSIGHTS_TOOL_SCHEMA,
+    properties: {
+      findings: {
+        ...INSIGHTS_TOOL_SCHEMA.properties.findings,
+        items: { ...base, properties: { ...base.properties, link: { type: 'string', enum: [...linkKeys], description: base.properties.link.description } } },
+      },
+    },
+  } as unknown as typeof INSIGHTS_TOOL_SCHEMA;
+}
 
 export const NARRATIVE_SYSTEM = `You write the opening paragraph of a weekly (or monthly) scorecard email for the owner of a fitness-coaching business. You receive a JSON snapshot of the period versus the previous one.
 

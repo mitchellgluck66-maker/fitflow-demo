@@ -20,6 +20,8 @@ interface InsightsState {
   findings: Finding[];
   generatedAt: string | null;
   model: string | null;
+  /** The open anthropic_error incident, if an AI call is failing. */
+  lastError?: string | null;
 }
 
 const DOT: Record<Finding['severity'], string> = {
@@ -59,6 +61,7 @@ export const InsightsCard: React.FC<{ rangeKey?: string }> = ({ rangeKey }) => {
     // rangeKey lets a parent force a reload when its data changes.
   }, [load, rangeKey]);
 
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const refresh = async () => {
     setBusy(true);
     try {
@@ -67,7 +70,9 @@ export const InsightsCard: React.FC<{ rangeKey?: string }> = ({ rangeKey }) => {
         const v = params.get(k);
         if (v) body[k] = v;
       }
-      await fetch('/api/anthropic/insights', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetch('/api/anthropic/insights', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await res.json().catch(() => ({}));
+      setRefreshError(res.ok && d.ok !== false ? null : (d.error ?? d.detail ?? `HTTP ${res.status}`));
       await load();
     } finally {
       setBusy(false);
@@ -95,7 +100,22 @@ export const InsightsCard: React.FC<{ rangeKey?: string }> = ({ rangeKey }) => {
     );
   }
 
-  if (state.findings.length === 0) return null;
+  // Never an empty card (2026-09-30): a failing AI call is shown with its reason.
+  const failure = refreshError ?? state.lastError ?? null;
+  if (state.findings.length === 0) {
+    if (!failure) return null; // nothing notable this period, and nothing is failing
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-3 px-3.5 py-2.5 rounded-[10px]" style={{ background: 'var(--negative-muted, var(--danger-muted))', border: '1px solid var(--negative-border, var(--border-subtle))' }}>
+        <Sparkles size={14} strokeWidth={2.2} style={{ color: 'var(--negative-text, var(--danger))' }} />
+        <span className="text-[12.5px] flex-1 min-w-[200px]" style={{ color: 'var(--negative-text, var(--danger))' }}>
+          Insights could not be generated: {failure}
+        </span>
+        <Button variant="ghost" loading={busy} onClick={refresh}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <Card padding="lg">

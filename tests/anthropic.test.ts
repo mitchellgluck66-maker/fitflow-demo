@@ -104,9 +104,22 @@ describe('buildInsightInput (pure)', () => {
     const four = validateInsights({ findings: [f, f, f, f] }, input.deepLinks);
     expect(four.ok && four.findings).toHaveLength(3);
     warn.mockRestore();
-    expect(validateInsights({ findings: [{ ...f, link: 'https://evil.example' }] }, input.deepLinks).ok).toBe(false);
-    expect(validateInsights({ findings: [f] }, input.deepLinks)).toMatchObject({ ok: true });
+    expect(validateInsights({ findings: [f] }, input.deepLinks)).toMatchObject({ ok: true, warnings: [] });
     expect(validateInsights({ findings: [] }, input.deepLinks)).toMatchObject({ ok: true, findings: [] });
+  });
+
+  // 2026-09-30 hotfix — production smoke: "FAIL insights · link not in deepLinks: stage:consult_showed".
+  it('a KEY, a URL and an unknown link all produce findings: key → its URL, URL kept, unknown → Command Center + warning', () => {
+    const f = (link: string, title: string) => ({ title, detail: 'd', metric: 'm', direction: 'up', severity: 'info', link });
+    const r = validateInsights({ findings: [f('stage:consult_showed', 'by key'), f(input.deepLinks.ads, 'by url'), f('https://evil.example', 'unknown')] }, input.deepLinks);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.findings.map((x) => [x.title, x.link])).toEqual([
+      ['by key', input.deepLinks['stage:consult_showed']],
+      ['by url', input.deepLinks.ads],
+      ['unknown', input.deepLinks.command_center],
+    ]);
+    expect(r.warnings).toEqual(['finding "unknown": link "https://evil.example" is not one we offered — linked to the Command Center instead']);
   });
 });
 
@@ -196,14 +209,34 @@ describe('runInsights', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(calls + 1);
   });
 
-  it('rejects a finding whose link is not a deep link, and never stores it', async () => {
+  it('the SENT schema narrows link to an enum of exactly this snapshot\'s deepLinks keys; a key answer is stored as its URL', async () => {
+    fetchSpy.mockImplementation(async () =>
+      messagesResponse({ findings: [{ title: 'Consult shows', detail: 'd', metric: 'm', direction: 'down', severity: 'warning', link: 'stage:consult_showed' }] }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await runInsights({ range: 'this_week', force: true });
+    expect(r.ok, r.error).toBe(true);
+    const body = JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body));
+    const sentEnum = body.tools[0].input_schema.properties.findings.items.properties.link.enum as string[];
+    const [stored] = await db.select().from(aiReports).where(eq(aiReports.id, r.reportId!));
+    const offered = Object.keys((stored.content as { input: { deepLinks: Record<string, string> } }).input.deepLinks);
+    expect([...sentEnum].sort()).toEqual([...offered].sort());
+    expect(sentEnum).toContain('stage:consult_showed');
+    expect(r.findings[0].link).toMatch(/^\/funnel\?.*stage=consult_showed$/);
+  });
+
+  it('an unknown link does not discard the answer: the finding is kept and links to the Command Center', async () => {
     fetchSpy.mockImplementation(async () =>
       messagesResponse({ findings: [{ title: 't', detail: 'd', metric: 'm', direction: 'up', severity: 'info', link: 'https://example.com' }] }),
     );
     vi.stubGlobal('fetch', fetchSpy);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await runInsights({ range: 'this_week', force: true });
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/link/);
+    warn.mockRestore();
+    expect(r.ok).toBe(true);
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].link).toMatch(/^\/\?/);
+    expect(r.warnings?.[0]).toMatch(/not one we offered/);
   });
 
   it('scrubs the key from API error text', async () => {

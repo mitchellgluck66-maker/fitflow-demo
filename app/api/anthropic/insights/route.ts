@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestInsights, runInsights } from '@/lib/anthropic/insights';
 import { getAnthropicConfig } from '@/lib/anthropic/config';
+import { and, eq, isNull } from 'drizzle-orm';
+import { db, syncIncidents } from '@/db';
+import { ANTHROPIC_INCIDENT_KIND } from '@/lib/anthropic/incident';
 import { getTimezone } from '@/lib/settings';
 import { rangeFromParams, todayInTimezone } from '@/lib/dates';
 
@@ -18,7 +21,10 @@ export async function GET(request: NextRequest) {
     // Stored findings (including pre-generated demo reports) render without a
     // key; "not configured" only when there is nothing to show.
     const notConfigured = !config.configured && latest.findings.length === 0;
-    return NextResponse.json({ notConfigured, cached: true, range: { start: range.start, end: range.end }, ...latest });
+    // Never an empty card: when an AI call is failing, the card says why (the one open anthropic_error incident).
+    const [failing] = await db.select({ message: syncIncidents.message }).from(syncIncidents)
+      .where(and(eq(syncIncidents.kind, ANTHROPIC_INCIDENT_KIND), isNull(syncIncidents.resolvedAt))).limit(1);
+    return NextResponse.json({ notConfigured, cached: true, range: { start: range.start, end: range.end }, ...latest, lastError: failing?.message ?? null });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to read insights', detail: String(error) }, { status: 500 });
   }
