@@ -24,6 +24,7 @@ import {
   GhlContactResponseSchema,
   GhlEventsResponseSchema,
   GhlOpportunitySchema,
+  GhlOpportunityByIdResponseSchema,
   GhlOpportunitySearchResponseSchema,
   GhlPipelinesResponseSchema,
   GhlUsersResponseSchema,
@@ -279,6 +280,8 @@ export interface OpportunityPageResult {
  */
 export async function listOpportunitiesPage(params: {
   pipelineId?: string;
+  /** Only this stage (the reconciler's targeted re-fetch). */
+  stageId?: string;
   page: number;
   startAfterId?: string | null;
   startAfter?: number | null;
@@ -294,6 +297,7 @@ export async function listOpportunitiesPage(params: {
       query: {
         location_id: config.locationId,
         pipeline_id: params.pipelineId,
+        pipeline_stage_id: params.stageId,
         limit,
         ...(params.startAfterId ? { startAfterId: params.startAfterId, startAfter: params.startAfter ?? undefined } : { page: params.page }),
       },
@@ -315,20 +319,41 @@ export async function listOpportunitiesPage(params: {
  * Live count of OPEN opportunities in one stage — one `limit=1` search whose
  * `meta.total` is the answer. Read-only; used by nightly reconciliation.
  */
-export async function countOpenOpportunities(params: { pipelineId: string; stageId: string }): Promise<{ total: number | null; error?: string }> {
+/** GHL opportunity statuses — the reconciler probes each (F7, 2026-09-30). */
+export const OPPORTUNITY_STATUSES = ['open', 'won', 'lost', 'abandoned'] as const;
+export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
+
+/**
+ * How many opportunities GHL holds for a pipeline — optionally one stage and one status — read from `meta.total`
+ * of a limit=1 search (read-only). Without a status GHL counts every status (the pipeline total).
+ */
+export async function countOpportunities(params: { pipelineId: string; stageId?: string; status?: OpportunityStatus }): Promise<{ total: number | null; error?: string }> {
   const config = await getGhlConfig();
   const result: GhlResult<z.infer<typeof GhlOpportunitySearchResponseSchema>> = await ghlRequest(
     {
       method: 'GET',
       endpoint: '/opportunities/search',
       family: 'opportunities',
-      query: { location_id: config.locationId, pipeline_id: params.pipelineId, pipeline_stage_id: params.stageId, status: 'open', limit: 1, page: 1 },
+      query: { location_id: config.locationId, pipeline_id: params.pipelineId, pipeline_stage_id: params.stageId, status: params.status, limit: 1, page: 1 },
     },
     GhlOpportunitySearchResponseSchema,
   );
   if (!result.ok || !result.data) return { total: null, error: result.error };
   const total = result.data.meta?.total;
   return typeof total === 'number' ? { total } : { total: null, error: 'response had no meta.total' };
+}
+
+/** Legacy name (open only). */
+export async function countOpenOpportunities(params: { pipelineId: string; stageId: string }): Promise<{ total: number | null; error?: string }> {
+  return countOpportunities({ ...params, status: 'open' });
+}
+
+/** One opportunity by id (read-only) — the reconciler re-reads a mirror row GHL no longer lists in its stage. */
+export async function getOpportunity(id: string): Promise<{ opportunity: GhlOpportunity | null; notFound?: boolean; error?: string }> {
+  const result = await ghlRequest({ method: 'GET', endpoint: `/opportunities/${id}`, family: 'opportunities' }, GhlOpportunityByIdResponseSchema);
+  if (!result.ok || !result.data) return { opportunity: null, notFound: result.status === 404, error: result.error };
+  const parsed = GhlOpportunitySchema.safeParse(result.data.opportunity);
+  return parsed.success ? { opportunity: parsed.data } : { opportunity: null, error: `opportunity ${id} failed validation` };
 }
 
 export async function listAllOpportunities(params: {

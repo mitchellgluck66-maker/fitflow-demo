@@ -237,3 +237,6 @@ export function parseMany<T>(
   if (rejected > 3) warnings.push(`${label}: ${rejected} rows rejected in total`);
   return { valid, rejected, warnings };
 }
+
+/** GET /opportunities/{id} — the opportunity is validated separately with GhlOpportunitySchema. */
+export const GhlOpportunityByIdResponseSchema = z.object({ opportunity: z.unknown() });

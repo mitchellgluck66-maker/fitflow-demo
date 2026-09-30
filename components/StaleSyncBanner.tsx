@@ -118,7 +118,7 @@ export const StaleSyncBanner: React.FC = () => {
         <span className="inline-flex items-center gap-2">
           <GitCompareArrows size={13} strokeWidth={2.4} className="shrink-0" />
           <span>
-            Mirror differs from GoHighLevel on <strong>{drift.mismatches}</strong> of {drift.stagesChecked} stages (reconciled {relativeAge(drift.at)}) —{' '}
+            Mirror differs from GoHighLevel on <strong>{drift.mismatches}</strong> stage/status check{drift.mismatches === 1 ? '' : 's'} after a re-fetch (reconciled {relativeAge(drift.at)}) —{' '}
             <Link href="/setup" className="underline">
               see Sync health
             </Link>

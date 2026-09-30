@@ -56,7 +56,7 @@ interface Health {
   incidents: Incident[];
   recentRuns: Array<{ id: string; kind: string; trigger: string; status: string; startedAt: string; requestsUsed: number; stats: Record<string, number>; error: string | null }>;
   sentry: boolean;
-  reconcile: { at: string; ok: boolean; stagesChecked: number; mismatches: Array<{ stageName: string; pipelineName: string; live: number; mirror: number }>; skipped: string[] } | null;
+  reconcile: { at: string; ok: boolean; stagesChecked: number; mismatches: Array<{ stageName: string; pipelineName: string; status?: string | null; live: number; mirror: number }>; skipped: string[]; checks?: number } | null;
   scheduler?: { silent: boolean; detail: string; lastRun: { route: string; at: string; via: string } | null } | null;
   metaToken: {
     configured: boolean;
@@ -284,7 +284,7 @@ export const SyncHealth: React.FC = () => {
           {health.reconcile ? (
             <>
               Last reconciled <strong>{ago(health.reconcile.at)}</strong> — mirror matches GHL:{' '}
-              <strong style={{ color: health.reconcile.ok ? 'var(--success)' : 'var(--warning)' }}>{health.reconcile.ok ? 'yes' : 'no'}</strong> ({health.reconcile.stagesChecked} stages checked
+              <strong style={{ color: health.reconcile.ok ? 'var(--success)' : 'var(--warning)' }}>{health.reconcile.ok ? 'yes' : 'no'}</strong> ({health.reconcile.stagesChecked} stages × open/won/lost/abandoned{health.reconcile.checks ? ` = ${health.reconcile.checks} checks` : ''}
               {health.reconcile.skipped.length ? `, ${health.reconcile.skipped.length} skipped` : ''})
             </>
           ) : (
@@ -298,8 +298,8 @@ export const SyncHealth: React.FC = () => {
         {health.reconcile && !health.reconcile.ok && (
           <ul className="w-full mt-1 space-y-0.5 text-[12px]" style={{ color: 'var(--warning)' }}>
             {health.reconcile.mismatches.map((m) => (
-              <li key={`${m.pipelineName}-${m.stageName}`}>
-                {m.stageName} ({m.pipelineName}): {m.live} open in GHL, {m.mirror} here
+              <li key={`${m.pipelineName}-${m.stageName}-${m.status ?? 'all'}`}>
+                {m.stageName}{m.status ? ` · ${m.status}` : ''} ({m.pipelineName}): {m.live} in GHL, {m.mirror} here
               </li>
             ))}
           </ul>

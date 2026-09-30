@@ -1039,6 +1039,49 @@ async function processOpportunityPage(p: {
   return out;
 }
 
+/**
+ * Re-process specific opportunities through the SAME path as the tracked job (contacts, positions, transitions,
+ * ghl_opportunities) — the reconciler's targeted re-fetch (F7, 2026-09-30). The caller holds the GHL lease.
+ */
+export async function refreshOpportunities(opps: GhlOpportunity[], runId: string): Promise<{ contactsFetched: number; transitions: number; requests: number; warnings: string[] }> {
+  const out = { contactsFetched: 0, transitions: 0, requests: 0, warnings: [] as string[] };
+  if (opps.length === 0) return out;
+  const startedAt = new Date();
+  const stageRows = await db.select({ id: stages.id, role: stages.semanticRole }).from(stages);
+  const roleMap = new Map(stageRows.map((r) => [r.id, r.role ?? null]));
+  const roleOf = (id: string | null) => (id ? (roleMap.get(id) ?? null) : null);
+  const tracked = await db.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.isTracked, true), isNull(pipelines.archivedAt)));
+  const trackedPipelineIds = new Set(tracked.map((t) => t.id));
+  const userNames = new Map<string, string>();
+  const usersRes = await listUsers();
+  out.requests += 1;
+  if (usersRes.ok && usersRes.data) for (const u of usersRes.data.users) userNames.set(u.id, u.name ?? ([u.firstName, u.lastName].filter(Boolean).join(' ') || u.id));
+  const previous = await readMarker('ghl.opportunities');
+  const fetchedContacts = new Set<string>();
+  for (const isTracked of [true, false]) {
+    const group = opps.filter((o) => trackedPipelineIds.has(o.pipelineId) === isTracked);
+    if (group.length === 0) continue;
+    const r = await processOpportunityPage({
+      opportunities: group,
+      pipelineTracked: isTracked,
+      trackedPipelineIds,
+      previousSyncAt: previous ? new Date(previous.completedAt) : null,
+      backfilled: false,
+      full: false,
+      fetchedContacts,
+      startedAt,
+      runId,
+      roleOf,
+      userNames,
+    });
+    out.contactsFetched += r.contactsFetched;
+    out.transitions += r.transitions;
+    out.requests += r.requests;
+    out.warnings.push(...r.warnings);
+  }
+  return out;
+}
+
 async function hasIncidentForStage(stageId: string): Promise<boolean> {
   const rows = await db
     .select({ id: syncIncidents.id, details: syncIncidents.details })
