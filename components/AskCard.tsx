@@ -39,7 +39,9 @@ function fmtCitation(c: Citation, currency: Currency | null): string {
  * Command Center "Ask" card: the CEO types a question, the server answers
  * from the same structured metrics the insight cards use, and the citations
  * chips show exactly which numbers the answer leaned on. History opens in a
- * slide-over drawer. Without a key: the connect state.
+ * slide-over drawer and is never shown on load: the card opens empty with the
+ * suggestions (A2, 2026-09-30). The input clears on send. Without a key: the
+ * connect state.
  */
 export const AskCard: React.FC = () => {
   const params = useSearchParams();
@@ -57,8 +59,8 @@ export const AskCard: React.FC = () => {
       .then((r) => r.json())
       .then((d: { configured: boolean; history: QA[] }) => {
         setConfigured(Boolean(d.configured));
+        // History only behind the History button — a fresh load never shows the last person's question (A2).
         setHistory(d.history ?? []);
-        setLatest((prev) => prev ?? d.history?.[0] ?? null);
       })
       .catch(() => setConfigured(false));
   }, []);
@@ -72,6 +74,7 @@ export const AskCard: React.FC = () => {
     if (!text || busy) return;
     setBusy(true);
     setError(null);
+    setQuestion(''); // cleared on send; a failure keeps the text for Retry (error.question)
     try {
       const body: Record<string, string> = { question: text };
       for (const k of ['range', 'start', 'end', 'compare']) {
@@ -93,7 +96,6 @@ export const AskCard: React.FC = () => {
       const qa: QA = { id: d.reportId, question: d.question, answer: d.answer, citations: d.citations ?? [], currency: d.currency ?? null, period: d.period, model: d.model, generatedAt: d.generatedAt };
       setLatest(qa);
       setHistory((h) => [qa, ...h]);
-      setQuestion('');
     } catch (e) {
       setError({ text: e instanceof Error ? e.message : String(e), kind: 'api', question: text });
     } finally {
