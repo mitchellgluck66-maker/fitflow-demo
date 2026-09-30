@@ -3,7 +3,7 @@
  * Fixture from tests/ask.test.ts' shape: last week vs the week before.
  */
 import { describe, it, expect } from 'vitest';
-import { assembleScorecard, scorecardKindOf } from '@/lib/scorecard/assemble';
+import { assembleScorecard, scorecardKindOf, SCORECARD_DEFAULT_PRESET } from '@/lib/scorecard/assemble';
 import { renderScorecardDigest } from '@/lib/email/digests';
 import { computeScorecard, computeTrend, computeAdsKpis, computeCampaignTable, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
 import { resolveComparison, rangeFromParams } from '@/lib/dates';
@@ -200,3 +200,19 @@ function formatCentsLike(cents: number): string {
   const dollars = Math.round(cents) / 100;
   return `${dollars.toLocaleString('en-US', { minimumFractionDigits: dollars % 1 === 0 ? 0 : 2, maximumFractionDigits: dollars % 1 === 0 ? 0 : 2 })}`.replace(/^/, '$') + ' CAD';
 }
+
+// Audit P1 #9 (2026-09-30): the picker said "Last 30 days · Sep 1–30" while the page showed "Week of Sep 20–26".
+describe('P1 #9: the Scorecard page, its API and its date picker share one default period', () => {
+  it('with no range in the URL, the picker resolves the same last full Sun–Sat week the page renders', async () => {
+    const { rangeFromParams, resolvePreset } = await import('@/lib/dates');
+    const today = '2026-09-30';
+    const urlRange: string | null = null; // no ?range in the URL
+    const page = rangeFromParams({ range: urlRange ?? SCORECARD_DEFAULT_PRESET, start: null, end: null }, today);
+    const picker = rangeFromParams({ range: urlRange ?? SCORECARD_DEFAULT_PRESET, start: null, end: null }, today);
+    expect(SCORECARD_DEFAULT_PRESET).toBe('last_week');
+    expect(page).toEqual(picker);
+    expect(page).toMatchObject({ preset: 'last_week', start: '2026-09-20', end: '2026-09-26' });
+    // the old picker default is what disagreed
+    expect(resolvePreset('last_30_days', today)).not.toMatchObject({ start: '2026-09-20' });
+  });
+});

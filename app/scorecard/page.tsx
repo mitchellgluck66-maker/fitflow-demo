@@ -13,7 +13,7 @@ import { formatCents, type Currency } from '@/lib/metrics';
 import { periodFamily, rangeFromParams, todayInTimezone } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import { CURRENCY_CHANGED_EVENT } from '@/lib/money';
-import type { ScorecardView, ScorecardStat, CampaignPick } from '@/lib/scorecard/assemble';
+import { SCORECARD_DEFAULT_PRESET, type ScorecardView, type ScorecardStat, type CampaignPick } from '@/lib/scorecard/assemble';
 import type { DataMaturity } from '@/lib/metrics/maturity';
 
 const ACCENT: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'info'> = {
@@ -112,7 +112,7 @@ function ScorecardPage() {
       const v = params.get(key);
       if (v) q.set(key, v);
     }
-    if (!q.get('range')) q.set('range', 'last_week');
+    if (!q.get('range')) q.set('range', SCORECARD_DEFAULT_PRESET);
     return q.toString();
   }, [params]);
 
@@ -147,7 +147,7 @@ function ScorecardPage() {
   const business = useBusinessTimezone();
   const timezone = data?.result.timezone ?? business.timezone;
   const today = todayInTimezone(timezone ?? 'UTC');
-  const range = rangeFromParams({ range: params.get('range') ?? 'last_week', start: params.get('start'), end: params.get('end') }, today);
+  const range = rangeFromParams({ range: params.get('range') ?? SCORECARD_DEFAULT_PRESET, start: params.get('start'), end: params.get('end') }, today);
   const family = periodFamily(range);
 
   const setKind = useCallback(
@@ -192,7 +192,7 @@ function ScorecardPage() {
       description="How did the week (or month) go? Money → Pipeline → Ads, every number vs the period before. This is the same scorecard the Monday email renders."
       actions={toggle}
     >
-      <DateRangePicker timezone={timezone} />
+      <DateRangePicker timezone={timezone} defaultPreset={SCORECARD_DEFAULT_PRESET} />
     </PageHeader>
   );
 

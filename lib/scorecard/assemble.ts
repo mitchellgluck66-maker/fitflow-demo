@@ -14,6 +14,9 @@ import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type 
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
 import { isMaturingMetric, maturingCaveatText, type DataMaturity } from '../metrics/maturity';
 
+/** The Scorecard's period when the URL has none: last full Sun–Sat week. The page, its API and its date picker all read this ONE constant (P1 #9). */
+export const SCORECARD_DEFAULT_PRESET = 'last_week' as const;
+
 export type ScorecardKind = 'weekly' | 'monthly' | 'custom';
 export type StatTone = 'good' | 'bad' | 'neutral';
 

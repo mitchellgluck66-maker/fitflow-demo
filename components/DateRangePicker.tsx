@@ -35,23 +35,27 @@ import { Popover } from './Popover';
  * the one displayed; ▶ disables at the current period. ← → do the same while
  * the picker has focus.
  */
-export const DateRangePicker: React.FC<{ timezone?: string | null }> = ({ timezone: fromProps }) => {
+export const DateRangePicker: React.FC<{
+  timezone?: string | null;
+  /** What the page shows when the URL has no `range` — the picker MUST say the same (audit P1 #9: the Scorecard defaults to last week, the picker said "Last 30 days"). */
+  defaultPreset?: Preset;
+}> = ({ timezone: fromProps, defaultPreset }) => {
   // The page's own (server-resolved) zone wins; else the layout's business timezone. Never a hard-coded zone (F8).
   const business = useBusinessTimezone();
   const timezone = fromProps ?? business.timezone;
   if (!timezone) return <TimezoneMissing error={business.error} />;
-  return <DateRangePickerInner timezone={timezone} />;
+  return <DateRangePickerInner timezone={timezone} defaultPreset={defaultPreset ?? 'last_30_days'} />;
 };
 
-const DateRangePickerInner: React.FC<{ timezone: string }> = ({ timezone }) => {
+const DateRangePickerInner: React.FC<{ timezone: string; defaultPreset: Preset }> = ({ timezone, defaultPreset }) => {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const today = todayInTimezone(timezone);
 
   const range = useMemo(
-    () => rangeFromParams({ range: params.get('range'), start: params.get('start'), end: params.get('end') }, today),
-    [params, today],
+    () => rangeFromParams({ range: params.get('range') ?? defaultPreset, start: params.get('start'), end: params.get('end') }, today),
+    [params, today, defaultPreset],
   );
   const compareMode = comparisonFromParam(params.get('compare'));
   const comparison = resolveComparison(range, compareMode, today);
@@ -78,7 +82,7 @@ const DateRangePickerInner: React.FC<{ timezone: string }> = ({ timezone }) => {
   const step = useCallback(
     (direction: -1 | 1) => {
       const live = new URLSearchParams(window.location.search);
-      const current = rangeFromParams({ range: live.get('range'), start: live.get('start'), end: live.get('end') }, today);
+      const current = rangeFromParams({ range: live.get('range') ?? defaultPreset, start: live.get('start'), end: live.get('end') }, today);
       const next = stepPeriod(current, direction, today);
       if (next === current) return;
       const q = new URLSearchParams(live.toString());
@@ -90,7 +94,7 @@ const DateRangePickerInner: React.FC<{ timezone: string }> = ({ timezone }) => {
       window.history.replaceState(window.history.state, '', `${pathname}?${q.toString()}`);
       router.replace(`${pathname}?${q.toString()}`);
     },
-    [today, pathname, router],
+    [today, pathname, router, defaultPreset],
   );
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!family) return;
