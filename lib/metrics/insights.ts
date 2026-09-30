@@ -7,6 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { trimArray } from '../anthropic/strictSchema';
 import type { ScorecardResult } from './service';
 import { paramsForRange } from '../dates';
 import { dataCaveats } from './maturity';
@@ -168,7 +169,8 @@ export const InsightFindingSchema = z.object({
 });
 export type InsightFinding = z.infer<typeof InsightFindingSchema>;
 
-export const InsightsAnswerSchema = z.object({ findings: z.array(InsightFindingSchema).max(3) });
+/** At most 3 findings: extra ones are trimmed (with a warning), not a failure — strict tool use cannot enforce maxItems. */
+export const InsightsAnswerSchema = z.object({ findings: z.preprocess((v) => trimArray(v, 3, 'findings'), z.array(InsightFindingSchema).max(3)) });
 
 /** Validate Claude's answer AND pin every link to one of the offered deep links. */
 export function validateInsights(answer: unknown, deepLinks: Record<string, string>): { ok: true; findings: InsightFinding[] } | { ok: false; error: string } {

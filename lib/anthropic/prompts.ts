@@ -2,6 +2,12 @@
  * System prompts live in code so they are reviewed like code. The metrics
  * snapshot is passed as structured JSON in the user turn; Claude answers via
  * a forced tool call whose schema is defined next to the prompt.
+ *
+ * These schemas state the REAL limits (maxItems, maxLength, minimum …) — the
+ * same ones the Zod response schemas enforce. They are never sent as-is:
+ * askClaude sends `toStrictToolSchema(schema)`, which moves every limit strict
+ * tool use rejects into the field description (lib/anthropic/strictSchema.ts,
+ * tests/anthropic-schema.test.ts).
  */
 
 export const INSIGHTS_SYSTEM = `You are FitFlow's growth analyst for a fitness-coaching business. You receive a JSON snapshot of the sales funnel for one period, its comparison period and an 8-week baseline.
@@ -31,9 +37,9 @@ export const INSIGHTS_TOOL_SCHEMA = {
         additionalProperties: false,
         required: ['title', 'detail', 'metric', 'direction', 'severity', 'link'],
         properties: {
-          title: { type: 'string', description: 'Headline with the key number (≤ 90 chars).' },
-          detail: { type: 'string', description: 'What changed, the driver, the numbers (≤ 240 chars).' },
-          metric: { type: 'string', description: 'The metric this is about, e.g. consult_show_rate, cac, applied.' },
+          title: { type: 'string', maxLength: 90, description: 'Headline with the key number.' },
+          detail: { type: 'string', maxLength: 240, description: 'What changed, the driver, the numbers.' },
+          metric: { type: 'string', maxLength: 60, description: 'The metric this is about, e.g. consult_show_rate, cac, applied.' },
           direction: { type: 'string', enum: ['up', 'down', 'flat'] },
           severity: { type: 'string', enum: ['info', 'warning', 'good'] },
           link: { type: 'string', description: 'One of the deepLinks values from the input.' },
@@ -56,7 +62,7 @@ export const NARRATIVE_TOOL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['paragraph'],
-  properties: { paragraph: { type: 'string', description: 'The paragraph (≤ 120 words).' } },
+  properties: { paragraph: { type: 'string', maxLength: 1200, description: 'The paragraph (≤ 120 words).' } },
 } as const;
 
 export const REMAP_SYSTEM = `You map a CRM pipeline stage name onto one of FitFlow's semantic funnel roles. You receive the stage name, the other stage names in the same pipeline (in order), and the list of allowed roles with descriptions.
@@ -75,7 +81,7 @@ export const REMAP_TOOL_SCHEMA = {
   properties: {
     role: { type: 'string' },
     confidence: { type: 'number', minimum: 0, maximum: 1 },
-    rationale: { type: 'string' },
+    rationale: { type: 'string', maxLength: 400 },
   },
 } as const;
 
@@ -95,7 +101,7 @@ export const ASK_TOOL_SCHEMA = {
   additionalProperties: false,
   required: ['answer', 'citations'],
   properties: {
-    answer: { type: 'string', description: 'The answer (≤ 180 words), every figure taken from the context.' },
+    answer: { type: 'string', maxLength: 2000, description: 'The answer (≤ 180 words), every figure taken from the context.' },
     citations: {
       type: 'array',
       maxItems: 30,
@@ -104,9 +110,9 @@ export const ASK_TOOL_SCHEMA = {
         additionalProperties: false,
         required: ['label', 'value', 'path'],
         properties: {
-          label: { type: 'string', description: 'What the number is, e.g. "Paid CAC (this period)".' },
+          label: { type: 'string', maxLength: 120, description: 'What the number is, e.g. "Paid CAC (this period)".' },
           value: { type: 'number', description: 'The exact numeric value as it appears in the context (cents / ratio / count).' },
-          path: { type: 'string', description: 'Dot path in the context JSON, e.g. marketing.current.paidCacCents.' },
+          path: { type: 'string', maxLength: 200, description: 'Dot path in the context JSON, e.g. marketing.current.paidCacCents.' },
         },
       },
     },

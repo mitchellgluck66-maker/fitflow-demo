@@ -13,6 +13,7 @@
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { trimArray } from '../anthropic/strictSchema';
 import type { ScorecardResult } from './service';
 import { buildInsightInput, type InsightInput } from './insights';
 import type { CampaignRow, Currency, Funnel, MarketingMetrics, TrendPoint } from './index';
@@ -283,5 +284,6 @@ export function verifyAnswerNumbers(answer: string, citations: Array<{ value: nu
 }
 
 export const AskCitationSchema = z.object({ label: z.string().min(1).max(120), value: z.number(), path: z.string().min(1).max(200) });
-export const AskAnswerSchema = z.object({ answer: z.string().min(1).max(2000), citations: z.array(AskCitationSchema).max(30) });
+/** At most 30 citations: extra ones are trimmed (with a warning), not a failure — strict tool use cannot enforce maxItems. */
+export const AskAnswerSchema = z.object({ answer: z.string().min(1).max(2000), citations: z.preprocess((v) => trimArray(v, 30, 'citations'), z.array(AskCitationSchema).max(30)) });
 export type AskAnswer = z.infer<typeof AskAnswerSchema>;

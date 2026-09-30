@@ -8,6 +8,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { z } from 'zod';
 import { getAnthropicConfig } from './config';
+import { toStrictToolSchema } from './strictSchema';
+
+export { toStrictToolSchema } from './strictSchema';
 
 export interface AskResult<T> {
   ok: boolean;
@@ -52,7 +55,9 @@ export async function askClaude<T>(params: {
         {
           name: toolName,
           description: 'Submit the structured answer.',
-          input_schema: params.inputSchema as Anthropic.Tool['input_schema'],
+          // Strict mode rejects maxItems / minimum / maxLength …: send only the sanitized schema (limits move into
+          // descriptions; the Zod `schema` below still enforces them on the answer).
+          input_schema: toStrictToolSchema(params.inputSchema) as Anthropic.Tool['input_schema'],
           strict: true,
         },
       ],
@@ -68,7 +73,8 @@ export async function askClaude<T>(params: {
     }
     const parsed = params.schema.safeParse(block.input);
     if (!parsed.success) {
-      return { ok: false, data: null, usage: null, error: `Answer failed validation: ${parsed.error.issues[0]?.message}`, model: config.model };
+      const issue = parsed.error.issues[0];
+      return { ok: false, data: null, usage: null, error: `Answer failed validation at ${issue?.path.join('.') || '(root)'}: ${issue?.message}`, model: config.model };
     }
     return {
       ok: true,
@@ -77,9 +83,18 @@ export async function askClaude<T>(params: {
       model: config.model,
     };
   } catch (err) {
-    const message = err instanceof Anthropic.APIError ? `Anthropic ${err.status}: ${err.message}` : err instanceof Error ? err.message : String(err);
-    return { ok: false, data: null, usage: null, error: scrub(message, config.key), model: config.model };
+    return { ok: false, data: null, usage: null, error: scrub(describeError(err), config.key), model: config.model };
   }
+}
+
+/** "Anthropic 400: <message> (request_id req_…)" — the id is what Anthropic support needs. */
+export function describeError(err: unknown): string {
+  if (err instanceof Anthropic.APIError) {
+    const id = err.requestID;
+    const base = `Anthropic ${err.status ?? 'error'}: ${err.message}`;
+    return id && !base.includes(id) ? `${base} (request_id ${id})` : base;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** One tiny request to prove the key works. */
@@ -95,7 +110,6 @@ export async function testConnection(): Promise<{ ok: boolean; configured: boole
     });
     return { ok: true, configured: true, message: `Connected (${res.model}).`, model: res.model };
   } catch (err) {
-    const message = err instanceof Anthropic.APIError ? `Anthropic ${err.status}: ${err.message}` : err instanceof Error ? err.message : String(err);
-    return { ok: false, configured: true, message: scrub(message, config.key) };
+    return { ok: false, configured: true, message: scrub(describeError(err), config.key) };
   }
 }

@@ -95,9 +95,12 @@ describe('buildInsightInput (pure)', () => {
     expect(hashInsightInput(input)).toHaveLength(64);
   });
 
-  it('validateInsights enforces max 3 findings and known links', () => {
+  it('validateInsights keeps at most 3 findings (extra ones trimmed) and pins known links', () => {
     const f = { title: 'x', detail: 'y', metric: 'cac', direction: 'up', severity: 'info', link: input.deepLinks.ads };
-    expect(validateInsights({ findings: [f, f, f, f] }, input.deepLinks).ok).toBe(false);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const four = validateInsights({ findings: [f, f, f, f] }, input.deepLinks);
+    expect(four.ok && four.findings).toHaveLength(3);
+    warn.mockRestore();
     expect(validateInsights({ findings: [{ ...f, link: 'https://evil.example' }] }, input.deepLinks).ok).toBe(false);
     expect(validateInsights({ findings: [f] }, input.deepLinks)).toMatchObject({ ok: true });
     expect(validateInsights({ findings: [] }, input.deepLinks)).toMatchObject({ ok: true, findings: [] });

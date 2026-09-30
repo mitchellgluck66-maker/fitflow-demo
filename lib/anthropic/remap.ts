@@ -25,7 +25,8 @@ const ROLE_DESCRIPTIONS: Record<SemanticRole, string> = {
   other: 'Not part of the funnel (archive, nurture, lost, etc.)',
 };
 
-const RemapSchema = z.object({ role: z.string(), confidence: z.number().min(0).max(1), rationale: z.string().max(400) });
+/** confidence is clamped to 0–1 (strict tool use cannot enforce minimum/maximum). */
+export const RemapSchema = z.object({ role: z.string(), confidence: z.number().transform((n) => Math.min(1, Math.max(0, n))), rationale: z.string().max(400) });
 
 export interface RemapSuggestion {
   ok: boolean;
