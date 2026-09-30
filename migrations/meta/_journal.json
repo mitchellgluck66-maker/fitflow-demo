@@ -120,6 +120,13 @@
       "when": 1790785960813,
       "tag": "0016_currency_no_default",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790799983638,
+      "tag": "0017_analyst",
+      "breakpoints": true
     }
   ]
 }

@@ -123,6 +123,11 @@ export {
   fxRates,
   syncLocks,
   ghlOpportunities,
+  analystBriefs,
+  analystNotes,
+  analystThreads,
+  analystTurns,
+  analystMessages,
   SEMANTIC_ROLES,
 } from './schema';
 export type {

@@ -669,3 +669,124 @@ export type SyncIncident = typeof syncIncidents.$inferSelect;
 export type Setting = typeof settings.$inferSelect;
 export type GhlSyncQueueItem = typeof ghlSyncQueue.$inferSelect;
 export type FxRateRow = typeof fxRates.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// FitFlow Analyst (docs/plan-analyst-2026-09-30.md, migration 0017). One shared
+// history: no identity, `created_by` nullable and unused. Every table RLS on.
+// ---------------------------------------------------------------------------
+
+/** The business brief the Analyst reads in its system prompt — engine numbers only, rebuilt daily / on notes. */
+export const analystBriefs = pgTable('analyst_briefs', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  /** sha256 of `text`: unchanged data + notes → the same hash → the prompt cache still hits. */
+  hash: text('hash').notNull(),
+  text: text('text').notNull(),
+  /** Counted by the API's token-count endpoint when a key is available; null = not counted. */
+  tokens: integer('tokens'),
+  /** Last complete local day the brief covers. */
+  dataThrough: date('data_through').notNull(),
+  builtAt: timestamp('built_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+/** Dated owner notes. `proposed` rows come from the Analyst and never reach a prompt until approved. */
+export const analystNotes = pgTable('analyst_notes', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  text: text('text').notNull(),
+  /** active | proposed | rejected */
+  status: text('status').notNull().default('active'),
+  /** owner | analyst */
+  source: text('source').notNull().default('owner'),
+  threadId: text('thread_id'),
+  turnId: text('turn_id'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'date' }),
+});
+
+export const analystThreads = pgTable('analyst_threads', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  title: text('title'),
+  /** One model per thread (thinking blocks are bound to it). */
+  model: text('model').notNull(),
+  effort: text('effort').notNull(),
+  /** format | submit_answer — fixed per thread (a change would rebuild the cache and the tools list). */
+  answerMode: text('answer_mode').notNull(),
+  /** Reserved (one shared history): nullable, unused. */
+  createdBy: text('created_by'),
+  /** Hash of the brief the thread's prefix was built with; a different current brief means drop_block once. */
+  briefHash: text('brief_hash'),
+  archived: boolean('archived').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  lastTurnAt: timestamp('last_turn_at', { withTimezone: true, mode: 'date' }),
+});
+
+export const analystTurns = pgTable(
+  'analyst_turns',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => analystThreads.id, { onDelete: 'cascade' }),
+    /** The client's idempotency key: a repeated POST never runs a second turn. */
+    clientTurnId: text('client_turn_id').notNull(),
+    /** running | done | failed | stopped | needs_confirmation */
+    status: text('status').notNull().default('running'),
+    question: text('question').notNull(),
+    /** explain | ask | report | continue */
+    kind: text('kind').notNull().default('ask'),
+    pageContext: jsonb('page_context').$type<Record<string, unknown>>(),
+    /** Progress events in order (status, section, actions, notice, usage, continue, error, done). */
+    events: jsonb('events').$type<Array<Record<string, unknown>>>().notNull().default(sql`'[]'::jsonb`),
+    /** Refreshed on every progress event; a running turn older than 5 min is swept to failed (amendment 1). */
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    stopRequested: boolean('stop_requested').notNull().default(false),
+    /** Rounds completed (the loop resumes from the log after `continue`). */
+    rounds: integer('rounds').notNull().default(0),
+    usage: jsonb('usage').$type<Record<string, number>>(),
+    costUsd: doublePrecision('cost_usd').notNull().default(0),
+    /** Whether cost was measured from usage or estimated from a cut stream. */
+    costEstimated: boolean('cost_estimated').notNull().default(false),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [uniqueIndex('analyst_turns_client_uidx').on(t.threadId, t.clientTurnId), index('analyst_turns_thread_idx').on(t.threadId, t.startedAt)],
+);
+
+/**
+ * The append-only API log. `api_json` is the API message as TEXT (jsonb would reorder keys and break the
+ * byte-identical replay preserved thinking needs). A compaction row marks the new start of the history.
+ */
+export const analystMessages = pgTable(
+  'analyst_messages',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => analystThreads.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    turnId: text('turn_id'),
+    /** user | assistant | tool_results | compaction */
+    role: text('role').notNull(),
+    apiJson: text('api_json').notNull(),
+    /** What the panel renders for this row (question text, answer sections, tool summaries). */
+    display: jsonb('display').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('analyst_messages_seq_uidx').on(t.threadId, t.seq)],
+);
+
+export type AnalystBrief = typeof analystBriefs.$inferSelect;
+export type AnalystNote = typeof analystNotes.$inferSelect;
+export type AnalystThread = typeof analystThreads.$inferSelect;
+export type AnalystTurn = typeof analystTurns.$inferSelect;
+export type AnalystMessage = typeof analystMessages.$inferSelect;
