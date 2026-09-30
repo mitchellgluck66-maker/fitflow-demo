@@ -945,16 +945,29 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
 - **Setup → Analyst** card: models, effort, answer mode, caps, brief + Rebuild, Verify (a real
   streamed tool turn — "Connected · verified with a streamed tool call · <model> · …" or
   "Verification failed: <exact reason>"), owner profile with the gaps checklist, notes.
-- **Schemas (the 2026-09-30 400).** `{type: ["string","null"], enum: […]}` is rejected by the API
-  ("Enum value 'today' does not match declared type"); a nullable enum is `anyOf: [{type, enum},
-  {type: "null"}]`. `findUnsupportedKeywords` rejects enum/const on any union type (contract tests
-  cover all 15 tools and the answer schema). The FREE live check `lib/analyst/schemaCheck.ts` sends
-  the exact production prompt (contract + brief + 15 tools + the answer schema as a strict tool —
-  count_tokens takes no output_config) to `count_tokens`: `npm run check:schemas` before any push,
-  the first line of `smoke:analyst --probe`, and Setup → Analyst → Verify. A rejected schema fails
-  there with the API's exact message, never at a user's question.
+- **Schemas — every request to Anthropic is checked against the documented limits IN CODE before it
+  is sent, and every schema change runs `npm run check:schemas` (2026-09-30, two 400s).** The limits
+  (docs → Structured outputs, re-checked 2026-09-30) are PER REQUEST across every strict tool plus
+  `output_config.format`: ≤ 20 strict tools, ≤ 24 optional parameters (not in `required`, any
+  depth), ≤ 16 union-typed parameters (`anyOf` or a `type` array, any depth), no `oneOf`, no
+  recursion, `additionalProperties: false` everywhere, plus the keyword rules. `count_tokens` does
+  NOT enforce them (it accepted a 40-union request that `messages.create` rejected).
+  `lib/anthropic/schemaBudget.ts#auditRequestBudget` counts them with the offending paths;
+  `assertRequestBudget` runs inside `buildTurnRequest` (the Analyst) and `askClaude`, so an
+  over-budget request is refused with "Request not sent: schema budget exceeded · 15/20 strict
+  tools · 0/24 optional · 40/16 unions — …" and never sent. The production Analyst request is
+  **15 strict tools · 0 optional · 0 unions** (`tests/schema-budget.test.ts` fails if that grows
+  past a limit): no nullables anywhere — every field is required and "not used" is a sentinel
+  (`preset: "custom"` + start/end, `""` for an unused string, `"any"` for an unused filter,
+  `kind: "ref" | "value"` on a calculate operand). A nullable enum, if ever needed, is `anyOf`,
+  never `{type: [...], enum}`. The live check `lib/analyst/schemaCheck.ts` runs three steps on the
+  exact production request: the static budget → `count_tokens` (secondary) → ONE real
+  `messages.create` (max_tokens 64, tool_choice auto — the endpoint that compiles the schemas; a
+  few cents, reported). It is `npm run check:schemas`, the probe's first line per model, and Setup →
+  Analyst → Verify ("Connected · schema budget ok · … · schemas accepted by messages.create …" or
+  "Verification failed: … REJECTED …: <exact API message>").
 - **Live proof** (Mitchell runs; nothing here is verified until they pass): `npm run analyst:brief`,
-  `npm run check:schemas` (free), `npm run smoke:analyst -- --probe` (every API assumption on the
+  `npm run check:schemas` (~$0.20 USD), `npm run smoke:analyst -- --probe` (every API assumption on the
   PRODUCTION wiring — real tools, real brief, real answer schema, two turns per model, ~$1 USD;
   prints the answer-mode verdict per model) and `npm run smoke:analyst` (one question + a 3-turn
   follow-up on the in-memory store, ~$1 USD). All need `CREDENTIALS_KEY` in `.env.local`.

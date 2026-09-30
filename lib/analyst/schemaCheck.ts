@@ -1,46 +1,74 @@
 /**
- * The FREE live schema check (2026-09-30). `npm run smoke:analyst` failed on its first request with
- * `tools.1.custom: Invalid schema: Enum value 'today' does not match declared type '['string','null']'`
- * — a shape the unit tests accepted and the probe never sent (it used a sample tool, not the
- * production list). `count_tokens` validates every schema the request carries and costs nothing,
- * so this sends the EXACT production prompt — the contract, the current brief, all 15 tools — and
- * the answer schema as a strict `submit_answer` tool (`count_tokens` takes no `output_config`;
- * strict tools and structured outputs share the same schema rules, so a rejected shape fails here
- * too). Wired into `smoke:analyst --probe` (first line), Setup → Analyst → Verify, and
- * `npm run check:schemas`. A schema the API rejects fails HERE with the exact API message, never
- * first at a user's question.
+ * The live schema check (2026-09-30, twice burnt). The first `npm run smoke:analyst` 400'd on a
+ * nullable enum the unit tests accepted; the second 400'd on the per-request limit (40 union-typed
+ * parameters, limit 16) that `count_tokens` had ACCEPTED — count_tokens is not a sufficient check.
+ *
+ * Three steps, in order, on the EXACT production prompt (the contract, the current brief, all 15
+ * tools, the answer schema as `output_config.format`):
+ *   1. static — `auditRequestBudget` (lib/anthropic/schemaBudget.ts): the documented limits and
+ *      keyword rules, in code, with the offending paths;
+ *   2. count_tokens — free; catches the grammar errors it does catch (secondary);
+ *   3. ONE real `messages.create` with `max_tokens` small and `tool_choice: auto` — the endpoint
+ *      that actually compiles the schemas. Its cost is reported (a few cents).
+ * Wired into `npm run check:schemas`, the probe's first lines and Setup → Analyst → Verify. A schema
+ * the API rejects fails HERE with the exact API message, never first at a user's question.
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { describeError } from '../anthropic/client';
-import { ANALYST_MODEL_OPTIONS, type AnalystModel } from './config';
-import { buildCountRequest, makeAnalystClient, SUBMIT_ANSWER_TOOL, type BetaTool } from './api';
+import { auditRequestBudget, type RequestBudget } from '../anthropic/schemaBudget';
+import { ANALYST_MODEL_OPTIONS, type AnalystModel, type AnswerMode } from './config';
+import { buildCountRequest, buildTurnRequest, makeAnalystClient, SUBMIT_ANSWER_TOOL, type BetaTool } from './api';
 import { ANALYST_TOOL_DEFINITIONS } from './tools';
 import { ANSWER_SCHEMA } from './schema';
 import { ANALYST_CONTRACT } from './prompts';
+import { formatUsd, priceUsage, type UsageLike } from './cost';
 
 export interface SchemaCheckLine {
   ok: boolean;
   model: string;
-  /** The count endpoint's input tokens for the production prompt (the cached prefix size). */
+  /** static | count_tokens | messages.create — the step that failed, or 'messages.create' when all passed. */
+  step: 'static' | 'count_tokens' | 'messages.create';
+  budget: RequestBudget;
   inputTokens: number | null;
+  costUsd: number;
   message: string;
 }
 
-/** The production tool list plus the answer schema as a strict tool — what the check sends. */
-export function schemaCheckTools(): BetaTool[] {
-  return [...ANALYST_TOOL_DEFINITIONS, { name: SUBMIT_ANSWER_TOOL, description: 'The answer schema, checked as a strict tool.', input_schema: ANSWER_SCHEMA as unknown as BetaTool['input_schema'], strict: true }].sort((a, b) => a.name.localeCompare(b.name));
+/** The production request the check audits statically: the tool list and the answer schema in the given mode. */
+export function productionRequestForBudget(answerMode: AnswerMode = 'format'): { tools: BetaTool[]; format: { schema: unknown } | null } {
+  const tools: BetaTool[] = answerMode === 'submit_answer' ? [...ANALYST_TOOL_DEFINITIONS, { name: SUBMIT_ANSWER_TOOL, description: 'Submit the final answer.', input_schema: ANSWER_SCHEMA as unknown as BetaTool['input_schema'], strict: true }] : [...ANALYST_TOOL_DEFINITIONS];
+  return { tools, format: answerMode === 'format' ? { schema: ANSWER_SCHEMA } : null };
 }
 
-export async function checkAnalystSchemasLive(opts: { key: string; brief: string; models?: readonly AnalystModel[]; client?: Anthropic }): Promise<SchemaCheckLine[]> {
-  const client = opts.client ?? makeAnalystClient(opts.key);
+const CHECK_QUESTION = 'Schema check. Answer with kind "clarify" and the clarifying question "Which period?" — call no tool.';
+
+export async function checkAnalystSchemasLive(opts: { key: string; brief: string; models?: readonly AnalystModel[]; answerMode?: AnswerMode; client?: Anthropic }): Promise<SchemaCheckLine[]> {
+  const answerMode = opts.answerMode ?? 'format';
+  const budget = auditRequestBudget(productionRequestForBudget(answerMode));
   const out: SchemaCheckLine[] = [];
-  for (const model of opts.models ?? ANALYST_MODEL_OPTIONS) {
+  const models = opts.models ?? ANALYST_MODEL_OPTIONS;
+  if (!budget.ok) {
+    for (const model of models) out.push({ ok: false, model, step: 'static', budget, inputTokens: null, costUsd: 0, message: budget.message });
+    return out;
+  }
+  const client = opts.client ?? makeAnalystClient(opts.key);
+  for (const model of models) {
+    let inputTokens: number | null = null;
     try {
-      const count = await client.beta.messages.countTokens(buildCountRequest({ model, system: [ANALYST_CONTRACT, opts.brief], tools: schemaCheckTools(), messages: [{ role: 'user', content: 'Schema check.' }] }));
-      out.push({ ok: true, model, inputTokens: count.input_tokens, message: `schemas accepted by count_tokens · ${ANALYST_TOOL_DEFINITIONS.length} tools + the answer schema (as a strict tool) · ${count.input_tokens.toLocaleString('en-US')} input tokens in the production prompt` });
+      const count = await client.beta.messages.countTokens(buildCountRequest({ model, system: [ANALYST_CONTRACT, opts.brief], tools: productionRequestForBudget(answerMode).tools, messages: [{ role: 'user', content: CHECK_QUESTION }] }));
+      inputTokens = count.input_tokens;
     } catch (err) {
-      out.push({ ok: false, model, inputTokens: null, message: `schema rejected by the API: ${describeError(err)}` });
+      out.push({ ok: false, model, step: 'count_tokens', budget, inputTokens: null, costUsd: 0, message: `${budget.message} · count_tokens rejected the schemas: ${describeError(err)}` });
+      continue;
+    }
+    try {
+      const req = buildTurnRequest({ model, effort: 'low', system: [ANALYST_CONTRACT, opts.brief], tools: [...ANALYST_TOOL_DEFINITIONS], messages: [{ role: 'user', content: CHECK_QUESTION }], answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode, maxTokens: 64 });
+      const res = await client.beta.messages.create(req);
+      const costUsd = priceUsage(model, res.usage as unknown as UsageLike);
+      out.push({ ok: true, model, step: 'messages.create', budget, inputTokens, costUsd, message: `${budget.message} · count_tokens ${inputTokens.toLocaleString('en-US')} tokens · messages.create accepted the exact production request (stop ${res.stop_reason}) · ${formatUsd(costUsd)}` });
+    } catch (err) {
+      out.push({ ok: false, model, step: 'messages.create', budget, inputTokens, costUsd: 0, message: `${budget.message} · count_tokens ${inputTokens.toLocaleString('en-US')} tokens · messages.create REJECTED the production request: ${describeError(err)}` });
     }
   }
   return out;

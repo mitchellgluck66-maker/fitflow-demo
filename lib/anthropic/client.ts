@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { getAnthropicConfig } from './config';
 import { toStrictToolSchema } from './strictSchema';
 import { noteAnthropicOutcome, type AnthropicSeverity } from './incident';
+import { assertRequestBudget } from './schemaBudget';
 
 export { toStrictToolSchema } from './strictSchema';
 
@@ -69,6 +70,9 @@ export async function askClaude<T>(params: {
   };
   try {
     const client = makeClient(config.key);
+    const strictTool = { name: toolName, strict: true, input_schema: toStrictToolSchema(params.inputSchema) };
+    // The per-request schema budget (lib/anthropic/schemaBudget.ts) — refused here, never a 400 at the user's question.
+    assertRequestBudget({ tools: [strictTool] });
     const request = () =>
       client.messages.create({
         model: config.model,

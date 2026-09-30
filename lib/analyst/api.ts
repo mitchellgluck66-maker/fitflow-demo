@@ -18,6 +18,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { ANALYST_BETAS, type AnalystModel, type AnswerMode, type Effort } from './config';
+import { assertRequestBudget } from '../anthropic/schemaBudget';
 
 export type BetaParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 export type BetaMessageParam = Anthropic.Beta.Messages.BetaMessageParam;
@@ -56,6 +57,9 @@ export function buildTurnRequest(input: AnalystRequestInput, opts: { carriesComp
       ? [...sortedTools, { name: SUBMIT_ANSWER_TOOL, description: 'Submit the final answer. Call this exactly once, when every number you will show has a ref.', input_schema: input.answerSchema as BetaTool['input_schema'], strict: true }].sort((a, b) => a.name.localeCompare(b.name))
       : sortedTools;
   const betas: string[] = [...TURN_BETAS, ...(opts.carriesCompaction ? [ANALYST_BETAS.compaction] : [])];
+  // The per-request schema budget (20 strict tools / 24 optional / 16 unions across tools + format): an over-budget
+  // request is never built — the API would 400 it (2026-09-30), and count_tokens does not catch it.
+  assertRequestBudget({ tools, format: input.answerMode === 'format' ? { schema: input.answerSchema } : null });
   return {
     model: input.model,
     max_tokens: input.maxTokens,

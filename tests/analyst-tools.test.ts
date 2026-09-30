@@ -19,7 +19,7 @@ import { todayInTimezone, rangeFromParams } from '@/lib/dates';
 const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
 const values = new Map<string, number | null>();
 const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: (r) => (values.has(r) ? values.get(r) : undefined) });
-const LAST_WEEK = { preset: 'last_week', start: null, end: null };
+const LAST_WEEK = { preset: 'last_week', start: '', end: '' };
 
 describe('contract', () => {
   it('every tool is strict, its schema passes the strict-mode rules, the list is name-sorted and ≤ 20', () => {
@@ -38,17 +38,17 @@ describe('contract', () => {
 describe('calculate (pure)', () => {
   const resolve = (r: string) => ({ 'r1:data.marketing.spendCents': 369_768, 'r1:data.marketing.enrollments': 8, 'r2:data.marketing.spendCents': 300_000, 'r1:data.showRates[0].rate': 0.6, 'r2:data.showRates[0].rate': 0.5, 'r1:data.marketing.roas': null } as Record<string, number | null>)[r];
   it('money stays in cents; percent change is a ratio; per_unit rounds to cents', () => {
-    expect(calculate('difference', { ref: 'r1:data.marketing.spendCents', value: null }, { ref: 'r2:data.marketing.spendCents', value: null }, resolve)).toEqual({ value: 69_768, unit: 'cents', text: '$697.68' });
-    expect(calculate('percent_change', { ref: 'r1:data.marketing.spendCents', value: null }, { ref: 'r2:data.marketing.spendCents', value: null }, resolve)).toMatchObject({ value: 0.23256, unit: 'ratio', text: '23.3%' });
-    expect(calculate('per_unit', { ref: 'r1:data.marketing.spendCents', value: null }, { ref: 'r1:data.marketing.enrollments', value: null }, resolve)).toEqual({ value: 46_221, unit: 'cents', text: '$462.21' });
-    expect(calculate('product', { ref: null, value: 3 }, { ref: null, value: 4 }, resolve)).toEqual({ value: 12, unit: 'number', text: '12' });
+    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toEqual({ value: 69_768, unit: 'cents', text: '$697.68' });
+    expect(calculate('percent_change', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toMatchObject({ value: 0.23256, unit: 'ratio', text: '23.3%' });
+    expect(calculate('per_unit', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 }, resolve)).toEqual({ value: 46_221, unit: 'cents', text: '$462.21' });
+    expect(calculate('product', { kind: 'value', ref: '', value: 3 }, { kind: 'value', ref: '', value: 4 }, resolve)).toEqual({ value: 12, unit: 'number', text: '12' });
   });
   it('refuses to add or average ratios, unknown refs, null refs and division by zero', () => {
-    expect(() => calculate('sum', { ref: 'r1:data.showRates[0].rate', value: null }, { ref: 'r2:data.showRates[0].rate', value: null }, resolve)).toThrow(/recompute from the totals/);
-    expect(() => calculate('sum', { ref: 'r9:data.nope', value: null }, { ref: null, value: 1 }, resolve)).toThrow(/unknown ref/);
-    expect(() => calculate('ratio', { ref: 'r1:data.marketing.roas', value: null }, { ref: null, value: 1 }, resolve)).toThrow(/null \(withheld\)/);
-    expect(() => calculate('ratio', { ref: null, value: 1 }, { ref: null, value: 0 }, resolve)).toThrow(/b is 0/);
-    expect(() => calculate('sum', { ref: 'r1:data.marketing.spendCents', value: null }, { ref: 'r1:data.showRates[0].rate', value: null }, resolve)).toThrow(/mixes units/);
+    expect(() => calculate('sum', { kind: 'ref', ref: 'r1:data.showRates[0].rate', value: 0 }, { kind: 'ref', ref: 'r2:data.showRates[0].rate', value: 0 }, resolve)).toThrow(/recompute from the totals/);
+    expect(() => calculate('sum', { kind: 'ref', ref: 'r9:data.nope', value: 0 }, { kind: 'value', ref: '', value: 1 }, resolve)).toThrow(/unknown ref/);
+    expect(() => calculate('ratio', { kind: 'ref', ref: 'r1:data.marketing.roas', value: 0 }, { kind: 'value', ref: '', value: 1 }, resolve)).toThrow(/null \(withheld\)/);
+    expect(() => calculate('ratio', { kind: 'value', ref: '', value: 1 }, { kind: 'value', ref: '', value: 0 }, resolve)).toThrow(/b is 0/);
+    expect(() => calculate('sum', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r1:data.showRates[0].rate', value: 0 }, resolve)).toThrow(/mixes units/);
   });
   it('scrubContact removes email/phone fields and values that look like them', () => {
     expect(scrubContact({ name: 'A', email: 'a@b.co', phone: '+1 403 555 0100', note: 'call a@b.co', nested: [{ customerEmail: 'x@y.z', keep: 1 }] })).toEqual({ name: 'A', note: 'call a@b.co', nested: [{ keep: 1 }] });
@@ -82,14 +82,14 @@ describe('parity with the page functions on the demo database', () => {
 
   it('get_funnel, get_campaigns, get_revenue and compare_periods match the same engine call', async () => {
     const page = await getScorecard({ range: 'last_month', compare: 'previous_period' });
-    const R = { preset: 'last_month', start: null, end: null };
+    const R = { preset: 'last_month', start: '', end: '' };
     const funnel = (await runAnalystTool('get_funnel', { range: R, mode: 'cohort' }, ctx('r2'))).data as { stages: Array<{ count: number | null; conversionFromPrevious: number | null }>; conversions: unknown[] };
     expect(funnel.stages.map((s) => s.conversionFromPrevious)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => s.conversionFromPrevious));
     const camps = (await runAnalystTool('get_campaigns', { range: R, compare: 'previous_period' }, ctx('r3'))).data as { campaigns: Array<{ campaign: string; spendCents: number; trackedApplied: number; roas: number | null }> };
     expect(camps.campaigns.map((c) => [c.campaign, c.spendCents, c.trackedApplied, c.roas])).toEqual(page.ads.campaigns.map((c) => [c.campaignName, c.spendCents, c.tracked.applied, c.roas]));
     const rev = (await runAnalystTool('get_revenue', { range: R }, ctx('r4'))).data as { collectedCents: number; mrrCents: number; failedCount: number };
     expect([rev.collectedCents, rev.mrrCents, rev.failedCount]).toEqual([page.revenue.collectedCents, page.revenue.mrrCents, page.revenue.failedCount]);
-    const cmp = (await runAnalystTool('compare_periods', { range: R, against: { preset: null, start: page.comparison.range!.start, end: page.comparison.range!.end } }, ctx('r5'))).data as { kpis: Array<{ kpi: string; current: number | null; against: number | null }> };
+    const cmp = (await runAnalystTool('compare_periods', { range: R, against: { preset: 'custom', start: page.comparison.range!.start, end: page.comparison.range!.end } }, ctx('r5'))).data as { kpis: Array<{ kpi: string; current: number | null; against: number | null }> };
     const enr = cmp.kpis.find((k) => k.kpi === 'enrollments')!;
     expect([enr.current, enr.against]).toEqual([page.scorecard.kpis.enrollments.current, page.scorecard.kpis.enrollments.previous]);
   });
@@ -107,7 +107,7 @@ describe('parity with the page functions on the demo database', () => {
     expect(metric.value).toBe(worked.value);
     expect(metric.worked).toBe(worked.text);
 
-    const clients = (await runAnalystTool('list_clients', { query: null, attribution: 'paid', from: null, to: null, page: 1 }, ctx('r8'))).data as { total: number; rows: Array<{ id: string; name: string }>; dateBasis: string };
+    const clients = (await runAnalystTool('list_clients', { query: '', attribution: 'paid', from: '', to: '', page: 1 }, ctx('r8'))).data as { total: number; rows: Array<{ id: string; name: string }>; dateBasis: string };
     const page = await listClients({ attribution: 'paid', limit: 25, offset: 0 });
     expect(clients.total).toBe(page.total);
     expect(clients.rows.map((r) => r.id)).toEqual(page.rows.map((r) => r.id));
@@ -145,9 +145,9 @@ describe('parity with the page functions on the demo database', () => {
     const calls: Array<[string, Record<string, unknown>]> = [
       ['get_scorecard', { range: LAST_WEEK, compare: 'off' }],
       ['get_funnel', { range: LAST_WEEK, mode: 'period' }],
-      ['get_stage_people', { range: { preset: 'last_month', start: null, end: null }, stage: 'enrolled', mode: 'cohort', page: 1 }],
-      ['get_payments', { range: { preset: 'last_month', start: null, end: null }, paymentClass: null, status: null, page: 1 }],
-      ['list_clients', { query: null, attribution: null, from: null, to: null, page: 1 }],
+      ['get_stage_people', { range: { preset: 'last_month', start: '', end: '' }, stage: 'enrolled', mode: 'cohort', page: 1 }],
+      ['get_payments', { range: { preset: 'last_month', start: '', end: '' }, paymentClass: 'any', status: 'any', page: 1 }],
+      ['list_clients', { query: '', attribution: 'any', from: '', to: '', page: 1 }],
       ['get_todo', {}],
       ['get_data_health', { range: LAST_WEEK }],
     ];
@@ -168,8 +168,8 @@ describe('parity with the page functions on the demo database', () => {
     expect(await runAnalystTool('get_trend', { metric: 'enrollments', window: 'bogus' }, ctx('r23'))).toMatchObject({ error: expect.stringMatching(/get_trend failed|unknown/) });
     values.set('r1:data.marketing.spendCents', 100_000);
     values.set('r1:data.marketing.enrollments', 4);
-    expect((await runAnalystTool('calculate', { op: 'per_unit', a: { ref: 'r1:data.marketing.spendCents', value: null }, b: { ref: 'r1:data.marketing.enrollments', value: null } }, ctx('r24'))).data).toMatchObject({ value: 25_000, unit: 'cents', text: '$250' });
-    expect(await runAnalystTool('calculate', { op: 'sum', a: { ref: 'r1:data.x.rate', value: null }, b: { ref: 'r1:data.y.rate', value: null } }, ctx('r25'))).toMatchObject({ data: null, error: expect.stringMatching(/unknown ref/) });
+    expect((await runAnalystTool('calculate', { op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }, ctx('r24'))).data).toMatchObject({ value: 25_000, unit: 'cents', text: '$250' });
+    expect(await runAnalystTool('calculate', { op: 'sum', a: { kind: 'ref', ref: 'r1:data.x.rate', value: 0 }, b: { kind: 'ref', ref: 'r1:data.y.rate', value: 0 } }, ctx('r25'))).toMatchObject({ data: null, error: expect.stringMatching(/unknown ref/) });
   });
 
   it('the runtime tool list is the same object the wire contract sorts', () => {

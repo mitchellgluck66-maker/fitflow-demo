@@ -74,14 +74,19 @@ export interface AnalystTool {
 
 const PRESET_VALUES = PRESETS.map((p) => p.value).filter((p) => p !== 'custom');
 
+/**
+ * No nullables, no optionals anywhere in the tool schemas (2026-09-30): the API allows at most 16 union-typed and
+ * 24 optional parameters PER REQUEST across every strict tool + the output format (lib/anthropic/schemaBudget.ts
+ * enforces it before a request is sent). Every field is required; "not used" is a sentinel: preset "custom" with
+ * start/end, "" for an unused string, "any" for an unused filter.
+ */
 const RANGE_SCHEMA = {
   type: 'object',
-  description: 'The period. Use a preset (last_week, this_week, last_month, this_month, last_30_days, today, yesterday) OR explicit start and end (YYYY-MM-DD, inclusive, business-local). Weeks are Sunday–Saturday.',
+  description: 'The period. preset = a named period (last_week, this_week, last_month, this_month, last_30_days, today, yesterday) with start and end "", OR preset "custom" with start and end as YYYY-MM-DD (inclusive, business-local). Weeks are Sunday–Saturday.',
   properties: {
-    // A nullable enum is `anyOf` — `{type: ['string','null'], enum: […]}` is a 400 ("Enum value 'today' does not match declared type", 2026-09-30).
-    preset: { anyOf: [{ type: 'string', enum: [...PRESET_VALUES] }, { type: 'null' }], description: 'A named period, or null when start/end are given.' },
-    start: { type: ['string', 'null'], description: 'YYYY-MM-DD, with end; null when a preset is used.' },
-    end: { type: ['string', 'null'], description: 'YYYY-MM-DD, with start; null when a preset is used.' },
+    preset: { type: 'string', enum: [...PRESET_VALUES, 'custom'] },
+    start: { type: 'string', description: 'YYYY-MM-DD when preset is "custom"; "" otherwise.' },
+    end: { type: 'string', description: 'YYYY-MM-DD when preset is "custom"; "" otherwise.' },
   },
   required: ['preset', 'start', 'end'],
   additionalProperties: false,
@@ -90,11 +95,11 @@ const RANGE_SCHEMA = {
 const MODE_SCHEMA = { type: 'string', enum: ['period', 'cohort'], description: '"period" = events inside the dates (the tiles). "cohort" = everyone who applied inside the dates and every stage they reached since (the funnel default).' } as const;
 const PAGE_SCHEMA = { type: 'integer', description: 'Page number, from 1. 25 rows a page.' } as const;
 
-type RangeInput = { preset: string | null; start: string | null; end: string | null };
+type RangeInput = { preset: string; start: string; end: string };
 
 function rangeParams(r: RangeInput | null | undefined): { range?: string; start?: string; end?: string } {
   if (!r) return { range: 'last_week' };
-  if (r.preset) return { range: r.preset };
+  if (r.preset && r.preset !== 'custom') return { range: r.preset };
   if (r.start && r.end) return { range: 'custom', start: r.start, end: r.end };
   return { range: 'last_week' };
 }
@@ -401,8 +406,8 @@ const getPaymentsTool = tool(
       type: 'object',
       properties: {
         range: RANGE_SCHEMA,
-        paymentClass: { anyOf: [{ type: 'string', enum: ['initial', 'recurring', 'excluded', 'unclassified'] }, { type: 'null' }], description: 'null = every row.' },
-        status: { anyOf: [{ type: 'string', enum: ['succeeded', 'failed', 'refunded', 'pending'] }, { type: 'null' }], description: 'null = every status.' },
+        paymentClass: { type: 'string', enum: ['any', 'initial', 'recurring', 'excluded', 'unclassified'], description: '"any" = every row.' },
+        status: { type: 'string', enum: ['any', 'succeeded', 'failed', 'refunded', 'pending'], description: '"any" = every status.' },
         page: PAGE_SCHEMA,
       },
       required: ['range', 'paymentClass', 'status', 'page'],
@@ -414,8 +419,8 @@ const getPaymentsTool = tool(
     const metricsInput = await loadMetricsInput({ start: range.start, end: range.end, timezone });
     const summary = computeRevenueSummary(metricsInput, range);
     let rows = summary.payments;
-    if (input.paymentClass) rows = rows.filter((p) => (input.paymentClass === 'unclassified' ? p.paymentClass === null : p.paymentClass === input.paymentClass));
-    if (input.status) rows = rows.filter((p) => p.status === input.status);
+    if (input.paymentClass && input.paymentClass !== 'any') rows = rows.filter((p) => (input.paymentClass === 'unclassified' ? p.paymentClass === null : p.paymentClass === input.paymentClass));
+    if (input.status && input.status !== 'any') rows = rows.filter((p) => p.status === input.status);
     const p = paginate(
       rows.map((x) => ({
         id: x.id,
@@ -484,10 +489,10 @@ const listClientsTool = tool(
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: ['string', 'null'], description: 'Name search; null for none.' },
-        attribution: { anyOf: [{ type: 'string', enum: ['paid', 'organic'] }, { type: 'null' }], description: 'paid | organic | null for both.' },
-        from: { type: ['string', 'null'], description: 'Applied on or after, YYYY-MM-DD; null for no lower bound.' },
-        to: { type: ['string', 'null'], description: 'Applied on or before, YYYY-MM-DD; null for no upper bound.' },
+        query: { type: 'string', description: 'Name search; "" for none.' },
+        attribution: { type: 'string', enum: ['any', 'paid', 'organic'], description: '"any" = both classes.' },
+        from: { type: 'string', description: 'Applied on or after, YYYY-MM-DD; "" for no lower bound.' },
+        to: { type: 'string', description: 'Applied on or before, YYYY-MM-DD; "" for no upper bound.' },
         page: PAGE_SCHEMA,
       },
       required: ['query', 'attribution', 'from', 'to', 'page'],
@@ -496,9 +501,11 @@ const listClientsTool = tool(
   },
   async (input) => {
     const p = page(input);
-    const res = await listClients({ q: (input.query as string | null) ?? null, attribution: (input.attribution as string | null) ?? null, from: (input.from as string | null) ?? null, to: (input.to as string | null) ?? null, limit: PAGE_SIZE, offset: (p - 1) * PAGE_SIZE });
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const attribution = input.attribution === 'paid' || input.attribution === 'organic' ? input.attribution : null;
+    const res = await listClients({ q: str(input.query), attribution, from: str(input.from), to: str(input.to), limit: PAGE_SIZE, offset: (p - 1) * PAGE_SIZE });
     return {
-      range: input.from || input.to ? { start: String(input.from ?? ''), end: String(input.to ?? ''), label: 'application date filter' } : null,
+      range: str(input.from) || str(input.to) ? { start: str(input.from) ?? '', end: str(input.to) ?? '', label: 'application date filter' } : null,
       currency: 'CAD',
       fx: '',
       data: {
@@ -708,13 +715,26 @@ const getTodoTool = tool(
 // ---------------------------------------------------------------------------
 
 export type CalcOp = 'difference' | 'percent_change' | 'ratio' | 'product' | 'sum' | 'per_unit';
+/** An operand is a ref OR a literal — `kind` says which; the other field is ignored (no nullables, see RANGE_SCHEMA). */
+const OPERAND_SCHEMA = {
+  type: 'object',
+  properties: {
+    kind: { type: 'string', enum: ['ref', 'value'], description: '"ref" = read the number from an earlier tool result; "value" = a literal.' },
+    ref: { type: 'string', description: 'The ref (e.g. "r2:data.marketing.spendCents") when kind is "ref"; "" otherwise.' },
+    value: { type: 'number', description: 'The literal when kind is "value"; 0 otherwise.' },
+  },
+  required: ['kind', 'ref', 'value'],
+  additionalProperties: false,
+} as const;
+export type Operand = { kind: 'ref' | 'value'; ref: string; value: number };
 const CALC_OPS: CalcOp[] = ['difference', 'percent_change', 'ratio', 'product', 'sum', 'per_unit'];
 const RATIO_PATH = /(rate|roas|pct|share|conversion|ltvtocac|frequency|coverage)/i;
 const CENTS_PATH = /cents/i;
 
-export function calculate(op: CalcOp, a: { ref: string | null; value: number | null }, b: { ref: string | null; value: number | null }, resolve: ToolContext['resolveRef']): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
-  const operand = (o: { ref: string | null; value: number | null }, name: string): { value: number; unit: 'cents' | 'ratio' | 'number' } => {
-    if (o.ref) {
+export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef']): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
+  const operand = (o: Operand, name: string): { value: number; unit: 'cents' | 'ratio' | 'number' } => {
+    if (o.kind === 'ref') {
+      if (!o.ref) throw new Error(`${name}: kind is "ref" but ref is empty`);
       const v = resolve(o.ref);
       if (v === undefined) throw new Error(`${name}: unknown ref "${o.ref}" — cite a number from an earlier tool result in this conversation`);
       if (v === null) throw new Error(`${name}: ref "${o.ref}" is null (withheld) — there is nothing to compute`);
@@ -760,8 +780,8 @@ const calculateTool = tool(
       type: 'object',
       properties: {
         op: { type: 'string', enum: CALC_OPS },
-        a: { type: 'object', properties: { ref: { type: ['string', 'null'] }, value: { type: ['number', 'null'] } }, required: ['ref', 'value'], additionalProperties: false, description: 'A ref from an earlier result, or a literal value.' },
-        b: { type: 'object', properties: { ref: { type: ['string', 'null'] }, value: { type: ['number', 'null'] } }, required: ['ref', 'value'], additionalProperties: false },
+        a: OPERAND_SCHEMA,
+        b: OPERAND_SCHEMA,
       },
       required: ['op', 'a', 'b'],
       additionalProperties: false,
@@ -769,7 +789,7 @@ const calculateTool = tool(
   },
   async (input, ctx) => {
     try {
-      const r = calculate(input.op as CalcOp, input.a as { ref: string | null; value: number | null }, input.b as { ref: string | null; value: number | null }, ctx.resolveRef);
+      const r = calculate(input.op as CalcOp, input.a as Operand, input.b as Operand, ctx.resolveRef);
       return { range: null, currency: 'CAD', fx: '', data: { op: input.op, a: input.a, b: input.b, value: r.value, unit: r.unit, text: r.text } };
     } catch (err) {
       return { range: null, currency: 'CAD', fx: '', data: null, error: err instanceof Error ? err.message : String(err) };

@@ -75,8 +75,8 @@ export async function runAnalystProbe(opts: { key: string | null; models?: Analy
 
   for (const model of opts.models ?? ANALYST_MODEL_OPTIONS) {
     // 1. The free schema check on the exact production prompt.
-    const [schema] = await checkAnalystSchemasLive({ key: opts.key, brief: brief.text, models: [model] });
-    lines.push({ status: schema.ok ? 'PASS' : 'FAIL', assumption: 'production schemas accepted by count_tokens (15 tools + the answer schema)', model, inputTokens: schema.inputTokens ?? 0, outputTokens: 0, usd: 0, detail: schema.message });
+    const [schema] = await checkAnalystSchemasLive({ key: opts.key, brief: brief.text, models: [model], answerMode: mode });
+    lines.push({ status: schema.ok ? 'PASS' : 'FAIL', assumption: 'production schemas: static budget → count_tokens → one real messages.create', model, inputTokens: schema.inputTokens ?? 0, outputTokens: 0, usd: schema.costUsd, detail: schema.message });
 
     const store = new MemoryAnalystStore();
     const thread = await store.createThread({ model, effort: 'low', answerMode: mode, briefHash: brief.hash });

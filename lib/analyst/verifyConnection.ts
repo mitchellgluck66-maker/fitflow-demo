@@ -37,7 +37,7 @@ export async function verifyAnalystConnection(opts: { model?: AnalystModel; onEv
   const brief = await currentBrief();
   if (!brief) return { ok: false, message: "Verification failed: the business brief hasn't been built yet · Build now", model, rounds: 0, costUsd: 0, toolsCalled: [], answerMode: config.answerMode };
   // The free schema check first: a schema the API rejects fails here with the exact message, never at a user's question.
-  const [schema] = await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [model], client: opts.countClient });
+  const [schema] = await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [model], answerMode: config.answerMode, client: opts.countClient });
   if (!schema.ok) return { ok: false, message: `Verification failed: ${schema.message}`, model, rounds: 0, costUsd: 0, toolsCalled: [], answerMode: config.answerMode };
   const store = new MemoryAnalystStore();
   const thread = await store.createThread({ model, effort: 'low', answerMode: config.answerMode, briefHash: brief.hash });
@@ -64,5 +64,5 @@ export async function verifyAnalystConnection(opts: { model?: AnalystModel; onEv
   if (out.status !== 'done' || !out.answer) return { ok: false, message: `Verification failed: ${out.error ?? out.status}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
   if (toolsCalled.length === 0) return { ok: false, message: 'Verification failed: the model answered without calling a tool (tool_choice auto did not produce a call)', model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
   if (out.flagged.length) return { ok: false, message: `Verification failed: the answer had ${out.flagged.length} unverified number(s): ${out.flagged.map((f) => f.reason).join('; ')}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
-  return { ok: true, message: `Connected · schemas accepted (${schema.inputTokens?.toLocaleString('en-US') ?? '?'} prompt tokens) · verified with a streamed tool call · ${model} · ${toolsCalled.join(', ')} · ${costLine(out.usage, out.costUsd)}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
+  return { ok: true, message: `Connected · ${schema.budget.message} · schemas accepted by messages.create (${schema.inputTokens?.toLocaleString('en-US') ?? '?'} prompt tokens) · verified with a streamed tool call · ${model} · ${toolsCalled.join(', ')} · ${costLine(out.usage, out.costUsd + schema.costUsd)}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
 }
