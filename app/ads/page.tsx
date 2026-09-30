@@ -81,6 +81,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Spend"
               trendMetric="spend"
+              trendRange={range}
               value={formatCents(kpis.spendCents, ccy, { compact: true })}
               delta={computeDelta(kpis.spendCents, previousKpis?.spendCents ?? null, true)}
               deltaKind="cents"
@@ -96,6 +97,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per lead"
               trendMetric="cpl"
+              trendRange={range}
               maturity={data.maturity}
               maturing
               value={formatCents(kpis.costPerLeadCents, ccy)}
@@ -112,6 +114,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per consult"
               trendMetric="cost_consult"
+              trendRange={range}
               maturity={data.maturity}
               maturing
               value={formatCents(kpis.costPerConsultCents, ccy)}
@@ -128,6 +131,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Cost per roadmap"
               trendMetric="cost_roadmap"
+              trendRange={range}
               maturity={data.maturity}
               maturing
               value={formatCents(kpis.costPerRoadmapCents, ccy)}
@@ -144,6 +148,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Paid CAC"
               trendMetric="paid_cac"
+              trendRange={range}
               value={formatCents(kpis.paidCacCents, ccy)}
               delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
               deltaKind="cents"
@@ -158,6 +163,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Blended CAC"
               trendMetric="blended_cac"
+              trendRange={range}
               value={formatCents(kpis.blendedCacCents, ccy)}
               delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
               deltaKind="cents"
@@ -172,6 +178,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="ROAS"
               trendMetric="roas"
+              trendRange={range}
               value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}×` : '—'}
               delta={computeDelta(kpis.roas, previousKpis?.roas ?? null)}
               deltaKind="ratio"

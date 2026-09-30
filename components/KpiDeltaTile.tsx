@@ -16,8 +16,9 @@ import type { DataMaturity } from '@/lib/metrics/maturity';
  * for metrics we do not have data for yet (never a fake number).
  *
  * With `trendMetric`, the tile is clickable: it opens the shared
- * KpiTrendPopover for that metric (daily 30d for volume/cash, weekly 12w for
- * rates/CAC). Enter/Space open it too; Esc or click-away closes.
+ * KpiTrendPopover for that metric (one rule for every metric: 3 months weekly
+ * by default; 30d · 3m · 6m · 12m) with `trendRange` highlighted. Enter/Space
+ * open it too; Esc or click-away closes.
  */
 type KpiDeltaTileProps = {
   label: string;
@@ -32,18 +33,20 @@ type KpiDeltaTileProps = {
   /** 0..1 rate with a natural 0–100% frame — rendered as a radial ring instead of a sparkline. Never for counts/currency. */
   ring?: number | null;
   empty?: { title: string; description: string };
-  /** Key in lib/metrics/trendMetrics — enables the click-to-trend popover. */
-  trendMetric?: string;
   /** Maturing-data disclaimer state; the badge shows only when `maturing` is true AND it is active. */
   maturity?: DataMaturity | null;
   maturing?: boolean;
   className?: string;
 } & (
+  /** Key in lib/metrics/trendMetrics — enables the click-to-trend drop-down; `trendRange` = the card's range, highlighted there. */
+  | { trendMetric: string; trendRange: { start: string; end: string } }
+  | { trendMetric?: undefined; trendRange?: undefined }
+) & (
   | { deltaKind: 'cents'; /** Money deltas are labelled ("+$1,605 CAD"). */ currency: Currency }
   | { deltaKind?: 'count' | 'pct' | 'ratio'; currency?: Currency }
 );
 
-export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, maturity, maturing, className }) => {
+export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, trendRange, maturity, maturing, className }) => {
   const [open, setOpen] = useState(false);
   const tileRef = useRef<HTMLDivElement>(null);
   const clickable = Boolean(trendMetric);
@@ -148,7 +151,7 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
           {ring !== undefined ? <RadialRing value={ring} size={44} stroke={5} /> : sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
         </div>
       )}
-      {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} anchorRef={tileRef} onClose={() => setOpen(false)} />}
+      {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} cardRange={trendRange} anchorRef={tileRef} onClose={() => setOpen(false)} />}
     </div>
   );
 };

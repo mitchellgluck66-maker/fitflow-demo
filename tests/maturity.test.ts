@@ -168,7 +168,7 @@ describe('scorecard, email and AI inputs carry the caveat only while active', ()
     const t = computeMetricTrend(trendMetric('cpl')!, INPUT, '2026-09-17');
     expect(t.maturity).toBeNull();
     expect(t.maturing).toBe(false);
-    // The 12-week span starts Jun 28 → before Sept 1 → badge while today < sunset.
+    // The default 3-month span starts Jun 14 → before Sept 1 → badge while today < sunset.
     const m = computeMaturity({ range: t.span, today: '2026-09-17' });
     expect(isMaturingMetric('cpl', m)).toBe(true);
     expect(isMaturingMetric('paid_cac', m)).toBe(false);

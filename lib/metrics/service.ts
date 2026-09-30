@@ -162,18 +162,23 @@ function addDaysLocal(date: string, days: number): string {
 // KPI trend popover
 // ---------------------------------------------------------------------------
 
-import { trendMetric, computeMetricTrend, trendWindow, type MetricTrend } from './trendMetrics';
+import { trendMetric, computeMetricTrend, trendWindow, DEFAULT_TREND_WINDOW, type MetricTrend, type TrendWindow } from './trendMetrics';
 
-/** One metric's trend (daily 30d or weekly 12w + the prior span) from the same engine as the tiles. */
-export async function getMetricTrend(key: string, params: { pipelineId?: string } = {}): Promise<MetricTrend | null> {
+/** One metric's trend over a window (30d daily · 3m/6m weekly · 12m monthly; default 3m) + the prior span + the card's range, from the same engine as the tiles. */
+export async function getMetricTrend(
+  key: string,
+  params: { pipelineId?: string; window?: TrendWindow; card?: { start: string; end: string } | null } = {},
+): Promise<MetricTrend | null> {
   const metric = trendMetric(key);
   if (!metric) return null;
   const timezone = await getTimezone();
   const today = todayInTimezone(timezone);
-  const window = trendWindow(metric, today);
-  const input = await loadMetricsInput({ start: window.start, end: window.end, timezone, pipelineId: params.pipelineId });
-  const trend = computeMetricTrend(metric, input, today);
-  // The popover's "selected range" is the trend's current span.
+  const window = params.window ?? DEFAULT_TREND_WINDOW;
+  const card = params.card ?? null;
+  const load = trendWindow(window, today, card);
+  const input = await loadMetricsInput({ start: load.start, end: load.end, timezone, pipelineId: params.pipelineId });
+  const trend = computeMetricTrend(metric, input, today, window, card);
+  // The badge follows the window the header value is computed over.
   const maturity = await getMaturity(trend.span, today);
   return { ...trend, maturity, maturing: isMaturingMetric(metric.key, maturity) };
 }

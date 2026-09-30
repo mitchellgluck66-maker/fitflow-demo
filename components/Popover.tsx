@@ -24,7 +24,7 @@ export const Popover: React.FC<{
   children: React.ReactNode;
 }> = ({ open, anchorRef, onClose, width, align = 'left', role = 'dialog', className, children, ...aria }) => {
   const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; right: number; minWidth: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; right: number; minWidth: number; anchorTop: number; vh: number; panelH: number } | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -34,12 +34,18 @@ export const Popover: React.FC<{
     const place = () => {
       const a = anchorRef.current?.getBoundingClientRect();
       if (!a) return;
-      setPos({ top: a.bottom + 6, left: a.left, right: window.innerWidth - a.right, minWidth: a.width });
+      setPos({ top: a.bottom + 6, left: a.left, right: window.innerWidth - a.right, minWidth: a.width, anchorTop: a.top, vh: window.innerHeight, panelH: panelRef.current?.offsetHeight ?? 0 });
     };
     place();
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
+    // Content that loads after opening changes the panel's height — re-place so it never hangs off-screen.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null;
+    const observe = () => panelRef.current && ro?.observe(panelRef.current);
+    const raf = requestAnimationFrame(observe);
     return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
@@ -68,9 +74,15 @@ export const Popover: React.FC<{
 
   if (!open || !mounted || !pos) return null;
 
+  // Below the anchor unless the panel does not fit there and there is more room above (a tile near the bottom of
+  // a phone screen); either way capped to the viewport and scrollable, so it is always reachable.
+  const below = pos.vh - pos.top - 8;
+  const above = pos.anchorTop - 14;
+  const flip = pos.panelH > below && above > below;
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: pos.top,
+    ...(flip ? { bottom: pos.vh - pos.anchorTop + 6, maxHeight: above } : { top: pos.top, maxHeight: Math.max(160, below) }),
+    overflowY: 'auto',
     zIndex: 'var(--z-popover)' as unknown as number,
     minWidth: typeof width === 'number' ? undefined : pos.minWidth,
     width: width ?? undefined,

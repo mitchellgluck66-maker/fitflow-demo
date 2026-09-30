@@ -1,7 +1,8 @@
-/** KPI trend popover registry: grains, spans and per-bucket values from the engine. */
+/** KPI trend drop-down (A1, 2026-09-30): one window rule for every metric; header + highlight values from the engine. */
 import { describe, it, expect } from 'vitest';
-import { TREND_METRICS, trendMetric, trendSpans, computeMetricTrend } from '@/lib/metrics/trendMetrics';
-import { computeMarketing, computeRevenue, type MetricsInput } from '@/lib/metrics';
+import { TREND_METRICS, TREND_WINDOWS, TREND_WINDOW_META, trendMetric, trendSpans, trendWindow, computeMetricTrend } from '@/lib/metrics/trendMetrics';
+import { computeAdsKpis, computeMarketing, computeRevenue, computeRevenueSummary, computeScorecard, type MetricsInput } from '@/lib/metrics';
+import { PRESETS, resolvePreset, addDays } from '@/lib/dates';
 
 // 2026-09-17 is a Thursday; this week = Sep 13–19.
 const TODAY = '2026-09-17';
@@ -32,78 +33,141 @@ const INPUT: MetricsInput = {
 };
 
 describe('registry', () => {
-  it('volume and cash metrics are daily; rates and CAC are weekly', () => {
-    for (const k of ['initial_cash', 'enrollments', 'applied', 'consults_booked', 'spend']) expect(trendMetric(k)?.grain, k).toBe('day');
-    for (const k of ['paid_cac', 'blended_cac', 'roas', 'ltv_cac', 'consult_show_rate', 'cpl', 'cost_roadmap']) expect(trendMetric(k)?.grain, k).toBe('week');
+  it('every tile metric is registered once; no metric carries its own grain any more', () => {
     expect(trendMetric('nope')).toBeNull();
     expect(new Set(TREND_METRICS.map((m) => m.key)).size).toBe(TREND_METRICS.length);
-    // Every scorecard stat key has a trend.
+    for (const m of TREND_METRICS) expect('grain' in m, m.key).toBe(false);
     for (const k of ['initial_cash', 'enrollments', 'paid_cac', 'blended_cac', 'roas', 'ltv_cac', 'applied', 'consults_booked', 'consult_show_rate', 'roadmaps_booked', 'roadmap_show_rate', 'spend', 'cpl', 'cost_consult', 'cost_roadmap', 'cost_client']) {
       expect(trendMetric(k), k).not.toBeNull();
     }
   });
 });
 
-describe('spans', () => {
-  it('daily: 30 days ending today, and the 30 before them', () => {
-    const s = trendSpans('day', TODAY);
-    expect(s.current).toHaveLength(30);
-    expect(s.previous).toHaveLength(30);
-    expect(s.current[29].start).toBe(TODAY);
-    expect(s.current[0].start).toBe('2026-08-19');
-    expect(s.previous[29].start).toBe('2026-08-18');
-    expect(s.previous[0].start).toBe('2026-07-20');
-    expect(s.window).toEqual({ start: '2026-07-20', end: TODAY });
+// Expected windows for TODAY = Thu 2026-09-17 (hand-computed).
+const EXPECTED = {
+  '30d': { grain: 'day', start: '2026-08-19', buckets: 30, first: { start: '2026-08-19', end: '2026-08-19' }, last: { start: '2026-09-17', end: '2026-09-17' }, prev: { start: '2026-07-20', end: '2026-08-18' } },
+  // Jun 17 + 1 = Thu Jun 18 → its week starts Sun Jun 14; 14 weeks, the last one to date (Sep 13–17).
+  '3m': { grain: 'week', start: '2026-06-14', buckets: 14, first: { start: '2026-06-14', end: '2026-06-20' }, last: { start: '2026-09-13', end: '2026-09-17' }, prev: { start: '2026-03-08', end: '2026-06-13' } },
+  // Mar 17 + 1 = Wed Mar 18 → week of Sun Mar 15; 27 weeks.
+  '6m': { grain: 'week', start: '2026-03-15', buckets: 27, first: { start: '2026-03-15', end: '2026-03-21' }, last: { start: '2026-09-13', end: '2026-09-17' }, prev: { start: '2025-09-07', end: '2026-03-14' } },
+  // 11 months back → Oct 2025; 12 calendar months, September to date.
+  '12m': { grain: 'month', start: '2025-10-01', buckets: 12, first: { start: '2025-10-01', end: '2025-10-31' }, last: { start: '2026-09-01', end: '2026-09-17' }, prev: { start: '2024-10-01', end: '2025-09-30' } },
+} as const;
+
+describe('windows: one rule for every metric × every toggle', () => {
+  it('default is 3 months, weekly', () => {
+    const t = computeMetricTrend(trendMetric('enrollments')!, INPUT, TODAY);
+    expect(t).toMatchObject({ window: '3m', windowLabel: 'Last 3 months', grain: 'week' });
   });
 
-  it('weekly: 12 Sun–Sat weeks ending with the current week, and the 12 before', () => {
-    const s = trendSpans('week', TODAY);
-    expect(s.current).toHaveLength(12);
-    expect(s.previous).toHaveLength(12);
-    expect(s.current[11]).toMatchObject({ start: '2026-09-13', end: '2026-09-19' });
-    expect(s.current[0]).toMatchObject({ start: '2026-06-28', end: '2026-07-04' });
-    expect(s.previous[11]).toMatchObject({ start: '2026-06-21', end: '2026-06-27' });
-    expect(s.previous[0]).toMatchObject({ start: '2026-04-05', end: '2026-04-11' });
-    expect(s.window).toEqual({ start: '2026-04-05', end: '2026-09-19' });
+  for (const w of TREND_WINDOWS) {
+    it(`${w}: grain, window dates and the header value from engine totals — for every metric`, () => {
+      const e = EXPECTED[w];
+      const s = trendSpans(w, TODAY);
+      expect(s.grain).toBe(e.grain);
+      expect(TREND_WINDOW_META[w].grain).toBe(e.grain);
+      expect(s.current).toHaveLength(e.buckets);
+      expect(s.previous).toHaveLength(e.buckets);
+      expect(s.current[0]).toMatchObject(e.first);
+      expect(s.current.at(-1)).toMatchObject(e.last);
+      expect(s.span).toEqual({ start: e.start, end: TODAY });
+      expect(s.previousSpan).toEqual(e.prev);
+      // Buckets tile the window with no gap or overlap.
+      for (let i = 1; i < s.current.length; i += 1) expect(s.current[i].start).toBe(addDays(s.current[i - 1].end, 1));
+      for (let i = 1; i < s.previous.length; i += 1) expect(s.previous[i].start).toBe(addDays(s.previous[i - 1].end, 1));
+      expect(addDays(s.previous.at(-1)!.end, 1)).toBe(s.current[0].start);
+
+      for (const m of TREND_METRICS) {
+        const t = computeMetricTrend(m, INPUT, TODAY, w);
+        expect(t.grain, m.key).toBe(e.grain);
+        expect(t.span, m.key).toMatchObject({ start: e.start, end: TODAY });
+        // The header value is the metric over the whole window — never a sum/average of bucket ratios.
+        expect(t.spanValue, m.key).toBe(m.compute(INPUT, { start: e.start, end: TODAY }));
+        expect(t.previousSpanValue, m.key).toBe(m.compute(INPUT, e.prev));
+        expect(t.current.map((p) => p.value), m.key).toEqual(s.current.map((b) => m.compute(INPUT, b)));
+      }
+    });
+  }
+
+  it('ratios are recomputed from window totals: 3-month paid CAC = total spend ÷ total paid enrollments', () => {
+    const t = computeMetricTrend(trendMetric('paid_cac')!, INPUT, TODAY, '3m');
+    expect(t.current.find((p) => p.start === '2026-08-30')!.value).toBe(70_000);
+    // The current week is to date (Sep 13–17): a manual weekly row is spread over its 7 days → 5/7 of 140,000.
+    expect(t.current.find((p) => p.start === '2026-09-13')!.value).toBe(100_000);
+    expect(t.current.find((p) => p.start === '2026-09-06')!.value).toBeNull(); // nothing that week — never a zero
+    expect(t.spanValue).toBe(85_000); // (70,000 + 100,000) ÷ 2 paid enrollments — not the mean of weekly CACs
+    expect(t.spanValue).toBe(computeMarketing(INPUT, { start: '2026-06-14', end: TODAY }).paidCacCents);
+  });
+
+  it('sums for counts / cash; monthly buckets add up to the window', () => {
+    const t = computeMetricTrend(trendMetric('initial_cash')!, INPUT, TODAY, '12m');
+    expect(t.current.at(-1)).toMatchObject({ label: 'Sep ’26', value: 300_000 });
+    expect(t.spanValue).toBe(computeRevenue(INPUT, { start: '2025-10-01', end: TODAY }).initialCents);
+    const noStripe = computeMetricTrend(trendMetric('initial_cash')!, { ...INPUT, payments: [] }, TODAY, '30d');
+    expect(noStripe.current.every((p) => p.value === null)).toBe(true);
+    expect(noStripe.spanValue).toBeNull();
+  });
+
+  it('the load window covers the prior span and the card range', () => {
+    expect(trendWindow('3m', TODAY)).toEqual({ start: '2026-03-08', end: TODAY });
+    expect(trendWindow('30d', TODAY, { start: '2026-05-01', end: '2026-05-31' })).toEqual({ start: '2026-05-01', end: TODAY });
   });
 });
 
-describe('computeMetricTrend', () => {
-  it('daily enrollments: one point per day with the engine count', () => {
-    const t = computeMetricTrend(trendMetric('enrollments')!, INPUT, TODAY);
-    expect(t.grain).toBe('day');
-    expect(t.current.filter((p) => p.value)).toEqual([
-      { start: '2026-09-03', end: '2026-09-03', label: 'Sep 3', value: 1 },
-      { start: '2026-09-15', end: '2026-09-15', label: 'Sep 15', value: 1 },
-    ]);
-    expect(t.spanValue).toBe(2);
-    expect(t.previousSpanValue).toBe(0);
-    expect(t.span.label).toBe('Aug 19 – Sep 17');
-  });
+describe('highlight = the card', () => {
+  // What each tile renders, straight from the same engine outputs the pages use.
+  const tiles = (r: { start: string; end: string }): Record<string, number | null> => {
+    const sc = computeScorecard(INPUT, r, null, null);
+    const ads = computeAdsKpis(INPUT, r);
+    const rev = computeRevenueSummary(INPUT, r);
+    const rate = (type: string) => sc.showRates.find((x) => x.type === type)?.rate ?? null;
+    return {
+      initial_cash: sc.kpis.initialCents.current,
+      enrollments: sc.kpis.enrollments.current,
+      paid_cac: sc.kpis.paidCacCents.current,
+      blended_cac: sc.kpis.blendedCacCents.current,
+      roas: sc.kpis.roas.current,
+      ltv_cac: sc.kpis.ltvToCac.current,
+      consults_booked: sc.kpis.consultsBooked.current,
+      roadmaps_booked: sc.kpis.roadmapsBooked.current,
+      applied: sc.kpis.applied.current,
+      cost_roadmap: sc.kpis.costPerRoadmapCents.current,
+      consult_show_rate: rate('Consult'),
+      roadmap_show_rate: rate('Roadmap'),
+      spend: ads.spendCents,
+      cpl: ads.costPerLeadCents,
+      cost_consult: ads.costPerConsultCents,
+      cost_client: ads.blendedCacCents,
+      recurring_cash: rev.recurringCents,
+      collected: rev.collectedCents,
+      failed: rev.failedCount,
+      refunds: rev.refundedCents,
+    };
+  };
 
-  it('weekly paid CAC: null in weeks without enrollments, engine value otherwise — never a zero', () => {
-    const t = computeMetricTrend(trendMetric('paid_cac')!, INPUT, TODAY);
-    expect(t.grain).toBe('week');
-    const wk = (start: string) => t.current.find((p) => p.start === start)!;
-    expect(wk('2026-08-30').value).toBe(70_000); // 70,000 ÷ 1 paid enrollment
-    expect(wk('2026-09-13').value).toBe(140_000);
-    expect(wk('2026-09-06').value).toBeNull(); // no enrollments, no spend
-    expect(t.spanValue).toBe(computeMarketing(INPUT, { start: t.span.start, end: t.span.end }).paidCacCents);
-    expect(t.spanValue).toBe(105_000); // 210,000 ÷ 2 over the 12 weeks
-  });
+  for (const p of PRESETS.filter((x) => x.value !== 'custom')) {
+    it(`${p.label}: the highlighted span's value equals the tile, for every metric and window`, () => {
+      const r = resolvePreset(p.value, TODAY);
+      const expected = tiles(r);
+      expect(Object.keys(expected).sort()).toEqual(TREND_METRICS.map((m) => m.key).sort());
+      for (const w of TREND_WINDOWS) {
+        for (const m of TREND_METRICS) {
+          const t = computeMetricTrend(m, INPUT, TODAY, w, r);
+          expect(t.highlight, `${p.value} ${w} ${m.key}`).toMatchObject({ start: r.start, end: r.end, value: expected[m.key], inWindow: true });
+          // The band marks exactly the buckets that overlap the card.
+          const marked = t.current.filter((b) => b.inCard);
+          expect(marked.length, `${p.value} ${w}`).toBeGreaterThan(0);
+          expect(marked[0].start <= r.start || marked[0].start === t.span.start).toBe(true);
+          expect(marked.at(-1)!.end >= r.end || marked.at(-1)!.end === TODAY).toBe(true);
+          expect(t.previous.some((b) => b.inCard)).toBe(false);
+        }
+      }
+    });
+  }
 
-  it('weekly consult show rate as a ratio; daily initial cash null while awaiting Stripe', () => {
-    const rate = computeMetricTrend(trendMetric('consult_show_rate')!, INPUT, TODAY);
-    expect(rate.current.find((p) => p.start === '2026-08-30')!.value).toBe(1);
-    expect(rate.current.find((p) => p.start === '2026-09-06')!.value).toBe(0);
-    expect(rate.kind).toBe('pct');
-
-    const cash = computeMetricTrend(trendMetric('initial_cash')!, INPUT, TODAY);
-    expect(cash.current.find((p) => p.start === '2026-09-15')!.value).toBe(100_000);
-    expect(cash.spanValue).toBe(computeRevenue(INPUT, { start: cash.span.start, end: cash.span.end }).initialCents);
-
-    const noStripe = computeMetricTrend(trendMetric('initial_cash')!, { ...INPUT, payments: [] }, TODAY);
-    expect(noStripe.current.every((p) => p.value === null)).toBe(true);
-    expect(noStripe.spanValue).toBeNull();
+  it('a card range outside the window is flagged, not drawn', () => {
+    const t = computeMetricTrend(trendMetric('enrollments')!, INPUT, TODAY, '30d', { start: '2026-06-01', end: '2026-06-30' });
+    expect(t.highlight).toMatchObject({ inWindow: false });
+    expect(t.current.some((b) => b.inCard)).toBe(false);
   });
 });

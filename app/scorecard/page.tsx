@@ -35,7 +35,7 @@ const ACCENT: Record<string, 'accent' | 'success' | 'warning' | 'danger' | 'info
   cost_client: 'warning',
 };
 
-const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; maturity: DataMaturity; currency: Currency }> = ({ stat, comparisonLabel, maturity, currency }) => (
+const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; maturity: DataMaturity; currency: Currency; range: { start: string; end: string } }> = ({ stat, comparisonLabel, maturity, currency, range }) => (
   <KpiDeltaTile
     label={stat.label}
     value={stat.value}
@@ -48,6 +48,7 @@ const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; 
     empty={stat.empty}
     ring={stat.deltaKind === 'pct' && !stat.empty ? stat.delta.current : undefined}
     trendMetric={stat.key}
+    trendRange={range}
     maturity={maturity}
     maturing={stat.maturing}
   />
@@ -244,7 +245,7 @@ function ScorecardPage() {
         </div>
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${cols} gap-3 stagger`}>
           {stats.map((st) => (
-            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} maturity={view.maturity} currency={view.currency} />
+            <StatTile key={st.key} stat={st} comparisonLabel={cmpLabel} maturity={view.maturity} currency={view.currency} range={result.range} />
           ))}
           {extra}
         </div>

@@ -4,11 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { LineChart as LineIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Card, CardHeader } from './Card';
-import { ChartTooltip, ChartLegend } from './Chart';
+import { ChartTooltip } from './Chart';
 import { SkeletonChart } from './Skeleton';
 import { EmptyState } from './PageHeader';
 import { computeDelta, formatCents, formatDelta, formatPct } from '@/lib/metrics';
 import type { MetricTrend } from '@/lib/metrics/trendMetrics';
+import { TrendWindowToggle, trendUrl, trendWindowCaption } from './KpiTrendPopover';
+import { useTrendWindow } from './useTrendWindow';
 import { CURRENCY_CHANGED_EVENT } from '@/lib/money';
 
 function fmtValue(v: number | null, kind: MetricTrend['kind'], currency: MetricTrend['currency']): string {
@@ -27,6 +29,7 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
   const [trend, setTrend] = useState<MetricTrend | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [win, setWin] = useTrendWindow();
   useEffect(() => {
     const bump = () => setTick((t) => t + 1);
     window.addEventListener(CURRENCY_CHANGED_EVENT, bump);
@@ -36,7 +39,7 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
   useEffect(() => {
     let cancelled = false;
     setTrend(null);
-    fetch(`/api/metrics/trend?metric=${encodeURIComponent(metric)}`)
+    fetch(trendUrl(metric, win))
       .then(async (r) => {
         const body = await r.json();
         if (!r.ok) throw new Error(body.detail ?? body.error ?? 'Request failed');
@@ -51,7 +54,7 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
     return () => {
       cancelled = true;
     };
-  }, [metric, tick]);
+  }, [metric, tick, win]);
 
   if (error) {
     return (
@@ -78,9 +81,9 @@ export const MetricFocusCard: React.FC<{ metric: string }> = ({ metric }) => {
     <Card padding="lg">
       <CardHeader
         title={trend.label}
-        subtitle={`${trend.grain === 'day' ? 'Last 30 days, daily' : 'Last 12 Sun–Sat weeks'} · ${trend.span.label} · faint = ${trend.previousSpan.label}`}
+        subtitle={`${trendWindowCaption(trend)} · faint = ${trend.previousSpan.label}`}
         icon={LineIcon}
-        action={<ChartLegend items={[{ label: trend.label, color: 'var(--accent)' }]} />}
+        action={<TrendWindowToggle value={win} onChange={setWin} />}
       />
       <div className="flex items-baseline gap-2 mb-3">
         <span className="text-[26px] font-semibold tabular tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>

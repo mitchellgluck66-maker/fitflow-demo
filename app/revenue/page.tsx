@@ -116,6 +116,7 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Initial cash"
             trendMetric="initial_cash"
+            trendRange={range}
             value={formatCents(revenue.initialCents, ccy, { compact: true })}
             delta={scorecard.kpis.initialCents}
             deltaKind="cents"
@@ -129,6 +130,7 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Recurring cash"
             trendMetric="recurring_cash"
+            trendRange={range}
             value={formatCents(revenue.recurringCents, ccy, { compact: true })}
             delta={computeDelta(revenue.recurringCents, prevRecurring)}
             deltaKind="cents"
@@ -153,6 +155,7 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Failed"
             trendMetric="failed"
+            trendRange={range}
             value={String(revenue.failedCount)}
             delta={computeDelta(revenue.failedCount, null, true)}
             comparisonLabel={cmpLabel}
@@ -163,6 +166,7 @@ function RevenueTab() {
           <KpiDeltaTile
             label="Refunds"
             trendMetric="refunds"
+            trendRange={range}
             value={formatCents(revenue.refundedCents, ccy, { compact: true })}
             delta={computeDelta(revenue.refundedCents, null, true)}
             deltaKind="cents"

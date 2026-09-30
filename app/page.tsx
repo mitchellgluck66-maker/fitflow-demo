@@ -105,6 +105,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Initial cash collected"
             trendMetric="initial_cash"
+            trendRange={range}
             value={formatCents(scorecard.revenue.initialCents, ccy, { compact: true })}
             delta={scorecard.kpis.initialCents}
             deltaKind="cents"
@@ -123,6 +124,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Enrollments"
             trendMetric="enrollments"
+            trendRange={range}
             value={String(scorecard.kpis.enrollments.current ?? 0)}
             delta={scorecard.kpis.enrollments}
             comparisonLabel={cmpLabel}
@@ -134,6 +136,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Paid CAC"
             trendMetric="paid_cac"
+            trendRange={range}
             value={formatCents(marketing.paidCacCents, ccy)}
             delta={scorecard.kpis.paidCacCents}
             deltaKind="cents"
@@ -156,6 +159,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Blended CAC"
             trendMetric="blended_cac"
+            trendRange={range}
             value={formatCents(marketing.blendedCacCents, ccy)}
             delta={scorecard.kpis.blendedCacCents}
             deltaKind="cents"
@@ -179,6 +183,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="ROAS"
             trendMetric="roas"
+            trendRange={range}
             value={marketing.roas !== null ? `${marketing.roas.toFixed(2)}×` : '—'}
             delta={scorecard.kpis.roas}
             deltaKind="ratio"
@@ -205,6 +210,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="LTV:CAC"
             trendMetric="ltv_cac"
+            trendRange={range}
             value={marketing.ltvToCac !== null ? `${marketing.ltvToCac.toFixed(1)}×` : '—'}
             delta={scorecard.kpis.ltvToCac}
             deltaKind="ratio"
@@ -232,6 +238,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Consults booked"
             trendMetric="consults_booked"
+            trendRange={range}
             maturity={data.maturity}
             maturing
             value={String(scorecard.kpis.consultsBooked.current ?? 0)}
@@ -245,6 +252,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Cost per roadmap booked"
             trendMetric="cost_roadmap"
+            trendRange={range}
             maturity={data.maturity}
             maturing
             value={formatCents(marketing.costPerRoadmapCents, ccy)}
