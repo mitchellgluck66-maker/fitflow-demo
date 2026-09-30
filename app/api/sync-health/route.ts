@@ -43,7 +43,7 @@ export interface SourceHealth {
 const SOURCES: Array<{ key: SourceHealth['key']; label: string; kinds: string[]; cadence: string; rowKeys: string[] }> = [
   { key: 'ghl', label: 'GoHighLevel', kinds: ['ghl_delta', 'ghl_backfill'], cadence: 'hourly', rowKeys: ['contactsUpserted', 'appointmentsUpserted'] },
   { key: 'meta', label: 'Meta Ads', kinds: ['meta_delta', 'meta_backfill'], cadence: 'daily (dispatch)', rowKeys: ['rows'] },
-  { key: 'stripe', label: 'Stripe', kinds: ['stripe_reconcile', 'stripe_backfill'], cadence: 'daily (dispatch) + webhook', rowKeys: ['charges', 'subscriptions', 'refunds', 'rows', 'payments'] },
+  { key: 'stripe', label: 'Stripe', kinds: ['stripe_delta', 'stripe_reconcile', 'stripe_backfill'], cadence: 'hourly delta + daily reconcile (dispatch) + webhook', rowKeys: ['charges', 'subscriptions', 'refunds', 'rows', 'payments'] },
   { key: 'google', label: 'Google Ads', kinds: ['google_delta', 'google_backfill'], cadence: 'daily (dispatch) / CSV', rowKeys: ['rows'] },
 ];
 

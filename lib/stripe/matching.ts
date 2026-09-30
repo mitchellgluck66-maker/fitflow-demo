@@ -3,7 +3,7 @@
  * Manual matches (match_source='manual') are never overwritten by the sync.
  */
 
-import { and, eq, isNotNull, ne, or, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, ne, or, isNull } from 'drizzle-orm';
 import { db, payments, contacts } from '@/db';
 import { matchPayments } from '../metrics';
 
@@ -22,7 +22,9 @@ export async function runPaymentMatching(): Promise<{ matched: number; unmatched
   const people = await db
     .select({ id: contacts.id, emailNormalized: contacts.emailNormalized, phoneNormalized: contacts.phoneNormalized })
     .from(contacts)
-    .where(or(isNotNull(contacts.emailNormalized), isNotNull(contacts.phoneNormalized)));
+    .where(or(isNotNull(contacts.emailNormalized), isNotNull(contacts.phoneNormalized)))
+    // Deterministic: when two contacts share an email/phone, the same (oldest) one wins every run — no flip-flop.
+    .orderBy(asc(contacts.createdAt), asc(contacts.id));
 
   const matches = matchPayments(candidates, people);
   const now = new Date();

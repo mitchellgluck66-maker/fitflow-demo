@@ -12,7 +12,7 @@ async function lastRun() {
   const [run] = await db
     .select()
     .from(syncRuns)
-    .where(or(eq(syncRuns.kind, 'stripe_reconcile'), eq(syncRuns.kind, 'stripe_backfill')))
+    .where(or(eq(syncRuns.kind, 'stripe_delta'), eq(syncRuns.kind, 'stripe_reconcile'), eq(syncRuns.kind, 'stripe_backfill')))
     .orderBy(desc(syncRuns.startedAt))
     .limit(1);
   return run ? { ...run, startedAt: run.startedAt.toISOString(), finishedAt: run.finishedAt?.toISOString() ?? null, since: run.since?.toISOString() ?? null } : null;

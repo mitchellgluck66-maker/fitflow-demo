@@ -47,6 +47,18 @@ export const SETTING_KEYS = {
   ghlAppointmentsCompletedAt: 'ghl_appointments_completed_at',
   /** ISO cycleStartedAt of the last cycle whose TRACKED phases completed — reconciliation is eligible from here. */
   ghlTrackedCompletedAt: 'ghl_tracked_completed_at',
+  /**
+   * Stripe (2026-09-30, lib/stripe/ingest): the hourly DELTA lists only what
+   * was created since `stripe_delta_since` (minus an overlap); the heavy
+   * RECONCILE (7 days of charges/refunds + every subscription) runs when
+   * `stripe_reconcile_completed_at` is older than its cadence, resumably via
+   * `stripe_sync_cursor` (JSON; '' when none is in progress).
+   */
+  stripeDeltaSince: 'stripe_delta_since',
+  stripeReconcileCompletedAt: 'stripe_reconcile_completed_at',
+  stripeSyncCursor: 'stripe_sync_cursor',
+  /** Dispatch fairness + stuck detection (lib/dispatch.ts): per-step history, JSON. */
+  dispatchState: 'dispatch_state',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */
   backfillFrom: 'backfill_from',
   /**

@@ -4,7 +4,7 @@
  */
 
 import type { z } from 'zod';
-import { STRIPE_BASE_URL, getStripeConfig } from './config';
+import { STRIPE_BASE_URL, getStripeConfig, type StripeConfig } from './config';
 import { StripeListSchema, StripeBalanceSchema } from './schemas';
 
 export type StripeQuery = Record<string, string | number | boolean | string[] | Record<string, string | number> | undefined>;
@@ -42,8 +42,10 @@ export async function stripeRequest<T = unknown>(
   path: string,
   query: StripeQuery = {},
   schema?: z.ZodType<T>,
+  /** Pass the config a caller already resolved — every page otherwise re-reads + decrypts the key from settings. */
+  preloaded?: StripeConfig,
 ): Promise<StripeResult<T>> {
-  const config = await getStripeConfig();
+  const config = preloaded ?? (await getStripeConfig());
   if (!config.configured || !config.secretKey) {
     return { ok: false, status: 0, data: null, notConfigured: true, error: 'Stripe is not connected. Add a restricted key in Setup.' };
   }
@@ -92,8 +94,9 @@ export async function listAll(path: string, query: StripeQuery = {}, maxPages = 
   const items: unknown[] = [];
   let requests = 0;
   let startingAfter: string | undefined;
+  const config = await getStripeConfig();
   for (let page = 0; page < maxPages; page += 1) {
-    const res = await stripeRequest(path, { ...query, limit: 100, starting_after: startingAfter }, StripeListSchema);
+    const res = await stripeRequest(path, { ...query, limit: 100, starting_after: startingAfter }, StripeListSchema, config);
     requests += 1;
     if (!res.ok || !res.data) return { items, requests, error: res.error };
     items.push(...res.data.data);
@@ -120,4 +123,18 @@ export async function testConnection(): Promise<{ ok: boolean; configured: boole
     return { ok: false, configured: true, message: charges.error ?? 'Stripe rejected the key.' };
   }
   return { ok: false, configured: true, message: balance.error ?? 'Could not reach Stripe.' };
+}
+
+/** One list page (limit 100). `lastId` is the `starting_after` for the next page; null when this was the last. */
+export async function listPage(
+  path: string,
+  query: StripeQuery,
+  startingAfter: string | null,
+  config: StripeConfig,
+): Promise<{ items: unknown[]; lastId: string | null; error?: string }> {
+  const res = await stripeRequest(path, { ...query, limit: 100, starting_after: startingAfter ?? undefined }, StripeListSchema, config);
+  if (!res.ok || !res.data) return { items: [], lastId: null, error: res.error ?? 'Stripe list failed' };
+  const items = res.data.data;
+  const last = items[items.length - 1] as { id?: string } | undefined;
+  return { items, lastId: res.data.has_more && last?.id ? last.id : null };
 }

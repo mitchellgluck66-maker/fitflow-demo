@@ -34,7 +34,7 @@ export interface SourceFreshness {
 const SOURCES: Array<{ key: SourceFreshness['key']; label: string; kinds: string[]; syncEndpoint: string; syncBody: Record<string, string> }> = [
   { key: 'ghl', label: 'GoHighLevel pipeline', kinds: ['ghl_delta', 'ghl_backfill'], syncEndpoint: '/api/sync', syncBody: {} },
   { key: 'meta', label: 'Meta Ads spend', kinds: ['meta_delta', 'meta_backfill'], syncEndpoint: '/api/meta/sync', syncBody: { mode: 'delta' } },
-  { key: 'stripe', label: 'Stripe payments', kinds: ['stripe_reconcile', 'stripe_backfill'], syncEndpoint: '/api/stripe/sync', syncBody: { mode: 'reconcile' } },
+  { key: 'stripe', label: 'Stripe payments', kinds: ['stripe_delta', 'stripe_reconcile', 'stripe_backfill'], syncEndpoint: '/api/stripe/sync', syncBody: { mode: 'reconcile' } },
 ];
 
 /**

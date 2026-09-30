@@ -1,9 +1,19 @@
 /**
  * Stripe → payments ingestion (READ-ONLY, idempotent).
  *
- *   reconcile  scheduled: charges + refunds from the last 7 days, all
- *              subscriptions (status=all). Heals anything a webhook missed.
- *   backfill   one-off from settings.backfill_from (2026-06-01).
+ *   delta      hourly steady state: charges / subscriptions / refunds CREATED
+ *              since the last delta (minus DELTA_OVERLAP_MS). A few requests,
+ *              one INSERT per page; matching/classification only when rows
+ *              were written. Typically well under 5 s.
+ *   reconcile  heavy, once per RECONCILE_EVERY_HOURS (marker
+ *              stripe_reconcile_completed_at): charges + refunds from the
+ *              last 7 days and EVERY subscription (status=all — catches
+ *              cancellations / status changes a delta cannot see), then
+ *              matching + classification. Resumable: stripe_sync_cursor after
+ *              every page, stops starting pages at `budgetMs` → 'partial'.
+ *   backfill   one-off from settings.backfill_from (2026-06-01); resumable too.
+ *
+ * `runScheduledStripeSync` (the dispatch) picks delta vs reconcile.
  *
  * The webhook route reuses `upsertCharge` / `upsertSubscription` /
  * `upsertRefund`, so real-time and scheduled paths write identical rows.
@@ -15,10 +25,10 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, payments, syncRuns, syncIncidents } from '@/db';
 import { getDayBounds } from '../day';
-import { getSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
+import { getSetting, setSetting, getTimezone, SETTING_KEYS, BACKFILL_DEFAULTS } from '../settings';
 import { normalizeEmail, normalizePhone } from '../ghl/transitions';
 import { getStripeConfig } from './config';
-import { listAll, stripeRequest, getStripeRequestCount } from './client';
+import { listPage, stripeRequest, getStripeRequestCount, type StripeQuery } from './client';
 import { runPaymentMatching } from './matching';
 import { runPaymentClassification } from './classify';
 import {
@@ -34,10 +44,13 @@ import {
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 
-export type StripeSyncMode = 'reconcile' | 'backfill';
+export type StripeSyncMode = 'delta' | 'reconcile' | 'backfill';
 
 export interface StripeSyncResult {
   ok: boolean;
+  /** A reconcile/backfill stopped at its time budget; `stripe_sync_cursor` resumes it next run. */
+  partial?: boolean;
+  progress?: string | null;
   notConfigured?: boolean;
   runId: string | null;
   mode: StripeSyncMode;
@@ -77,7 +90,11 @@ interface UpsertMeta {
   backfilled: boolean;
 }
 
-export async function upsertCharge(charge: StripeCharge, meta: UpsertMeta): Promise<void> {
+type PaymentInsert = typeof payments.$inferInsert;
+
+// ---- Row builders (pure) — the webhook and both sync modes write identical rows ----
+
+export function chargeRow(charge: StripeCharge, meta: UpsertMeta): PaymentInsert {
   const { id: customerId, customer } = customerOf(charge.customer);
   const email = customer?.email ?? charge.billing_details?.email ?? null;
   const phone = customer?.phone ?? charge.billing_details?.phone ?? null;
@@ -85,8 +102,7 @@ export async function upsertCharge(charge: StripeCharge, meta: UpsertMeta): Prom
   const invoiceId = typeof charge.invoice === 'string' ? charge.invoice : (charge.invoice?.id ?? null);
   const status = charge.refunded ? 'refunded' : charge.status;
   const created = unixToDate(charge.created);
-
-  const values = {
+  return {
     stripeId: charge.id,
     stripeCustomerId: customerId,
     kind: invoiceId ? 'invoice' : 'charge',
@@ -108,21 +124,12 @@ export async function upsertCharge(charge: StripeCharge, meta: UpsertMeta): Prom
     backfilled: meta.backfilled,
     updatedAt: meta.syncedAt,
   };
-
-  await db
-    .insert(payments)
-    .values(values)
-    .onConflictDoUpdate({
-      target: payments.stripeId,
-      // contactId / matchSource deliberately absent.
-      set: { ...values, refundedCents: sql`greatest(${payments.refundedCents}, ${charge.amount_refunded})` },
-    });
 }
 
-export async function upsertSubscription(sub: StripeSubscription, meta: UpsertMeta): Promise<void> {
+export function subscriptionRow(sub: StripeSubscription, meta: UpsertMeta): PaymentInsert {
   const { id: customerId, customer } = customerOf(sub.customer);
   const { amountCents, intervalMonths } = monthlyAmountCents(sub);
-  const values = {
+  return {
     stripeId: sub.id,
     stripeCustomerId: customerId,
     kind: 'subscription',
@@ -143,12 +150,11 @@ export async function upsertSubscription(sub: StripeSubscription, meta: UpsertMe
     backfilled: meta.backfilled,
     updatedAt: meta.syncedAt,
   };
-  await db.insert(payments).values(values).onConflictDoUpdate({ target: payments.stripeId, set: values });
 }
 
-export async function upsertRefund(refund: StripeRefund, meta: UpsertMeta): Promise<void> {
+export function refundRow(refund: StripeRefund, meta: UpsertMeta): PaymentInsert & { metadata: { charge: string | null } } {
   const chargeId = typeof refund.charge === 'string' ? refund.charge : (refund.charge?.id ?? null);
-  const values = {
+  return {
     stripeId: refund.id,
     kind: 'refund',
     status: refund.status ?? 'succeeded',
@@ -164,23 +170,145 @@ export async function upsertRefund(refund: StripeRefund, meta: UpsertMeta): Prom
     backfilled: meta.backfilled,
     updatedAt: meta.syncedAt,
   };
-  await db.insert(payments).values(values).onConflictDoUpdate({ target: payments.stripeId, set: values });
+}
 
-  // Reflect the refund on the parent charge (the engine subtracts refundedCents).
-  if (chargeId) {
+// ---- Batched upserts: ONE statement per page ----
+//
+// 2026-09-30 production finding: the scheduled reconcile took ~49 s for 5
+// Stripe requests — it upserted ~330 rows (every subscription, every 7-day
+// charge) one round trip each (~145 ms apiece from the function to Supabase).
+// A page is now one INSERT … ON CONFLICT with the new values read from
+// `excluded`. contactId / matchSource / paymentClass are never in the set.
+
+const excluded = (col: { name: string }) => sql.raw(`excluded."${col.name}"`);
+
+/** Columns an upsert overwrites (conflict target stripe_id). refunded_cents only ever grows. */
+function conflictSet(keys: Array<keyof PaymentInsert>) {
+  const set: Record<string, unknown> = {};
+  for (const k of keys) {
+    const col = (payments as unknown as Record<string, { name: string }>)[k as string];
+    set[k as string] = k === 'refundedCents' ? sql`greatest(${payments.refundedCents}, ${excluded(col)})` : excluded(col);
+  }
+  return set;
+}
+
+/** Last row per stripe id — Postgres refuses to update the same row twice in one statement. */
+function dedupe<T extends { stripeId?: string | null }>(rows: T[]): T[] {
+  return Array.from(new Map(rows.map((r) => [r.stripeId, r])).values());
+}
+
+async function upsertRows(rows: PaymentInsert[], refundedGrowsOnly: boolean): Promise<number> {
+  const unique = dedupe(rows);
+  if (unique.length === 0) return 0;
+  const keys = Object.keys(unique[0]).filter((k) => k !== 'stripeId') as Array<keyof PaymentInsert>;
+  const set = conflictSet(keys);
+  if (!refundedGrowsOnly && 'refundedCents' in set) set.refundedCents = excluded(payments.refundedCents);
+  await db.insert(payments).values(unique).onConflictDoUpdate({ target: payments.stripeId, set });
+  return unique.length;
+}
+
+export async function upsertCharges(charges: StripeCharge[], meta: UpsertMeta): Promise<number> {
+  return upsertRows(charges.map((c) => chargeRow(c, meta)), true);
+}
+
+export async function upsertSubscriptions(subs: StripeSubscription[], meta: UpsertMeta): Promise<number> {
+  return upsertRows(subs.map((s) => subscriptionRow(s, meta)), false);
+}
+
+export async function upsertRefunds(refunds: StripeRefund[], meta: UpsertMeta): Promise<number> {
+  const rows = refunds.map((r) => refundRow(r, meta));
+  const n = await upsertRows(rows, false);
+  // Reflect each refund on its parent charge (the engine subtracts refundedCents). Refunds are few.
+  for (const r of rows) {
+    if (!r.metadata.charge) continue;
     await db
       .update(payments)
-      .set({ refundedCents: sql`greatest(${payments.refundedCents}, ${refund.amount})`, updatedAt: meta.syncedAt })
-      .where(eq(payments.stripeId, chargeId));
+      .set({ refundedCents: sql`greatest(${payments.refundedCents}, ${r.amountCents})`, updatedAt: meta.syncedAt })
+      .where(eq(payments.stripeId, r.metadata.charge));
+  }
+  return n;
+}
+
+/** Single-row forms for the webhook. */
+export async function upsertCharge(charge: StripeCharge, meta: UpsertMeta): Promise<void> {
+  await upsertCharges([charge], meta);
+}
+export async function upsertSubscription(sub: StripeSubscription, meta: UpsertMeta): Promise<void> {
+  await upsertSubscriptions([sub], meta);
+}
+export async function upsertRefund(refund: StripeRefund, meta: UpsertMeta): Promise<void> {
+  await upsertRefunds([refund], meta);
+}
+
+// ---- Sync: incremental delta (hourly) and resumable reconcile (daily) ----
+
+/** The delta re-reads this much before its high-water mark (clock skew, late-settling objects). */
+export const DELTA_OVERLAP_MS = 60 * 60 * 1000;
+/** A scheduled run does the heavy reconcile when the last completed one is older than this. */
+export const RECONCILE_EVERY_HOURS = 20;
+
+type Phase = 'charges' | 'subscriptions' | 'refunds';
+const PHASES: Phase[] = ['charges', 'subscriptions', 'refunds'];
+
+export interface StripeSyncCursor {
+  mode: 'reconcile' | 'backfill';
+  phase: Phase;
+  startingAfter: string | null;
+  sinceUnix: number;
+  cycleStartedAt: string;
+  stats: StripeSyncResult['stats'];
+}
+
+export async function readStripeCursor(): Promise<StripeSyncCursor | null> {
+  const raw = await getSetting(SETTING_KEYS.stripeSyncCursor);
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as StripeSyncCursor;
+    return c && PHASES.includes(c.phase) && (c.mode === 'reconcile' || c.mode === 'backfill') ? c : null;
+  } catch {
+    return null;
   }
 }
 
-export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'cron' | 'manual' | 'cli' | 'webhook'; since?: string }): Promise<StripeSyncResult> {
+async function writeStripeCursor(c: StripeSyncCursor | null): Promise<void> {
+  await setSetting(SETTING_KEYS.stripeSyncCursor, c ? JSON.stringify(c) : '');
+}
+
+/** Which scheduled mode is due (pure): a reconcile in progress resumes; one older than its cadence starts; else delta. */
+export function scheduledStripeMode(input: { cursor: StripeSyncCursor | null; reconcileCompletedAt: string | null; now: Date }): 'delta' | 'reconcile' {
+  if (input.cursor) return 'reconcile';
+  if (!input.reconcileCompletedAt) return 'reconcile';
+  const age = input.now.getTime() - new Date(input.reconcileCompletedAt).getTime();
+  return !Number.isFinite(age) || age >= RECONCILE_EVERY_HOURS * 3_600_000 ? 'reconcile' : 'delta';
+}
+
+/** The dispatch entry point: delta normally, the heavy reconcile when its marker says so (budgeted, resumable). */
+export async function runScheduledStripeSync(opts: { budgetMs: number; now?: Date }): Promise<StripeSyncResult> {
+  const [cursor, reconcileCompletedAt] = await Promise.all([readStripeCursor(), getSetting(SETTING_KEYS.stripeReconcileCompletedAt)]);
+  const mode = scheduledStripeMode({ cursor, reconcileCompletedAt: reconcileCompletedAt || null, now: opts.now ?? new Date() });
+  return runStripeSync({ mode, trigger: 'cron', budgetMs: opts.budgetMs });
+}
+
+const PHASE_QUERY: Record<Phase, { path: string; query: (sinceUnix: number, mode: StripeSyncMode) => StripeQuery }> = {
+  charges: { path: '/v1/charges', query: (since) => ({ created: { gte: since }, expand: ['data.customer'] }) },
+  // Reconcile/backfill: EVERY subscription (status changes, cancellations). Delta: only newly created ones.
+  subscriptions: { path: '/v1/subscriptions', query: (since, mode) => (mode === 'delta' ? { status: 'all', created: { gte: since }, expand: ['data.customer'] } : { status: 'all', expand: ['data.customer'] }) },
+  refunds: { path: '/v1/refunds', query: (since) => ({ created: { gte: since } }) },
+};
+
+export async function runStripeSync(options: {
+  mode: StripeSyncMode;
+  trigger: 'cron' | 'manual' | 'cli' | 'webhook';
+  since?: string;
+  /** Stop starting new pages after this long; a reconcile/backfill resumes from its cursor next run. */
+  budgetMs?: number;
+}): Promise<StripeSyncResult> {
   const startedAt = new Date();
-  const stats = { charges: 0, subscriptions: 0, refunds: 0, rejectedRows: 0, matched: 0, unmatched: 0, classified: 0 };
+  const budgetMs = options.budgetMs ?? Infinity;
+  const overBudget = () => Date.now() - startedAt.getTime() >= budgetMs;
+  let stats = { charges: 0, subscriptions: 0, refunds: 0, rejectedRows: 0, matched: 0, unmatched: 0, classified: 0 };
   const warnings: string[] = [];
   const requestsBefore = getStripeRequestCount();
-  const backfilled = options.mode === 'backfill';
 
   const config = await getStripeConfig();
   if (!config.configured) {
@@ -189,81 +317,154 @@ export async function runStripeSync(options: { mode: StripeSyncMode; trigger: 'c
 
   await sweepStaleRuns(startedAt);
 
-  const [run] = await db
-    .insert(syncRuns)
-    .values({ kind: backfilled ? 'stripe_backfill' : 'stripe_reconcile', trigger: options.trigger, status: 'running', startedAt })
-    .returning({ id: syncRuns.id });
+  // Resume a reconcile/backfill in progress (an explicit `since` or a delta never resumes one).
+  const existing = options.mode !== 'delta' && !options.since ? await readStripeCursor() : null;
+  const mode: StripeSyncMode = existing?.mode ?? options.mode;
+  const backfilled = mode === 'backfill';
+  const kind = mode === 'backfill' ? 'stripe_backfill' : mode === 'delta' ? 'stripe_delta' : 'stripe_reconcile';
 
-  const finish = async (ok: boolean, since: Date | null, error?: string): Promise<StripeSyncResult> => {
-    const finishedAt = new Date();
-    const requestsUsed = getStripeRequestCount() - requestsBefore;
-    await db
-      .update(syncRuns)
-      .set({ status: ok ? 'succeeded' : 'failed', finishedAt, since, requestsUsed, stats, warnings, error: error ?? null })
-      .where(eq(syncRuns.id, run.id));
-    if (!ok && error) {
-      await db.insert(syncIncidents).values({ syncRunId: run.id, kind: 'error', severity: 'critical', message: `Stripe sync failed: ${error}` });
-    }
-    return { ok, runId: run.id, mode: options.mode, since, stats, warnings, requestsUsed, error, durationMs: finishedAt.getTime() - startedAt.getTime() };
-  };
+  const [run] = await db.insert(syncRuns).values({ kind, trigger: options.trigger, status: 'running', startedAt }).returning({ id: syncRuns.id });
 
-  // Window
   let since: Date;
-  if (options.since) {
+  let cursor: StripeSyncCursor | null = existing;
+  if (cursor) {
+    since = new Date(cursor.sinceUnix * 1000);
+    stats = { ...cursor.stats };
+  } else if (options.since) {
     since = new Date(options.since);
-  } else if (backfilled) {
+  } else if (mode === 'backfill') {
     const from = (await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl;
     since = new Date(getDayBounds(from, await getTimezone()).startMs);
+  } else if (mode === 'delta') {
+    const hwm = await getSetting(SETTING_KEYS.stripeDeltaSince);
+    const hwmMs = hwm ? new Date(hwm).getTime() : NaN;
+    since = Number.isFinite(hwmMs) ? new Date(hwmMs - DELTA_OVERLAP_MS) : new Date(startedAt.getTime() - RECONCILE_LOOKBACK_DAYS * 86_400_000);
   } else {
     since = new Date(startedAt.getTime() - RECONCILE_LOOKBACK_DAYS * 86_400_000);
   }
   const sinceUnix = Math.floor(since.getTime() / 1000);
+  if (!cursor && mode !== 'delta') {
+    cursor = { mode, phase: 'charges', startingAfter: null, sinceUnix, cycleStartedAt: startedAt.toISOString(), stats };
+  }
+
+  const finish = async (status: 'succeeded' | 'partial' | 'failed', error?: string, progress?: string): Promise<StripeSyncResult> => {
+    const finishedAt = new Date();
+    const requestsUsed = getStripeRequestCount() - requestsBefore;
+    const recorded: Record<string, number | string> = { ...stats };
+    if (progress) recorded.reason = progress;
+    await db
+      .update(syncRuns)
+      .set({ status, finishedAt, since, requestsUsed, stats: recorded, warnings, error: error ?? null })
+      .where(eq(syncRuns.id, run.id));
+    if (status === 'failed' && error) {
+      await db.insert(syncIncidents).values({ syncRunId: run.id, kind: 'error', severity: 'critical', message: `Stripe sync failed: ${error}` });
+    }
+    return {
+      ok: status !== 'failed', partial: status === 'partial', progress: progress ?? null, runId: run.id, mode, since, stats, warnings, requestsUsed, error,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
+  };
+
   const meta = { syncedAt: startedAt, backfilled };
+  let written = 0;
+
+  const ingestPage = async (phase: Phase, items: unknown[]) => {
+    if (phase === 'charges') {
+      const parsed = parseMany(StripeChargeSchema, items, 'charge');
+      stats.rejectedRows += parsed.rejected;
+      warnings.push(...parsed.warnings);
+      stats.charges += await upsertCharges(parsed.valid, meta);
+      written += parsed.valid.length;
+    } else if (phase === 'subscriptions') {
+      const parsed = parseMany(StripeSubscriptionSchema, items, 'subscription');
+      stats.rejectedRows += parsed.rejected;
+      warnings.push(...parsed.warnings);
+      stats.subscriptions += await upsertSubscriptions(parsed.valid, meta);
+      written += parsed.valid.length;
+    } else {
+      const parsed = parseMany(StripeRefundSchema, items, 'refund');
+      stats.rejectedRows += parsed.rejected;
+      warnings.push(...parsed.warnings);
+      stats.refunds += await upsertRefunds(parsed.valid, meta);
+      written += parsed.valid.length;
+    }
+  };
 
   try {
-    const charges = await listAll('/v1/charges', { created: { gte: sinceUnix }, expand: ['data.customer'] });
-    if (charges.error) return finish(false, since, charges.error);
-    const parsedCharges = parseMany(StripeChargeSchema, charges.items, 'charge');
-    stats.rejectedRows += parsedCharges.rejected;
-    warnings.push(...parsedCharges.warnings);
-    for (const c of parsedCharges.valid) {
-      await upsertCharge(c, meta);
-      stats.charges += 1;
+    if (mode === 'delta') {
+      // Small by construction: only objects created since the last delta (minus the overlap).
+      for (const phase of PHASES) {
+        let after: string | null = null;
+        do {
+          const page = await listPage(PHASE_QUERY[phase].path, PHASE_QUERY[phase].query(sinceUnix, mode), after, config);
+          if (page.error) {
+            if (phase === 'charges') return finish('failed', page.error);
+            warnings.push(`${phase}: ${page.error}`);
+            break;
+          }
+          await ingestPage(phase, page.items);
+          after = page.lastId;
+        } while (after);
+      }
+    } else {
+      // Reconcile / backfill: page by page, cursor persisted after each, stops STARTING pages at the budget.
+      let c = cursor!;
+      let pages = 0;
+      while (true) {
+        // At least one page per run, so any budget makes progress.
+        if (pages > 0 && overBudget()) {
+          c = { ...c, stats };
+          await writeStripeCursor(c);
+          return finish('partial', undefined, `paused at ${c.phase}${c.startingAfter ? ` after ${c.startingAfter}` : ''} — resumes next run`);
+        }
+        const q = PHASE_QUERY[c.phase];
+        const page = await listPage(q.path, q.query(c.sinceUnix, mode), c.startingAfter, config);
+        pages += 1;
+        if (page.error) {
+          if (c.phase === 'charges') {
+            await writeStripeCursor({ ...c, stats });
+            return finish('failed', page.error);
+          }
+          warnings.push(`${c.phase[0].toUpperCase()}${c.phase.slice(1)}: ${page.error}`);
+          page.lastId = null;
+        } else {
+          await ingestPage(c.phase, page.items);
+        }
+        if (page.lastId) {
+          c = { ...c, startingAfter: page.lastId, stats };
+        } else {
+          const next = PHASES[PHASES.indexOf(c.phase) + 1];
+          if (!next) break;
+          c = { ...c, phase: next, startingAfter: null, stats };
+        }
+        await writeStripeCursor(c);
+      }
     }
 
-    const subs = await listAll('/v1/subscriptions', { status: 'all', expand: ['data.customer'] });
-    if (subs.error) warnings.push(`Subscriptions: ${subs.error}`);
-    const parsedSubs = parseMany(StripeSubscriptionSchema, subs.items, 'subscription');
-    stats.rejectedRows += parsedSubs.rejected;
-    warnings.push(...parsedSubs.warnings);
-    for (const s of parsedSubs.valid) {
-      await upsertSubscription(s, meta);
-      stats.subscriptions += 1;
+    // Matching + classification read the whole table: only worth it when rows were written.
+    if (written > 0 || mode !== 'delta') {
+      const matching = await runPaymentMatching();
+      stats.matched += matching.matched;
+      stats.unmatched = matching.unmatched;
+      // Initial vs recurring is a property of the customer's whole history (idempotent; only changes written).
+      const classification = await runPaymentClassification();
+      stats.classified += classification.updated;
     }
 
-    const refunds = await listAll('/v1/refunds', { created: { gte: sinceUnix } });
-    if (refunds.error) warnings.push(`Refunds: ${refunds.error}`);
-    const parsedRefunds = parseMany(StripeRefundSchema, refunds.items, 'refund');
-    stats.rejectedRows += parsedRefunds.rejected;
-    warnings.push(...parsedRefunds.warnings);
-    for (const r of parsedRefunds.valid) {
-      await upsertRefund(r, meta);
-      stats.refunds += 1;
+    if (mode === 'delta') {
+      await setSetting(SETTING_KEYS.stripeDeltaSince, startedAt.toISOString());
+    } else {
+      await writeStripeCursor(null);
+      // A reconcile also covers everything a delta would have read.
+      const cycleStart = cursor?.cycleStartedAt ?? startedAt.toISOString();
+      await setSetting(SETTING_KEYS.stripeReconcileCompletedAt, cycleStart);
+      const prior = await getSetting(SETTING_KEYS.stripeDeltaSince);
+      if (!prior || new Date(prior).getTime() < new Date(cycleStart).getTime()) await setSetting(SETTING_KEYS.stripeDeltaSince, cycleStart);
     }
-
-    const matching = await runPaymentMatching();
-    stats.matched = matching.matched;
-    stats.unmatched = matching.unmatched;
-
-    // Initial vs recurring is a property of the customer's whole history, so
-    // it is recomputed after every sync (idempotent; only changes are written).
-    const classification = await runPaymentClassification();
-    stats.classified = classification.updated;
-
-    return finish(true, since);
+    return finish('succeeded');
   } catch (err) {
     captureException(err, { source: 'stripe' });
-    return finish(false, since, err instanceof Error ? err.message : String(err));
+    return finish('failed', err instanceof Error ? err.message : String(err));
   }
 }
 
