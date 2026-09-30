@@ -94,6 +94,7 @@ export {
   settings,
   ghlSyncQueue,
   fxRates,
+  syncLocks,
   SEMANTIC_ROLES,
 } from './schema';
 export type {

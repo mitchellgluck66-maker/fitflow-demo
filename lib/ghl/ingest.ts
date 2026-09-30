@@ -71,6 +71,7 @@ import {
 import type { GhlContact, GhlOpportunity } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
+import { acquireLock, releaseLock } from '../syncLock';
 import { runPaymentMatching } from '../stripe/matching';
 import { classifyAttribution } from '../attribution/classify';
 import { isDefaultFollowedPipeline } from './followed';
@@ -442,34 +443,39 @@ export async function runGhlSync(options: {
   maxPages?: number;
 }): Promise<SyncResult> {
   const startedAt = new Date();
+  await sweepStaleRuns(startedAt);
+
+  // ---- One GHL run at a time (F5, 2026-09-30: an ATOMIC lease, lib/syncLock.ts) -------------------------------
+  // The Vercel crons, the GitHub fallback and "Sync now" can land together; two runs would walk the same pages and
+  // diff the same contacts. The lease outlives the function's maxDuration, so a crashed holder frees it.
+  const holder = `ghl:${options.trigger}:${startedAt.toISOString()}:${Math.random().toString(36).slice(2, 8)}`;
+  const lock = await acquireLock(GHL_LOCK, holder, GHL_LOCK_TTL_MS, startedAt);
+  if (!lock.ok) {
+    const skipped = `another GHL sync holds the lock until ${lock.until?.toISOString() ?? 'unknown'} — skipped`;
+    return {
+      ok: true, partial: false, progress: skipped, trackedComplete: false, phase: 'done', cursor: null,
+      runId: '', mode: options.mode, since: null, stats: emptyStats(), warnings: [], incidents: 0,
+      requestsUsed: 0, skipped, durationMs: Date.now() - startedAt.getTime(),
+    };
+  }
+  try {
+    return await runGhlSyncLocked(options, startedAt);
+  } finally {
+    await releaseLock(GHL_LOCK, holder).catch(() => {});
+  }
+}
+
+/** The GHL lease name and its lifetime (> the 300 s maxDuration of every route that syncs). */
+export const GHL_LOCK = 'ghl_sync';
+export const GHL_LOCK_TTL_MS = 330_000;
+
+async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], startedAt: Date): Promise<SyncResult> {
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
   const overBudget = () => Date.now() - startedAt.getTime() >= budgetMs;
   const stats = emptyStats();
   const warnings: string[] = [];
   let incidents = 0;
   let requestsUsed = 0;
-
-  await sweepStaleRuns(startedAt);
-
-  // ---- One GHL run at a time (2026-09-29 heartbeat) ---------------------
-  // The GitHub Actions heartbeat (hourly), the Vercel crons and "Sync
-  // now" can land together. Two runs would read the same cursor, walk the same
-  // page and each diff the same contacts into duplicate stage_transitions
-  // (no unique key there). A live (non-stale) running row wins; this run
-  // records nothing and says why. Stale rows were just swept above.
-  const [inFlight] = await db
-    .select({ id: syncRuns.id, startedAt: syncRuns.startedAt })
-    .from(syncRuns)
-    .where(and(inArray(syncRuns.kind, ['ghl_delta', 'ghl_backfill']), eq(syncRuns.status, 'running')))
-    .limit(1);
-  if (inFlight) {
-    const skipped = `another GHL sync is already running (started ${inFlight.startedAt.toISOString()}) — skipped`;
-    return {
-      ok: true, partial: false, progress: skipped, trackedComplete: false, phase: 'done', cursor: null,
-      runId: inFlight.id, mode: options.mode, since: null, stats: emptyStats(), warnings: [], incidents: 0,
-      requestsUsed: 0, skipped, durationMs: Date.now() - startedAt.getTime(),
-    };
-  }
 
   const config = await getGhlConfig();
 
@@ -1013,7 +1019,8 @@ async function processOpportunityPage(p: {
   }
 
   if (transitions.length > 0) {
-    await db.insert(stageTransitions).values(
+    // F5: the natural-key unique index makes a re-observed move a no-op, never a duplicate row.
+    const inserted = await db.insert(stageTransitions).values(
       transitions.map((t) => ({
         contactId: t.contactId,
         ghlOpportunityId: t.ghlOpportunityId,
@@ -1031,9 +1038,9 @@ async function processOpportunityPage(p: {
         syncedAt: p.startedAt,
         backfilled: p.backfilled,
       })),
-    );
+    ).onConflictDoNothing().returning({ id: stageTransitions.id });
+    out.transitions = inserted.length;
   }
-  out.transitions = transitions.length;
   return out;
 }
 

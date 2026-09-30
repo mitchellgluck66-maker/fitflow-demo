@@ -7,10 +7,11 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { eq, asc, isNull } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments } from '@/db';
+import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments, syncLocks } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
-import { runGhlSync, readSyncCursor } from '@/lib/ghl/ingest';
+import { runGhlSync, readSyncCursor, GHL_LOCK, GHL_LOCK_TTL_MS } from '@/lib/ghl/ingest';
+import { acquireLock, releaseLock } from '@/lib/syncLock';
 import { DEFAULT_FOLLOWED_PIPELINE_ID } from '@/lib/ghl/followed';
 
 type Json = Record<string, unknown>;
@@ -549,23 +550,29 @@ describe('cycle by value (2026-09-29 production audit)', () => {
   });
 });
 
-describe('one GHL run at a time (2026-09-29 heartbeat)', () => {
-  it('a run that lands while another is live skips without touching the cursor or recording a row', async () => {
-    const [live] = await db.insert(syncRuns).values({ kind: 'ghl_delta', trigger: 'cron', status: 'running', startedAt: new Date() }).returning({ id: syncRuns.id });
+describe('one GHL run at a time (F5, 2026-09-30: atomic lease)', () => {
+  it('a run that starts while another holds the lease skips without touching the cursor or recording a row', async () => {
+    const other = await acquireLock(GHL_LOCK, 'someone-else', GHL_LOCK_TTL_MS);
+    expect(other.ok).toBe(true);
     const cursorBefore = await readSyncCursor();
     const runsBefore = (await db.select().from(syncRuns)).length;
     const r = await runGhlSync({ mode: 'delta', trigger: 'cron' });
-    expect(r).toMatchObject({ ok: true, partial: false, trackedComplete: false, runId: live.id, requestsUsed: 0 });
-    expect(r.skipped).toMatch(/already running/);
+    expect(r).toMatchObject({ ok: true, partial: false, trackedComplete: false, requestsUsed: 0 });
+    expect(r.skipped).toMatch(/another GHL sync holds the lock until/);
     expect((await db.select().from(syncRuns)).length).toBe(runsBefore);
     expect(await readSyncCursor()).toEqual(cursorBefore);
+    await releaseLock(GHL_LOCK, 'someone-else');
+  });
 
-    // A dead run (older than the stale window) is swept and no longer blocks.
-    await db.update(syncRuns).set({ startedAt: new Date(Date.now() - 11 * 60_000) }).where(eq(syncRuns.id, live.id));
+  it('an expired lease (crashed holder) is taken over, and the run releases its own lease', async () => {
+    await acquireLock(GHL_LOCK, 'crashed', 1_000, new Date(Date.now() - 60_000));
     const next = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
     expect(next.skipped).toBeUndefined();
-    expect(next.runId).not.toBe(live.id);
-    const [swept] = await db.select().from(syncRuns).where(eq(syncRuns.id, live.id));
-    expect(swept.status).toBe('failed');
+    expect(await db.select().from(syncLocks)).toHaveLength(0); // released
+  });
+
+  it('two runs started in the same instant: exactly one works, the other skips', async () => {
+    const [a, b] = await Promise.all([runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 }), runGhlSync({ mode: 'delta', trigger: 'manual', maxPages: 1 })]);
+    expect([a.skipped, b.skipped].filter(Boolean)).toHaveLength(1);
   });
 });

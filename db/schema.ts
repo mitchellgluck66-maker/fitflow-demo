@@ -15,6 +15,7 @@
  *   - Nothing in here is ever written back to an external system.
  */
 
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   text,
@@ -290,6 +291,14 @@ export const stageTransitions = pgTable(
     index('transitions_contact_idx').on(t.contactId),
     index('transitions_observed_idx').on(t.observedAt),
     index('transitions_to_stage_idx').on(t.toStageId),
+    // F5 (2026-09-30): the natural key — the same move observed twice is ONE row. Inserts use ON CONFLICT DO NOTHING.
+    uniqueIndex('transitions_natural_uidx').on(
+      t.contactId,
+      sql`coalesce(${t.ghlOpportunityId}, '')`,
+      sql`coalesce(${t.fromStageId}, '')`,
+      sql`coalesce(${t.toStageId}, '')`,
+      t.observedAt,
+    ),
   ],
 );
 
@@ -481,7 +490,10 @@ export const emailDigests = pgTable('email_digests', {
   error: text('error'),
   sentAt: timestamp('sent_at', { withTimezone: true, mode: 'date' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-});
+}, (t) => [
+  // F5 (2026-09-30): a digest is SENT at most once per (kind, period) — enforced by the database, not only by runDigest.
+  uniqueIndex('email_digests_sent_once_uidx').on(t.kind, t.periodStart, t.periodEnd).where(sql`${t.status} = 'sent'`),
+]);
 
 export const aiReports = pgTable('ai_reports', {
   id: text('id')
@@ -502,6 +514,18 @@ export const aiReports = pgTable('ai_reports', {
 // ---------------------------------------------------------------------------
 // Sync runs & incidents (sync-health)
 // ---------------------------------------------------------------------------
+
+/**
+ * Leases that make "one run at a time" ATOMIC (F5, 2026-09-30). The old guard read sync_runs for a 'running' row
+ * and then inserted its own — two simultaneous starts both passed. acquire = INSERT … ON CONFLICT DO UPDATE only
+ * where the current lease has expired, RETURNING: exactly one caller gets the row (lib/syncLock.ts).
+ */
+export const syncLocks = pgTable('sync_locks', {
+  name: text('name').primaryKey(),
+  holder: text('holder').notNull(),
+  acquiredAt: timestamp('acquired_at', { withTimezone: true, mode: 'date' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+});
 
 export const syncRuns = pgTable(
   'sync_runs',
