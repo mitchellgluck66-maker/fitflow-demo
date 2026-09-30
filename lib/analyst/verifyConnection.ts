@@ -5,8 +5,10 @@
  * the model called a tool, the answer came back structured and verified.
  */
 
+import type Anthropic from '@anthropic-ai/sdk';
 import { getAnalystConfig, type AnalystModel } from './config';
 import { currentBrief } from './briefService';
+import { checkAnalystSchemasLive } from './schemaCheck';
 import { ANALYST_CONTRACT, composeUserTurn } from './prompts';
 import { ANALYST_TOOLS } from './tools';
 import { runAnalystTurn, costLine, type AnalystClient, type AnalystEvent } from './run';
@@ -28,12 +30,15 @@ export interface VerifyResult {
 
 export const VERIFY_QUESTION = 'Connection check: call get_notes exactly once, then answer with kind "answer", one section "what_happened" saying in one sentence that the connection works, no numbers anywhere, headline "Connected.".';
 
-export async function verifyAnalystConnection(opts: { model?: AnalystModel; onEvent?: (e: AnalystEvent) => void; client?: AnalystClient } = {}): Promise<VerifyResult> {
+export async function verifyAnalystConnection(opts: { model?: AnalystModel; onEvent?: (e: AnalystEvent) => void; client?: AnalystClient; countClient?: Anthropic } = {}): Promise<VerifyResult> {
   const config = await getAnalystConfig();
   const model = opts.model ?? config.modelDefault;
   if (!config.configured || !config.key) return { ok: false, message: 'Verification failed: no Anthropic API key stored (Setup → Anthropic)', model, rounds: 0, costUsd: 0, toolsCalled: [], answerMode: config.answerMode };
   const brief = await currentBrief();
   if (!brief) return { ok: false, message: "Verification failed: the business brief hasn't been built yet · Build now", model, rounds: 0, costUsd: 0, toolsCalled: [], answerMode: config.answerMode };
+  // The free schema check first: a schema the API rejects fails here with the exact message, never at a user's question.
+  const [schema] = await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [model], client: opts.countClient });
+  if (!schema.ok) return { ok: false, message: `Verification failed: ${schema.message}`, model, rounds: 0, costUsd: 0, toolsCalled: [], answerMode: config.answerMode };
   const store = new MemoryAnalystStore();
   const thread = await store.createThread({ model, effort: 'low', answerMode: config.answerMode, briefHash: brief.hash });
   const { turn } = await store.createTurn({ threadId: thread.id, clientTurnId: 'verify', question: VERIFY_QUESTION, kind: 'ask', pageContext: null });
@@ -59,5 +64,5 @@ export async function verifyAnalystConnection(opts: { model?: AnalystModel; onEv
   if (out.status !== 'done' || !out.answer) return { ok: false, message: `Verification failed: ${out.error ?? out.status}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
   if (toolsCalled.length === 0) return { ok: false, message: 'Verification failed: the model answered without calling a tool (tool_choice auto did not produce a call)', model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
   if (out.flagged.length) return { ok: false, message: `Verification failed: the answer had ${out.flagged.length} unverified number(s): ${out.flagged.map((f) => f.reason).join('; ')}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
-  return { ok: true, message: `Connected · verified with a streamed tool call · ${model} · ${toolsCalled.join(', ')} · ${costLine(out.usage, out.costUsd)}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
+  return { ok: true, message: `Connected · schemas accepted (${schema.inputTokens?.toLocaleString('en-US') ?? '?'} prompt tokens) · verified with a streamed tool call · ${model} · ${toolsCalled.join(', ')} · ${costLine(out.usage, out.costUsd)}`, model, rounds: out.rounds, costUsd: out.costUsd, toolsCalled, answerMode: config.answerMode };
 }

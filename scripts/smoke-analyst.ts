@@ -2,7 +2,7 @@
  * Live proof of the FitFlow Analyst against the REAL Anthropic API with the
  * stored key (Definition of done §3; plan items 1 and 8).
  *
- *   npm run smoke:analyst -- --probe   every API assumption, both models (~$0.30 USD)
+ *   npm run smoke:analyst -- --probe   every API assumption on the PRODUCTION wiring, both models (~$1 USD)
  *   npm run smoke:analyst              one question + a 3-turn follow-up, in-memory store (~$1 USD)
  *
  * Uses the database .env.local points at (for the stored key, the brief and the
@@ -28,8 +28,8 @@ async function main() {
   }
 
   if (args.includes('--probe')) {
-    console.log(`smoke:analyst --probe · database: ${target} (key only; writes nothing) · models: ${config.modelDefault}, ${config.modelDeep}`);
-    const { lines, ok, answerMode } = await runAnalystProbe({ key: config.key, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])] });
+    console.log(`smoke:analyst --probe · database: ${target} (key + brief + tools read; writes nothing) · models: ${config.modelDefault}, ${config.modelDeep} · answer mode ${config.answerMode}`);
+    const { lines, ok, answerMode } = await runAnalystProbe({ key: config.key, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])], answerMode: config.answerMode });
     for (const l of lines) console.log(formatProbeLine(l));
     const usd = lines.reduce((a, l) => a + l.usd, 0);
     const pass = lines.filter((l) => l.status === 'PASS').length;

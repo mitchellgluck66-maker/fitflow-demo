@@ -19,6 +19,7 @@
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
     "smoke:analyst": "tsx scripts/smoke-analyst.ts",
     "analyst:brief": "tsx scripts/analyst-brief.ts",
+    "check:schemas": "tsx scripts/check-schemas.ts",
     "smoke:reconcile": "tsx scripts/smoke-reconcile.ts",
     "reconcile:ghl": "tsx scripts/reconcile-ghl.ts",
     "smoke:fx": "tsx scripts/smoke-fx.ts",

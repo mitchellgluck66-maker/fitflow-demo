@@ -100,6 +100,9 @@ function isObj(v: unknown): v is Json {
 export function findUnsupportedKeywords(node: unknown, path = '$'): string[] {
   if (!isObj(node)) return Array.isArray(node) ? node.flatMap((v, i) => findUnsupportedKeywords(v, `${path}[${i}]`)) : [];
   const found: string[] = [];
+  // A union type (`type: ["string","null"]`) may not carry enum / const: the API rejects it with "Enum value 'x' does not
+  // match declared type" (the 2026-09-30 smoke:analyst 400). Nullable enums are `anyOf: [{type, enum}, {type: "null"}]`.
+  if (Array.isArray(node.type) && ('enum' in node || 'const' in node)) found.push(`${path}.${'enum' in node ? 'enum' : 'const'}(on union type ${JSON.stringify(node.type)})`);
   for (const [key, value] of Object.entries(node)) {
     if ((UNSUPPORTED_KEYWORDS as readonly string[]).includes(key)) found.push(`${path}.${key}`);
     if (key === 'minItems' && typeof value === 'number' && value > 1) found.push(`${path}.minItems`);

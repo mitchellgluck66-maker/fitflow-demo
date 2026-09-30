@@ -100,8 +100,9 @@ describe('the loop (memory store)', () => {
     expect(out.answer?.headline.text).toBe('Enrollments doubled to 8.');
     expect(out.flagged).toEqual([]);
     expect(out.rounds).toBe(1);
-    expect(events.map((e) => e.type)).toEqual(['notice', 'status', 'tools', 'status', 'answer', 'usage', 'done']);
-    expect(events[2]).toMatchObject({ type: 'tools', calls: [{ ref: 'r1', name: 'get_scorecard', label: 'Reading the scorecard…' }] });
+    expect(events.map((e) => e.type)).toEqual(['notice', 'status', 'round', 'tools', 'status', 'round', 'answer', 'usage', 'done']);
+    expect(events.filter((e) => e.type === 'round')).toEqual([expect.objectContaining({ stopReason: 'tool_use', cacheWriteTokens: 900, toolCalls: 1 }), expect.objectContaining({ stopReason: 'end_turn', cacheReadTokens: 900, toolCalls: 0 })]);
+    expect(events[3]).toMatchObject({ type: 'tools', calls: [{ ref: 'r1', name: 'get_scorecard', label: 'Reading the scorecard…' }] });
     // Cost: 1000 in + 900 cache write + 200 out, then 1000 in + 900 cache read + 200 out on Opus.
     expect(out.costUsd).toBeCloseTo((2000 * 4 + 900 * 5 + 900 * 0.2 + 400 * 20) / 1e6, 8);
     const rows = await store.listMessages(thread.id);

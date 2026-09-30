@@ -945,10 +945,19 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
 - **Setup → Analyst** card: models, effort, answer mode, caps, brief + Rebuild, Verify (a real
   streamed tool turn — "Connected · verified with a streamed tool call · <model> · …" or
   "Verification failed: <exact reason>"), owner profile with the gaps checklist, notes.
-- **Live proof** (Mitchell runs; nothing here is verified until they pass):
-  `npm run smoke:analyst -- --probe` (every API assumption on both models, ~$0.30 USD; prints the
-  answer-mode verdict per model) and `npm run smoke:analyst` (one question + a 3-turn follow-up on
-  the in-memory store, ~$1 USD). Both need `CREDENTIALS_KEY` in `.env.local` to read the stored key.
+- **Schemas (the 2026-09-30 400).** `{type: ["string","null"], enum: […]}` is rejected by the API
+  ("Enum value 'today' does not match declared type"); a nullable enum is `anyOf: [{type, enum},
+  {type: "null"}]`. `findUnsupportedKeywords` rejects enum/const on any union type (contract tests
+  cover all 15 tools and the answer schema). The FREE live check `lib/analyst/schemaCheck.ts` sends
+  the exact production prompt (contract + brief + 15 tools + the answer schema as a strict tool —
+  count_tokens takes no output_config) to `count_tokens`: `npm run check:schemas` before any push,
+  the first line of `smoke:analyst --probe`, and Setup → Analyst → Verify. A rejected schema fails
+  there with the API's exact message, never at a user's question.
+- **Live proof** (Mitchell runs; nothing here is verified until they pass): `npm run analyst:brief`,
+  `npm run check:schemas` (free), `npm run smoke:analyst -- --probe` (every API assumption on the
+  PRODUCTION wiring — real tools, real brief, real answer schema, two turns per model, ~$1 USD;
+  prints the answer-mode verdict per model) and `npm run smoke:analyst` (one question + a 3-turn
+  follow-up on the in-memory store, ~$1 USD). All need `CREDENTIALS_KEY` in `.env.local`.
 - **Deploy order:** `npm run db:migrate` (0017: five `analyst_*` tables, RLS on, additive) THEN push.
   The first dispatch builds the brief; or `npm run analyst:brief`.
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;

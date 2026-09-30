@@ -10,6 +10,8 @@ import { buildCompactionRequest, buildCountRequest, buildTurnRequest, SUBMIT_ANS
 import { ANALYST_BETAS } from '@/lib/analyst/config';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
 import { ANALYST_PRICES, formatUsd, priceUsage, usageTotals } from '@/lib/analyst/cost';
+import { ANALYST_TOOL_DEFINITIONS } from '@/lib/analyst/tools';
+import { ANSWER_SCHEMA } from '@/lib/analyst/schema';
 
 const tools: BetaTool[] = [
   { name: 'get_scorecard', description: 'b', strict: true, input_schema: { type: 'object', properties: { range: { type: 'string' } }, required: ['range'], additionalProperties: false } },
@@ -70,6 +72,19 @@ describe('turn request', () => {
   });
   it('two builds of the same input are string-equal (a byte-identical prefix is what preserved thinking needs)', () => {
     expect(JSON.stringify(buildTurnRequest(base))).toBe(JSON.stringify(buildTurnRequest(base)));
+  });
+});
+
+describe('schema guard (the 2026-09-30 400)', () => {
+  it('rejects enum or const on a union type; accepts the anyOf form and a plain nullable', () => {
+    expect(findUnsupportedKeywords({ type: 'object', properties: { preset: { type: ['string', 'null'], enum: ['today', null] } }, required: ['preset'], additionalProperties: false })).toEqual(['$.properties.preset.enum(on union type ["string","null"])']);
+    expect(findUnsupportedKeywords({ type: 'object', properties: { k: { type: ['string', 'null'], const: 'x' } }, required: ['k'], additionalProperties: false })).toEqual(['$.properties.k.const(on union type ["string","null"])']);
+    expect(findUnsupportedKeywords({ type: 'object', properties: { preset: { anyOf: [{ type: 'string', enum: ['today'] }, { type: 'null' }] }, start: { type: ['string', 'null'] } }, required: ['preset', 'start'], additionalProperties: false })).toEqual([]);
+  });
+  it('no production tool or the answer schema carries the pattern (the whole list, not tools.1)', () => {
+    for (const t of ANALYST_TOOL_DEFINITIONS) expect(findUnsupportedKeywords(t.input_schema as Record<string, unknown>), t.name).toEqual([]);
+    expect(findUnsupportedKeywords(ANSWER_SCHEMA as unknown as Record<string, unknown>)).toEqual([]);
+    expect(JSON.stringify(ANALYST_TOOL_DEFINITIONS)).not.toMatch(/"type":\["string","null"\],"enum"/);
   });
 });
 

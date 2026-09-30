@@ -18,7 +18,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { assistantTurn, buildCompactionRequest, buildTurnRequest, inputTransformations, SUBMIT_ANSWER_TOOL, type BetaMessage, type BetaMessageParam, type BetaTool } from './api';
+import { assistantTurn, buildCompactionRequest, buildTurnRequest, inputTransformations, progressUpdates, SUBMIT_ANSWER_TOOL, type BetaMessage, type BetaMessageParam, type BetaTool } from './api';
 import { isTransientError, describeError, RETRY_DELAY_MS } from '../anthropic/client';
 import { noteAnthropicOutcome } from '../anthropic/incident';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, type Answer } from './schema';
@@ -33,6 +33,8 @@ import type { AnalystModel, AnswerMode, Effort } from './config';
 export type AnalystEvent =
   | { type: 'notice'; text: string; stale: boolean }
   | { type: 'status'; text: string }
+  /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
+  | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
   | { type: 'answer'; answer: Answer; flagged: Flag[]; repaired: boolean; strippedSpendActions: number }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean }
@@ -292,6 +294,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     costUsd += priceUsage(model, u);
     lastInputTotal = t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
     const dropped = inputTransformations(message);
+    await emit({ type: 'round', stopReason: message.stop_reason, inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens: t.cacheWrite5mTokens + t.cacheWrite1hTokens, outputTokens: t.outputTokens, droppedThinking: dropped.length, progressUpdates: progressUpdates(message).length, toolCalls: message.content.filter((b) => b.type === 'tool_use').length });
     if (dropped.length) await emit({ type: 'status', text: `Earlier reasoning was dropped because the prefix changed (${dropped.map((d) => d.reason ?? d.type).join(', ')}) — expected after a deploy or a brief rebuild.` });
 
     if (message.stop_reason === 'refusal') return fail('Claude declined the request.', true, 'warning');

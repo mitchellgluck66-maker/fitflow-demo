@@ -78,7 +78,8 @@ const RANGE_SCHEMA = {
   type: 'object',
   description: 'The period. Use a preset (last_week, this_week, last_month, this_month, last_30_days, today, yesterday) OR explicit start and end (YYYY-MM-DD, inclusive, business-local). Weeks are Sunday–Saturday.',
   properties: {
-    preset: { type: ['string', 'null'], enum: [...PRESET_VALUES, null], description: 'A named period, or null when start/end are given.' },
+    // A nullable enum is `anyOf` — `{type: ['string','null'], enum: […]}` is a 400 ("Enum value 'today' does not match declared type", 2026-09-30).
+    preset: { anyOf: [{ type: 'string', enum: [...PRESET_VALUES] }, { type: 'null' }], description: 'A named period, or null when start/end are given.' },
     start: { type: ['string', 'null'], description: 'YYYY-MM-DD, with end; null when a preset is used.' },
     end: { type: ['string', 'null'], description: 'YYYY-MM-DD, with start; null when a preset is used.' },
   },
@@ -400,8 +401,8 @@ const getPaymentsTool = tool(
       type: 'object',
       properties: {
         range: RANGE_SCHEMA,
-        paymentClass: { type: ['string', 'null'], enum: ['initial', 'recurring', 'excluded', 'unclassified', null], description: 'null = every row.' },
-        status: { type: ['string', 'null'], enum: ['succeeded', 'failed', 'refunded', 'pending', null], description: 'null = every status.' },
+        paymentClass: { anyOf: [{ type: 'string', enum: ['initial', 'recurring', 'excluded', 'unclassified'] }, { type: 'null' }], description: 'null = every row.' },
+        status: { anyOf: [{ type: 'string', enum: ['succeeded', 'failed', 'refunded', 'pending'] }, { type: 'null' }], description: 'null = every status.' },
         page: PAGE_SCHEMA,
       },
       required: ['range', 'paymentClass', 'status', 'page'],
@@ -484,7 +485,7 @@ const listClientsTool = tool(
       type: 'object',
       properties: {
         query: { type: ['string', 'null'], description: 'Name search; null for none.' },
-        attribution: { type: ['string', 'null'], enum: ['paid', 'organic', null] },
+        attribution: { anyOf: [{ type: 'string', enum: ['paid', 'organic'] }, { type: 'null' }], description: 'paid | organic | null for both.' },
         from: { type: ['string', 'null'], description: 'Applied on or after, YYYY-MM-DD; null for no lower bound.' },
         to: { type: ['string', 'null'], description: 'Applied on or before, YYYY-MM-DD; null for no upper bound.' },
         page: PAGE_SCHEMA,
