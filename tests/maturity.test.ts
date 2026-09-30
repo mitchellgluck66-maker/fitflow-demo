@@ -27,6 +27,23 @@ describe('computeMaturity — the two conditions', () => {
     expect(computeMaturity({ range: { start: '2026-09-06', end: '2026-09-12' }, today: '2026-09-17', historyCompleteSince: since, sunset }).active).toBe(false);
   });
 
+  // Audit P1 #4 (2026-09-30): September vs "Aug 2–31" showed consults booked +1125% with no badge.
+  it('a comparison period or chip baseline that starts before complete history activates the badge, and the wording says the change is not real', () => {
+    const sepVsAug = computeMaturity({ range: { start: '2026-09-01', end: '2026-09-30' }, today: '2026-09-30', historyCompleteSince: since, sunset, comparedWith: [{ start: '2026-08-02', end: '2026-08-31' }] });
+    expect(sepVsAug).toMatchObject({ active: true, comparisonTouches: true });
+    expect(maturingCaveatText(sepVsAug)).toContain('the period this is compared against runs low/high, so the change shown is not real');
+    expect(isMaturingMetric('consults_booked', sepVsAug)).toBe(true);
+    expect(isMaturingMetric('cost_consult', sepVsAug)).toBe(true);
+    expect(isMaturingMetric('cost_roadmap', sepVsAug)).toBe(true);
+    expect(isMaturingMetric('enrollments', sepVsAug)).toBe(false);
+    // both sides inside complete history → no badge; a null comparison is ignored
+    expect(computeMaturity({ range: { start: '2026-09-13', end: '2026-09-19' }, today: '2026-09-30', historyCompleteSince: since, sunset, comparedWith: [{ start: '2026-09-06', end: '2026-09-12' }, null] }).active).toBe(false);
+    // the trailing baseline alone is enough
+    expect(computeMaturity({ range: { start: '2026-09-20', end: '2026-09-26' }, today: '2026-09-30', historyCompleteSince: since, sunset, comparedWith: [null, { start: '2026-07-26', end: '2026-09-19' }] })).toMatchObject({ active: true, comparisonTouches: true });
+    // after the sunset nothing activates, comparison or not
+    expect(computeMaturity({ range: { start: '2026-09-01', end: '2026-09-30' }, today: '2026-10-15', historyCompleteSince: since, sunset, comparedWith: [{ start: '2026-08-02', end: '2026-08-31' }] }).active).toBe(false);
+  });
+
   it('self-expires: on and after the sunset it never activates, whatever the range', () => {
     expect(computeMaturity({ range: { start: '2026-06-01', end: '2026-06-30' }, today: '2026-10-14', historyCompleteSince: since, sunset }).active).toBe(true);
     expect(computeMaturity({ range: { start: '2026-06-01', end: '2026-06-30' }, today: '2026-10-15', historyCompleteSince: since, sunset })).toMatchObject({ active: false, reason: 'sunset_passed' });

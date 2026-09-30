@@ -68,9 +68,9 @@ export interface ScorecardResult {
 }
 
 /** Read the two disclaimer dates and evaluate them for a range. */
-export async function getMaturity(range: { start: string; end: string }, today: string): Promise<DataMaturity> {
+export async function getMaturity(range: { start: string; end: string }, today: string, comparedWith: Array<{ start: string; end: string } | null | undefined> = []): Promise<DataMaturity> {
   const [since, sunset] = await Promise.all([getSetting(SETTING_KEYS.historyCompleteSince), getSetting(SETTING_KEYS.disclaimerSunset)]);
-  return computeMaturity({ range, today, historyCompleteSince: since, sunset });
+  return computeMaturity({ range, today, historyCompleteSince: since, sunset, comparedWith });
 }
 
 export async function getScorecard(params: {
@@ -132,7 +132,8 @@ export async function getScorecard(params: {
       previousCampaigns: comparison.range ? computeCampaignTable(input, comparison.range) : null,
     },
     revenue: computeRevenueSummary(input, range),
-    maturity: await getMaturity(range, today),
+    // P1 #4: the badge also covers a comparison period or chip baseline that starts before complete history.
+    maturity: await getMaturity(range, today, [comparison.range, { start: baseline.start, end: baseline.end }]),
     money: moneyInfo(input, today),
   };
 }
@@ -179,6 +180,6 @@ export async function getMetricTrend(
   const input = await loadMetricsInput({ start: load.start, end: load.end, timezone, pipelineId: params.pipelineId });
   const trend = computeMetricTrend(metric, input, today, window, card);
   // The badge follows the window the header value is computed over.
-  const maturity = await getMaturity(trend.span, today);
+  const maturity = await getMaturity(trend.span, today, [trend.previousSpan]);
   return { ...trend, maturity, maturing: isMaturingMetric(metric.key, maturity) };
 }
