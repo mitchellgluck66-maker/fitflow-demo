@@ -8,11 +8,11 @@
 
 import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from './transitionRoles';
-import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments } from '@/db';
+import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments, ghlOpportunities } from '@/db';
 import { localDate, rangeToInstants } from '../dates';
 import { parseCurrency, type Currency } from '../money';
 import { loadMoneyContext } from '../money/store';
-import type { MetricsInput, PaymentRow, SpendRow } from './index';
+import type { InputHealth, MetricsInput, PaymentRow, SpendRow } from './index';
 
 export interface LoadOptions {
   /** Widest calendar window needed (YYYY-MM-DD, inclusive). */
@@ -60,6 +60,8 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       pipelineId: contacts.pipelineId,
       ghlCreatedAt: contacts.ghlCreatedAt,
       createdAt: contacts.createdAt,
+      ghlOpportunityId: contacts.ghlOpportunityId,
+      opportunityCreatedAt: contacts.opportunityCreatedAt,
       monetaryValueCents: contacts.monetaryValueCents,
       origin: contacts.origin,
       campaign: contacts.utmCampaign,
@@ -73,6 +75,43 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
         : isNull(contacts.pipelineId),
     );
   const contactIds = contactRows.map((c) => c.id);
+
+  // F14 (2026-09-30): "applied" = the APPLICATION — the followed-pipeline opportunity's createdAt (GHL counted 186
+  // applications in August; dating by contact creation gave 98 and never counted a returning contact who re-applied).
+  const oppIds = Array.from(new Set(contactRows.map((c) => c.ghlOpportunityId).filter((x): x is string => Boolean(x))));
+  const oppCreated = new Map<string, Date | null>();
+  const movedIn = new Map<string, Date>();
+  if (oppIds.length) {
+    for (const o of await db.select({ id: ghlOpportunities.id, created: ghlOpportunities.ghlCreatedAt }).from(ghlOpportunities).where(inArray(ghlOpportunities.id, oppIds))) oppCreated.set(o.id, o.created);
+    // An application first seen in ANOTHER pipeline is dated by its entry into the followed one (flagged).
+    const seen = await db
+      .select({ opp: stageTransitions.ghlOpportunityId, pipelineId: stageTransitions.pipelineId, at: stageTransitions.observedAt })
+      .from(stageTransitions)
+      .where(inArray(stageTransitions.ghlOpportunityId, oppIds));
+    const byOpp = new Map<string, Array<{ pipelineId: string | null; at: Date }>>();
+    for (const t of seen) if (t.opp) byOpp.set(t.opp, [...(byOpp.get(t.opp) ?? []), { pipelineId: t.pipelineId, at: t.at }]);
+    const followedSet = new Set(pipelineIds);
+    for (const [opp, rows] of byOpp) {
+      const sorted = rows.sort((a, b) => a.at.getTime() - b.at.getTime());
+      const firstElsewhere = sorted.find((r) => r.pipelineId && !followedSet.has(r.pipelineId));
+      const entered = sorted.find((r) => r.pipelineId && followedSet.has(r.pipelineId) && firstElsewhere && r.at > firstElsewhere.at);
+      if (firstElsewhere && entered) movedIn.set(opp, entered.at);
+    }
+  }
+  const health: InputHealth = { applicantsWithoutDate: [], appliedFromMove: 0 };
+  const appliedDate = (c: (typeof contactRows)[number]): string | null => {
+    if (c.origin === 'demo') return localDate(c.ghlCreatedAt ?? c.createdAt, tz); // fabricated sample rows have no applications
+    const opp = c.ghlOpportunityId;
+    const moved = opp ? movedIn.get(opp) : undefined;
+    if (moved) {
+      health.appliedFromMove += 1;
+      return localDate(moved, tz);
+    }
+    const created = (opp ? oppCreated.get(opp) : null) ?? c.opportunityCreatedAt ?? null;
+    if (created) return localDate(created, tz);
+    health.applicantsWithoutDate.push({ contactId: c.id, name: `${c.firstName} ${c.lastName}`.trim() || c.email || 'Unknown' });
+    return null;
+  };
 
   const transitionRows = contactIds.length
     ? await db
@@ -165,7 +204,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
   const spend: SpendRow[] = withCurrency(spendRows);
   const paymentList = withCurrency(paymentRows);
 
-  return {
+  const result: MetricsInput = {
     money: { ...money, unsupportedRows: unsupported },
     contacts: contactRows.map((c) => ({
       id: c.id,
@@ -175,7 +214,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       stageId: c.stageId,
       stageName: c.stageName ?? null,
       role: c.role ?? null,
-      appliedOn: localDate(c.ghlCreatedAt ?? c.createdAt, tz),
+      appliedOn: appliedDate(c),
       monetaryValueCents: c.monetaryValueCents ?? 0,
       origin: c.origin,
       campaign: c.campaign,
@@ -215,4 +254,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       paymentClass: p.paymentClass ?? null,
     })),
   };
+  // Computed while mapping the contacts above (appliedDate fills it).
+  result.health = health;
+  return result;
 }

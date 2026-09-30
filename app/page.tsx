@@ -12,7 +12,7 @@ import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
-import { DataHealthNotice, marketingWarnings } from '@/components/DataHealth';
+import { DataHealthNotice, marketingWarnings, inputWarnings } from '@/components/DataHealth';
 import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
@@ -98,7 +98,7 @@ function CommandCenter() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
-        <DataHealthNotice items={marketingWarnings(marketing, scorecard.revenue)} />
+        <DataHealthNotice items={[...inputWarnings(data.inputHealth), ...marketingWarnings(marketing, scorecard.revenue)]} />
 
         {/* ---- Row 1: Initial cash · Enrollments · Paid CAC · Blended CAC · ROAS ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">

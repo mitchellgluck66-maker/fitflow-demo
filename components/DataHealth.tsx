@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import type { MarketingMetrics, Revenue } from '@/lib/metrics';
+import type { InputHealth, MarketingMetrics, Revenue } from '@/lib/metrics';
 import { formatCents } from '@/lib/metrics';
 
 /**
@@ -55,6 +55,36 @@ export function marketingWarnings(m: MarketingMetrics, r: Revenue): React.ReactN
       <span key="cls">
         <strong>{r.unclassifiedCount} succeeded payment{r.unclassifiedCount === 1 ? '' : 's'}</strong> ({formatCents(r.unclassifiedCents, r.currency)}) ha{r.unclassifiedCount === 1 ? 's' : 've'}{' '}
         no payment class and {r.unclassifiedCount === 1 ? 'is' : 'are'} excluded from initial cash. Run <code>npm run reclassify:payments</code>.
+      </span>,
+    );
+  }
+  return out;
+}
+
+/** F14 (2026-09-30): applicants are dated by their application — the ones we could not date are named, not guessed. */
+export function inputWarnings(h: InputHealth | undefined | null): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  if (h && h.applicantsWithoutDate.length > 0) {
+    out.push(
+      <span key="applied-date">
+        <strong>{h.applicantsWithoutDate.length} contact{h.applicantsWithoutDate.length === 1 ? '' : 's'}</strong> in the followed pipeline ha
+        {h.applicantsWithoutDate.length === 1 ? 's' : 've'} no application date and {h.applicantsWithoutDate.length === 1 ? 'is' : 'are'} not counted as applied:{' '}
+        {h.applicantsWithoutDate.slice(0, 5).map((p, i) => (
+          <React.Fragment key={p.contactId}>
+            {i > 0 && ', '}
+            <Link href={`/clients/${p.contactId}`} className="underline">
+              {p.name}
+            </Link>
+          </React.Fragment>
+        ))}
+        {h.applicantsWithoutDate.length > 5 && ` and ${h.applicantsWithoutDate.length - 5} more`}. The next sync re-reads their opportunity.
+      </span>,
+    );
+  }
+  if (h && h.appliedFromMove > 0) {
+    out.push(
+      <span key="applied-move">
+        <strong>{h.appliedFromMove} application{h.appliedFromMove === 1 ? '' : 's'}</strong> moved in from another pipeline — dated by entry into the followed pipeline.
       </span>,
     );
   }

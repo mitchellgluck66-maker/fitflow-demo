@@ -75,7 +75,11 @@ export interface ContactRow {
   stageId: string | null;
   stageName: string | null;
   role: SemanticRole | null;
-  /** Local calendar date the contact was created in GHL (the "applied" moment). */
+  /**
+   * The "applied" moment (F14, 2026-09-30): the local date the contact's followed-pipeline APPLICATION
+   * (opportunity) was created — a returning contact who re-applies counts again. Null when unknown (a data-health
+   * count, never the contact's own creation date).
+   */
   appliedOn: string | null;
   monetaryValueCents: number;
   origin: string;
@@ -170,12 +174,25 @@ export interface PaymentRow {
   paymentClass?: 'initial' | 'recurring' | 'excluded' | null;
 }
 
+/**
+ * What the loader could not date or classify (F14, 2026-09-30) — surfaced as data-health notices, never
+ * silently filled: an applicant is dated by their APPLICATION (the followed-pipeline opportunity's createdAt).
+ */
+export interface InputHealth {
+  /** Contacts with no application date (no followed-pipeline opportunity createdAt) — NOT counted as applied. */
+  applicantsWithoutDate: Array<{ contactId: string; name: string }>;
+  /** Applications first seen in another pipeline — dated by their entry into the followed pipeline. */
+  appliedFromMove: number;
+}
+
 export interface MetricsInput {
   contacts: ContactRow[];
   transitions: TransitionRow[];
   appointments: AppointmentRow[];
   spend: SpendRow[];
   payments: PaymentRow[];
+  /** Loader diagnostics (optional; fixtures omit it). */
+  health?: InputHealth;
   /** Reporting currency + stored rates. Absent = CAD with no rates (any non-CAD row then throws FxRateMissingError). */
   money?: MoneyContext;
 }

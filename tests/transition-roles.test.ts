@@ -25,7 +25,7 @@ beforeAll(async () => {
   ]);
   const [c] = await db
     .insert(contacts)
-    .values({ ghlContactId: 'c-prev', pipelineId: 'p1', stageId: 's-applied', firstName: 'Old', lastName: 'Lead', ghlCreatedAt: new Date('2026-09-10T18:00:00Z'), ...prov })
+    .values({ ghlContactId: 'c-prev', ghlOpportunityId: 'o-prev', pipelineId: 'p1', stageId: 's-applied', firstName: 'Old', lastName: 'Lead', ghlCreatedAt: new Date('2025-01-10T18:00:00Z'), opportunityCreatedAt: new Date('2026-09-10T18:00:00Z'), ...prov })
     .returning({ id: contacts.id });
   lead = c.id;
   // History written before the remap: parked in Previous Leads (stored role "other"), re-engaged into Applied.

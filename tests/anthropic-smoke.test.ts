@@ -37,7 +37,9 @@ beforeAll(async () => {
   await db.insert(pipelines).values({ id: 'p-smoke', name: '[new] Application Pipeline', isTracked: true, ...prov });
   await db.insert(stages).values({ id: 's-smoke', pipelineId: 'p-smoke', name: 'Applied', position: 0, semanticRole: 'applied', roleSource: 'auto', ...prov });
   // An applicant 7 days ago always lands in last Sun–Sat week → the weekly narrative has something to say.
-  await db.insert(contacts).values({ ghlContactId: 'c-smoke', pipelineId: 'p-smoke', stageId: 's-smoke', firstName: 'Sam', email: 'sam@x.com', ghlCreatedAt: new Date(Date.now() - 7 * 86_400_000), ...prov });
+  const appliedAt = new Date(Date.now() - 7 * 86_400_000);
+  // The synced shape: a followed-pipeline position with its application (opportunity) date (F14).
+  await db.insert(contacts).values({ ghlContactId: 'c-smoke', ghlOpportunityId: 'o-smoke', pipelineId: 'p-smoke', stageId: 's-smoke', firstName: 'Sam', email: 'sam@x.com', ghlCreatedAt: appliedAt, opportunityCreatedAt: appliedAt, ...prov });
 });
 afterAll(() => vi.unstubAllGlobals());
 

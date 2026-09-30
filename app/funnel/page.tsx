@@ -10,6 +10,7 @@ import { ChartTooltip } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { Funnel } from '@/components/Funnel';
 import { useScorecard } from '@/components/useScorecard';
+import { DataHealthNotice, inputWarnings } from '@/components/DataHealth';
 
 import { ROLE_LABELS } from '@/lib/ghl/roles';
 import { FUNNEL_MODE_LABELS, type FunnelMode } from '@/lib/metrics';
@@ -142,6 +143,7 @@ function FunnelTab() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="funnel figures" />
+        <DataHealthNotice items={inputWarnings(data.inputHealth)} />
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
           <Card padding="lg" className="lg:col-span-3">

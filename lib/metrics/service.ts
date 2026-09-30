@@ -21,7 +21,7 @@ import { getTimezone, getSetting, SETTING_KEYS } from '../settings';
 import { computeMaturity, isMaturingMetric, type DataMaturity } from './maturity';
 import { loadMetricsInput } from './load';
 import { fxNote, DEFAULT_MONEY_CONTEXT, type Currency, type FxNote } from '../money';
-import {
+import { type InputHealth,
   computeScorecard,
   computeTrend,
   computeTodoBuckets,
@@ -63,6 +63,8 @@ export interface ScorecardResult {
    * note ("displayed in CAD · USD converted at 1.36") for the footers.
    */
   money: { currency: Currency; fx: FxNote; unsupportedRows: number };
+  /** What the loader could not date (F14) — data-health notices on the dashboard and in the AI context. */
+  inputHealth?: InputHealth;
 }
 
 /** Read the two disclaimer dates and evaluate them for a range. */
@@ -108,6 +110,7 @@ export async function getScorecard(params: {
     comparison,
     baseline: { start: baseline.start, end: baseline.end },
     scorecard,
+    inputHealth: input.health ?? { applicantsWithoutDate: [], appliedFromMove: 0 },
     trend: {
       grain,
       current: computeTrend(input, bucketsFor(range)),
