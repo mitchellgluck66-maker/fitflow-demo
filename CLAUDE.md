@@ -64,10 +64,19 @@ large changes. This file is the standing contract.
      rendered amount carries its code (`formatCents(cents, currency)` →
      "$1,605 CAD"; the currency argument is required, and `KpiDeltaTile`
      `deltaKind="cents"` requires `currency`). Footers read "displayed in CAD ·
-     USD converted at 1.36" (`lib/money#fxNote`). Seed rates for 2026 are a
-     flat 1.36 PLACEHOLDER (`source='seed'`); Setup → Currency maintains the
-     real rate by hand — no external FX feed. Rows in any other currency are
-     dropped by the loader and counted (`money.unsupportedRows`), never summed.
+     USD converted at 1.4188 (Bank of Canada, Sep 29)" (`lib/money#fxNote` —
+     names the rate's source and date). Rates come from the **Bank of Canada
+     Valet FXUSDCAD feed** (`lib/fx/boc.ts`, dispatch step `fx`, 2026-09-30 —
+     supersedes "no external FX feed"): it backfills every missing business
+     day since the earliest money row, then runs daily; a MANUAL rate (Setup →
+     Currency) for a date always wins and is never overwritten; `seed`
+     placeholders are deleted once BoC covers their dates; newest rate older
+     than the previous business day → one `fx_stale` warning incident.
+     `npm run smoke:fx` compares live BoC with the stored rate. Rows in any
+     other currency are dropped by the loader and counted
+     (`money.unsupportedRows`), never summed. **Every spend writer takes its
+     currency from the source or the UI and fails closed** — `ad_spend.currency`
+     has NO default (migration 0016).
    - *Payment classes* (`payments.payment_class`, `lib/stripe/classify.ts`): a
      Stripe customer's FIRST successful, not-fully-refunded charge is `initial`
      (new-client cash) whatever the rail (a subscription-only client's first
@@ -840,11 +849,46 @@ ingestion so a stale or incomplete mirror cannot go unnoticed and repairs itself
 - **Deploy order (amendment 2):** `npm run db:migrate` FIRST (0011–0014 are additive / safe for the deployed
   code), THEN `git push`. The first scheduled runs repair the data: the tracked job re-reads the followed
   pipeline and every contact, Meta relabels its rows to CAD, the completeness sweep fills Sep 2–11.
-- **Found, not fixed in Wave 1:** manual weekly spend (`app/api/spend`) and the Google Ads writer hard-code
-  `currency: 'USD'` (same bug class as F13) — Wave 2, then drop the `ad_spend.currency` default.
-- **Wave 2 (pending):** F7 reconcile over all statuses, F6 position ping-pong, F4 roles at read time, F14
-  applied = opportunity created, F3 utm parsing (first-run job), F2 show-rate coverage rule, BoC FX feed,
-  acceptance harness.
+
+## Ingestion v2 — Wave 2 (2026-09-30)
+
+- **F7 reconcile v2** (`lib/ghl/reconcile.ts`, `npm run reconcile:ghl`) — every followed stage × status
+  (open/won/lost/abandoned) + the pipeline total vs `ghl_opportunities`, EXACT. Drift → targeted stage re-fetch
+  (+ GET by id for rows GHL no longer lists; 404 deletes) → re-probe; still drifting → one critical
+  `reconcile_mismatch` per (stage, status). A probe without `meta.total` → critical `reconcile_skipped` and the
+  run fails. Holds the GHL lease.
+- **F6 positions** (`ingest#takesPositionRule`, pure) — followed beats unfollowed; otherwise the most recently
+  updated opportunity (dates from `ghl_opportunities`, across pages and runs); a tie keeps the holder; an
+  unfollowed → unfollowed move writes NO transition.
+- **F4 roles at read time** (`lib/metrics/transitionRoles.ts`) — transitions resolve their role through the
+  stage NOW (stored role only when the stage is gone). A Setup remap reaches all history; nothing rewrites
+  `stage_transitions`.
+- **F14 applied** — the followed opportunity's `createdAt` (`ghl_opportunities`), else
+  `contacts.opportunity_created_at`; first seen in another pipeline → dated by its entry (counted). No date →
+  data-health "N applicants without an application date" (`ScorecardResult.inputHealth`), never the contact date.
+- **F3 utm** (`lib/attribution/utm.ts`) — utm_* / fbclid / gclid parsed from the landing URL when GHL's own
+  fields are empty (sync), plus a once-only dispatch job `utm_backfill` for every existing contact, then
+  reclassification. Migration 0015: `contacts.utm_term`.
+- **F2 show rates** — shown ONLY when ≥ 90% of the range's past appointments of that type have an outcome
+  (`SHOW_RATE_MIN_COVERAGE`); otherwise "—" + "attendance recorded for 3% of consults (2 of 64)". The AI
+  inputs carry the same null + notice and the prompts forbid stating it.
+- **FX** — Bank of Canada feed, see rule 8.
+- **Spend currency** — manual weekly spend requires CAD|USD (the form preselects the platform's account
+  currency when known); Google Ads API reads `customer.currency_code` first (missing → run fails, critical
+  `google_currency`); the CSV takes its "Currency code" column or the chosen currency (none / mixed /
+  contradiction → nothing imported). Migration 0016 drops the column default.
+- **KPI trend drop-down (A1)** — ONE rule for every metric: default last 3 months; 30d daily · 3m / 6m weekly
+  (Sun–Sat) · 12m monthly; last bucket to date. Header = the engine value over the window (ratios from totals).
+  The card's range is a highlighted band whose value equals the tile (`KpiDeltaTile` requires `trendRange`
+  with `trendMetric`). Choice remembered per viewer (localStorage). Replaces "daily 30d / weekly 12w" above.
+- **Ask card (A2)** — opens empty (suggestions only); history only behind History; input clears on send.
+- **Acceptance harness** — `npm run verify` (`scripts/verify.ts` + `verify.sql`, read-only, GHL through
+  `ghlRequest`): engine vs independent SQL for last week / last month / month to date / Jul 16 → today;
+  `ghl_opportunities` = live per opportunity and per stage × status; Stripe missing/differ; Meta stored currency
+  = account and spend per day; FX = BoC; markers = last fetch; reconcile ok with 0 skipped. Writes
+  `docs/verification-<date>.md`; exit 1 on any FAIL.
+- **Deploy order:** `npm run db:migrate` (0015 adds a column, 0016 drops a default — both safe for the deployed
+  code), THEN `git push`. The first runs repair: `utm_backfill` once, `fx` backfills BoC days.
 
 ## Working agreements
 
