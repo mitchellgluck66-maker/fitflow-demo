@@ -79,34 +79,28 @@ set NAME`):
 Then run it once by hand (Actions → Nightly database backup → Run workflow,
 or `gh workflow run backup.yml`) and rehearse a restore (runbook section 3).
 
-## Cron heartbeat (hourly)
+## Scheduling (Vercel Pro, hourly) and the GitHub fallback
 
-Vercel Hobby runs the two crons in `vercel.json` only once a day, so
-`.github/workflows/heartbeat.yml` calls `GET /api/cron/sync-ghl` and then
-`GET /api/cron/dispatch` every hour at :17 (90 s timeout each). A non-2xx from
-either route fails the run, so it shows as a red ✗ under Actions; the log
-lists what each dispatch step did. The daily Vercel crons stay on as a
-fallback. Configure **two repo secrets**:
+Since 2026-09-30 the app is on Vercel Pro. `vercel.json` runs `GET /api/cron/sync-ghl` every hour at :07 (the
+followed pipeline in full, then the weekly mirror pass) and `GET /api/cron/dispatch` every hour at :37 (Stripe,
+the Stripe completeness sweep, Meta, reconcile, insights, digests). Vercel sends `Authorization: Bearer
+$CRON_SECRET` itself — set `CRON_SECRET` in the Vercel project's environment variables.
+
+`.github/workflows/heartbeat.yml` is a **fallback** every 6 hours: it calls the same two routes with the header
+`X-FitFlow-Trigger: github-heartbeat` (up to 290 s each). A non-2xx fails the run (red ✗ under Actions); the log
+lists every dispatch step's outcome. Configure **two repo secrets**:
 
 | Secret | Value |
 | --- | --- |
 | `APP_URL` | the production origin, e.g. `https://fitflow.vercel.app` (no trailing path) |
 | `CRON_SECRET` | exactly the value of the Vercel env var `CRON_SECRET` (`openssl rand -hex 32` if you are setting both fresh) |
 
-**Actions minute budget.** GitHub Free gives private repos 2,000 Actions
-minutes a month, billed per job and rounded **up** to the whole minute. One
-heartbeat run takes about 2 billed minutes (sync-ghl ~40 s + dispatch ~50 s +
-runner start-up), so hourly is ~1,440 minutes a month. The nightly backup adds
-~90, for ~1,530 of the 2,000. That is why it runs hourly rather than every 30
-minutes, which would be ~2,900 and GitHub would stop running it mid-month. The job is capped at 4
-minutes (`timeout-minutes`). If runs keep hitting their 90 s timeouts, usage
-climbs towards that cap. Check GitHub → Settings → Billing → Usage, and don't
-add workflows without redoing this sum. Public repos aren't metered.
+Every cron call records itself; **no scheduled run for 3 hours** opens a critical `scheduler_silent` incident
+and shows a red line in the banner ("No scheduled sync since … — check the Vercel cron jobs"). Setup → Sync
+health shows the last run and who made it (vercel / github).
 
-Run it once by hand (`gh workflow run heartbeat.yml`) and check the log.
-GitHub starts scheduled runs late under load, and it **disables scheduled
-workflows in public repos after 60 days without commits** (re-enable under
-Actions). The daily Vercel crons still run if that happens.
+**Actions minutes:** 4 fallback runs a day × ~5 billed minutes ≈ 600 minutes a month, plus the nightly backup
+(~90) — well inside GitHub Free's 2,000 for private repos.
 
 ## Connecting GoHighLevel (read-only)
 
@@ -118,10 +112,8 @@ Actions). The daily Vercel crons still run if that happens.
 4. Confirm any **unmapped stages** in the stage-role table.
 5. **Remove sample data** once real rows are present.
 
-Crons (`CRON_SECRET`-protected): `/api/cron/sync-ghl` and `/api/cron/dispatch`
-(Stripe → Meta → Google → GHL → reconcile → insights → digests) run daily from
-`vercel.json` (12:00 / 13:00 UTC) and hourly from the GitHub Actions
-heartbeat (above). CLI equivalents:
+Crons (`CRON_SECRET`-protected): `/api/cron/sync-ghl` (hourly at :07) and `/api/cron/dispatch` (hourly at
+:37) from `vercel.json`, with the GitHub Actions fallback every 6 h (above). CLI equivalents:
 `npm run sync:now`, `npm run backfill`, `npm run sync:meta`, `npm run sync:stripe`.
 
 Meta Ads and Stripe are connected the same way on **/setup** (token pasted, verified

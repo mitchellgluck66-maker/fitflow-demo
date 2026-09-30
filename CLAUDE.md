@@ -50,8 +50,10 @@ large changes. This file is the standing contract.
      ONE currency, **CAD by default**, held in `settings.reporting_currency`
      (CAD | USD, one business-wide value — dashboard, digests and the AI context
      all follow it; not per-browser). Stored amounts are NEVER rewritten: every
-     `payments` / `ad_spend` row keeps the currency it was charged in (Meta
-     bills USD; Stripe is ~63% CAD) and GHL contract values are in
+     `payments` / `ad_spend` row keeps the currency it was charged in (the
+     Meta ad account act_204679322688936 bills **CAD** — corrected 2026-09-30 (F13);
+     every Meta run reads the account currency and fails closed without it;
+     Stripe is ~63% CAD) and GHL contract values are in
      `settings.contract_value_currency` (CAD). The engine converts at READ time
      (`lib/metrics#inReportingCurrency`) at each row's own date from `fx_rates`
      (USD→CAD rows only, effective from their date; CAD→USD is the inverse —
@@ -251,9 +253,9 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   exactly once. **Pro plan:** set sync-ghl to
   `0 * * * *`, dispatch to `0 11,12 * * *` (lands on 7am ET across DST) and
   optionally add per-job lines (routes still exist under `app/api/cron/*`).
-  Do not edit vercel.json casually — it is Hobby-constrained on purpose.
-  Since 2026-09-29 the real cadence is the GitHub Actions heartbeat (hourly,
-  see "Ops runbook" below); the Vercel crons are the fallback.
+  **Superseded 2026-09-30: Vercel Pro.** vercel.json runs sync-ghl hourly at
+  :07 and dispatch hourly at :37 (primary); the GitHub heartbeat is a 6-hourly
+  fallback. See "Ingestion v2 — Wave 1".
 - Read-only GHL guarantee untouched: `npm run verify:readonly` still passes.
 
 ## Phase D status (done 2026-08-26 — intelligence + design; keys paste in later)
@@ -788,6 +790,51 @@ API's rules.
 - `MODEL_OPTIONS` may only list models that accept the forced `tool_choice` askClaude sends.
   Opus 5.5, Sonnet 5.5 and Fable 5.1 reject it, and the contract test fails if one is added before
   `askClaude` handles `auto`.
+
+## Ingestion v2 — Wave 1 (2026-09-30, `docs/plan-rebuild-2026-09-30.md`)
+
+The 2026-09-29 verification proved the engine right (363/363) and the mirror wrong. Wave 1 rebuilds the
+ingestion so a stale or incomplete mirror cannot go unnoticed and repairs itself — no manual backfills.
+
+- **F8 timezone** — migration 0011 writes `settings.timezone = America/Edmonton`; `getTimezone()` =
+  settings → `BUSINESS_TIMEZONE` → THROWS `TimezoneNotConfiguredError` (never New York). The layout resolves it
+  once into `BusinessTimezone` context; a missing zone is a red banner, never a guess.
+- **F5 idempotency in the DB** — migration 0012: duplicate transitions deleted then
+  `transitions_natural_uidx` (inserts ON CONFLICT DO NOTHING); one `sent` digest per (kind, period);
+  `sync_locks` + `lib/syncLock.ts` = the atomic GHL lease (replaces check-then-insert).
+- **F1 GHL tracked job every run** (`lib/ghl/ingest.ts`) — ① every page of the followed pipeline (limit 100;
+  complete only when it read GHL's `meta.total`, else the run FAILS), contacts re-fetched when new, when their
+  opportunity changed, or when no `ghl_opportunities` row exists (so the first run after deploy re-reads
+  everyone), then appointments; ② the unfollowed mirrors in a weekly pass (`ghl_mirror_cursor`), leftover
+  budget only. Migration 0013: `ghl_opportunities` (RLS), `contacts.opportunity_created_at`, legacy
+  `ghl_sync_cursor` cleared (never read again). 429 → one retry after Retry-After. "Sync now" refreshes the
+  followed pipeline inside the request: "Followed pipeline: N opportunities refreshed at <time>" or the reason.
+- **Markers that cannot lie** (`lib/sync/markers.ts`) — `ghl.opportunities`, `ghl.appointments`, `ghl.mirrors`,
+  `meta.spend`, `stripe.payments`, `stripe.completeness`: written ONLY by the code that just fetched that family,
+  with counts. The banner and Sync health read markers only; stale = older than **3 h** (or never).
+- **F13 Meta currency** — every run reads the account (currency, timezone) first; no currency / not CAD|USD /
+  a row contradicting the account → run FAILS, 0 rows, critical incident. Rows of the account with another label
+  are relabelled by the run (counted, info incident, idempotent) — self-repair instead of a migration so the old
+  code cannot re-label mid-deploy. Windows use the account timezone (America/Los_Angeles; Ads tab documents the
+  1-hour boundary). Daily account-level spend check (30 days) re-fetches a differing day; still differs → fail.
+- **F12 Stripe completeness** (`lib/stripe/completeness.ts`, dispatch step `stripe_completeness`) — per business
+  day since `backfill_from`, per currency, Stripe count + amount + refunded vs the mirror; a differing day is
+  re-filled from Stripe and re-checked; still differs → critical incident with both sides. Resumable 30-day
+  chunks, full sweep ≤ every 20 h. Migration 0014: `payments.stripe_created_at`. Refund class: parent refunded
+  = SUM of its refunds + status `refunded`; a missing parent is fetched; a failed refunds read fails the run;
+  webhook `charge.refund.*` is a refund, never a charge.
+- **Scheduler (Vercel Pro)** — vercel.json sync-ghl `7 * * * *`, dispatch `37 * * * *`; GitHub heartbeat
+  `17 */6 * * *` fallback. Budgets: GHL 200 s; dispatch starts steps until 110 s, step timeouts 60 s default
+  (completeness 90 s, GHL fallback 180 s). Every cron call records `scheduler_last_run`; none for 3 h →
+  critical `scheduler_silent` incident + red banner (`lib/sync/scheduler.ts`).
+- **Deploy order (amendment 2):** `npm run db:migrate` FIRST (0011–0014 are additive / safe for the deployed
+  code), THEN `git push`. The first scheduled runs repair the data: the tracked job re-reads the followed
+  pipeline and every contact, Meta relabels its rows to CAD, the completeness sweep fills Sep 2–11.
+- **Found, not fixed in Wave 1:** manual weekly spend (`app/api/spend`) and the Google Ads writer hard-code
+  `currency: 'USD'` (same bug class as F13) — Wave 2, then drop the `ad_spend.currency` default.
+- **Wave 2 (pending):** F7 reconcile over all statuses, F6 position ping-pong, F4 roles at read time, F14
+  applied = opportunity created, F3 utm parsing (first-run job), F2 show-rate coverage rule, BoC FX feed,
+  acceptance harness.
 
 ## Working agreements
 
