@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiErrorResponse } from '@/lib/dbTimeout';
-import { and, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
-import { db, payments } from '@/db';
+import { listStripePayments } from '@/lib/queries/payments';
 import { manualMatch } from '@/lib/stripe/matching';
 
 export const dynamic = 'force-dynamic';
@@ -10,41 +9,9 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const unmatched = request.nextUrl.searchParams.get('unmatched') === '1';
-    const rows = await db
-      .select({
-        id: payments.id,
-        stripeId: payments.stripeId,
-        kind: payments.kind,
-        status: payments.status,
-        amountCents: payments.amountCents,
-        refundedCents: payments.refundedCents,
-        currency: payments.currency,
-        email: payments.email,
-        customerName: payments.customerName,
-        paidAt: payments.paidAt,
-        failedAt: payments.failedAt,
-        contactId: payments.contactId,
-        matchSource: payments.matchSource,
-      })
-      .from(payments)
-      .where(
-        unmatched
-          ? and(
-              eq(payments.origin, 'stripe'),
-              isNull(payments.contactId),
-              or(isNull(payments.matchSource), ne(payments.matchSource, 'manual')),
-              inArray(payments.status, ['succeeded', 'refunded']),
-              ne(payments.kind, 'refund'),
-            )
-          : eq(payments.origin, 'stripe'),
-      )
-      .orderBy(desc(payments.paidAt))
-      .limit(200);
+    const rows = await listStripePayments({ unmatched });
 
-    return NextResponse.json({
-      count: rows.length,
-      payments: rows.map((r) => ({ ...r, on: (r.paidAt ?? r.failedAt)?.toISOString() ?? null, paidAt: undefined, failedAt: undefined })),
-    });
+    return NextResponse.json({ count: rows.length, payments: rows });
   } catch (error) {
     return apiErrorResponse(error, 'Failed to load payments');
   }
