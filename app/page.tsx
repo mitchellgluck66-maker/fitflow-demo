@@ -132,7 +132,7 @@ function CommandCenter() {
             icon={Trophy}
             accent="accent"
             sparkline={spark('enrolled')}
-            subtext={`${marketing.paidEnrollments} paid · ${marketing.organicEnrollments} organic${marketing.unattributedEnrollments ? ` · ${marketing.unattributedEnrollments} unclassified` : ''}`}
+            subtext={`in period · ${marketing.paidEnrollments} paid · ${marketing.organicEnrollments} organic${marketing.unattributedEnrollments ? ` · ${marketing.unattributedEnrollments} unclassified` : ''}`}
           />
           <KpiDeltaTile
             label="Paid CAC"
@@ -248,7 +248,7 @@ function CommandCenter() {
             icon={CalendarCheck}
             accent="accent"
             sparkline={spark('consultsBooked')}
-            subtext={`${scorecard.kpis.applied.current ?? 0} applied`}
+            subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied`}
           />
           <KpiDeltaTile
             label="Cost per roadmap booked"
@@ -278,7 +278,7 @@ function CommandCenter() {
           funnel={scorecard.cohort.funnel}
           conversions={scorecard.cohort.conversions}
           href={`/funnel?${search.toString()}`}
-          rangeLabel={`${range.presetLabel} · ${range.resolvedLabel} · who applied then, and where they are now`}
+          rangeLabel={`applicants of ${range.resolvedLabel} and where they are now — a cohort, so it differs from the in-period tiles above`}
           maturity={data.maturity}
         />
 

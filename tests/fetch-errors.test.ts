@@ -106,3 +106,14 @@ describe('P2 #10: the UI copy matches the send window', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// Audit P2 #12 (2026-09-30): "Consults booked 49 / Enrollments 20" (in period) beside a strip saying "43 / 16" (cohort).
+describe('P2 #12: the Command Center says which mode each number is in', () => {
+  it('the in-period tiles and the cohort strip carry a visible qualifier', async () => {
+    const fs = await import('fs');
+    const src = fs.readFileSync('app/page.tsx', 'utf8');
+    expect(src).toContain('subtext={`in period · ${marketing.paidEnrollments} paid');
+    expect(src).toContain('subtext={`in period · ${scorecard.kpis.applied.current ?? 0} applied`}');
+    expect(src).toContain('a cohort, so it differs from the in-period tiles above');
+  });
+});
