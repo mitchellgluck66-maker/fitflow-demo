@@ -21,7 +21,8 @@ async function resolveTimezone(): Promise<{ timezone: string | null; error: stri
 }
 
 export const metadata: Metadata = {
-  title: { default: 'FitFlow', template: '%s · FitFlow' },
+  // P2 #10: each route's server layout sets its title ("Reports · FitFlow"); the root page is the Command Center.
+  title: { default: 'Command Center · FitFlow', template: '%s · FitFlow' },
   description:
     'Growth intelligence for The Fit Physician: funnel, ad spend, CAC and cash, read-only from GoHighLevel, Meta and Stripe.',
   icons: { icon: '/icon.png', apple: '/apple-icon.png' },
