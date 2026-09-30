@@ -27,7 +27,7 @@ describe('runDispatch', () => {
     expect(result.steps.meta).toMatchObject({ status: 'failed', error: 'Meta 500 unknown error' });
     expect(result.steps.ghl.status).toBe('timed_out');
     expect(result.steps.reconcile).toMatchObject({ status: 'failed', error: 'boom' });
-    expect(result.steps.insights.status).toBe('succeeded'); // not connected is not a failure
+    expect(result.steps.insights).toEqual({ status: 'skipped', reason: 'not configured — no credentials for this step' }); // did nothing → skipped, never succeeded
     expect(result.steps.daily).toEqual({ status: 'skipped', reason: 'before 6am local' });
     expect(result.steps.weekly.status).toBe('succeeded');
     expect(result.ok).toBe(false);
@@ -201,5 +201,13 @@ describe('gates', () => {
     expect(reconcileGate({ cursorPhase: 'tracked', trackedCompletedAt: '2026-09-29T10:00:00Z', ghlRunLive: false })).toMatch(/phase tracked/);
     expect(reconcileGate({ cursorPhase: null, trackedCompletedAt: null, ghlRunLive: false })).toMatch(/none completed/);
     expect(reconcileGate({ cursorPhase: 'mirrors', trackedCompletedAt: 'x', ghlRunLive: true })).toMatch(/GHL sync is running/);
+  });
+});
+
+describe('insight step reasons', () => {
+  it('says how many findings were generated, or that the cache served them', () => {
+    expect(outcomeReason({ status: 'succeeded', durationMs: 900, result: { ok: true, cached: false, findings: [{}, {}, {}] } })).toBe('generated 3 findings');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 900, result: { ok: true, cached: false, findings: [{}] } })).toBe('generated 1 finding');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 5, result: { ok: true, cached: true, findings: [{}] } })).toBe('served from cache — inputs unchanged');
   });
 });

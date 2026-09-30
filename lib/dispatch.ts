@@ -60,10 +60,17 @@ export const DEFAULT_STEP_TIMEOUT_MS = 25_000;
 /** Do not START a new step after this much wall time (Vercel Hobby kills at 60s). */
 export const DEFAULT_DISPATCH_BUDGET_MS = 52_000;
 
+/** A step whose source / key is not connected did NOTHING — it is `skipped` with this reason, never `succeeded` (2026-09-30). */
+export const NOT_CONFIGURED_REASON = 'not configured — no credentials for this step';
+
+function isNotConfigured(result: unknown): boolean {
+  return Boolean(result && typeof result === 'object' && (result as { notConfigured?: unknown }).notConfigured);
+}
+
 function failedResult(result: unknown): string | null {
   if (result && typeof result === 'object' && 'ok' in result && (result as { ok: unknown }).ok === false) {
     const r = result as { notConfigured?: unknown; error?: unknown };
-    if (r.notConfigured) return null; // not connected is not a failure
+    if (r.notConfigured) return null; // not connected is not a failure (it is a skip — see runDispatch)
     return typeof r.error === 'string' ? r.error : 'step reported ok=false';
   }
   return null;
@@ -94,7 +101,7 @@ export function outcomeReason(outcome: StepOutcome): string | null {
   const o = r as Record<string, unknown>;
   if (typeof o.skipped === 'string' && o.skipped) return o.skipped;
   if (typeof o.reason === 'string' && o.reason) return o.reason;
-  if (o.notConfigured) return 'not configured — no credentials for this step';
+  if (o.notConfigured) return NOT_CONFIGURED_REASON;
   if (o.partial === true) return typeof o.progress === 'string' && o.progress ? `partial — ${o.progress}` : 'partial — the cycle continues next run';
   if (typeof o.status === 'string' && o.status !== 'sent' && o.status !== 'succeeded' && o.status !== 'ok') {
     const err = typeof o.error === 'string' && o.error ? ` — ${o.error}` : '';
@@ -106,6 +113,7 @@ export function outcomeReason(outcome: StepOutcome): string | null {
     if (o.status === 'disabled') return 'disabled on /reports';
     return `${o.status}${err}`;
   }
+  if (Array.isArray(o.findings) && o.cached === false) return `generated ${o.findings.length} finding${o.findings.length === 1 ? '' : 's'}`;
   if (o.cached === true) return 'served from cache — inputs unchanged';
   return null;
 }
@@ -140,7 +148,11 @@ export async function runDispatch(
           outcome = { status: 'timed_out', durationMs: now() - t0, error: `no result after ${Math.round(timeoutMs / 1000)}s — moved on; the step's own run row shows what happened` };
         } else {
           const err = failedResult(result);
-          outcome = err ? { status: 'failed', durationMs: now() - t0, error: err, result } : { status: 'succeeded', durationMs: now() - t0, result };
+          outcome = isNotConfigured(result)
+            ? { status: 'skipped', reason: NOT_CONFIGURED_REASON }
+            : err
+              ? { status: 'failed', durationMs: now() - t0, error: err, result }
+              : { status: 'succeeded', durationMs: now() - t0, result };
         }
       } catch (err) {
         outcome = { status: 'failed', durationMs: now() - t0, error: err instanceof Error ? err.message : String(err) };

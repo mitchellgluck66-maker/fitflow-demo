@@ -16,7 +16,10 @@ import { computeMaturity } from '@/lib/metrics/maturity';
 import { runInsights } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative, getNarrative } from '@/lib/anthropic/narrative';
 import { suggestRoleForStage } from '@/lib/anthropic/remap';
-import { testConnection } from '@/lib/anthropic/client';
+import { testConnection, askClaude } from '@/lib/anthropic/client';
+import { z } from 'zod';
+import { and, isNull } from 'drizzle-orm';
+import { syncIncidents } from '@/db';
 
 // ---- hand-built ScorecardResult -------------------------------------------
 const R = { start: '2026-08-16', end: '2026-08-22' };
@@ -291,5 +294,63 @@ describe('Setup Verify = a real strict structured call', () => {
     const conn = await testConnection();
     expect(conn.ok).toBe(false);
     expect(conn.message).toMatch(/^Verification failed: Anthropic 401: .*invalid x-api-key.*req_verify_1/);
+  });
+});
+
+// 2026-09-30: an AI failure is visible in Setup → Incidents — ONE open anthropic_error, severity by class.
+describe('anthropic_error incident', () => {
+  const ok = () => new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'submit', input: { v: 'x' } }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const err = (status: number, type: string, message: string) => new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', 'request-id': `req_${status}` } });
+  const call = () => askClaude({ system: 's', user: 'u', inputSchema: { type: 'object', properties: { v: { type: 'string' } } }, schema: z.object({ v: z.string() }), retryDelayMs: 0 });
+  const open = () => db.select().from(syncIncidents).where(and(eq(syncIncidents.kind, 'anthropic_error'), isNull(syncIncidents.resolvedAt)));
+
+  it('a 400 opens ONE critical incident (refreshed, not duplicated); the next success resolves it', async () => {
+    await setSetting(ANTHROPIC_KEYS.apiKey, 'sk-ant-test-key-1234', { secret: true });
+    fetchSpy.mockImplementation(async () => err(400, 'invalid_request_error', "For 'array' type, property 'maxItems' is not supported"));
+    vi.stubGlobal('fetch', fetchSpy);
+    await call();
+    const r = await call();
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // a 400 is never retried
+    expect(r.error).toMatch(/Anthropic 400: .*maxItems.*req_400/);
+    const rows = await open();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ severity: 'critical' });
+    expect(rows[0].message).toMatch(/^AI request failed \(submit\): Anthropic 400/);
+
+    fetchSpy.mockImplementation(async () => ok());
+    expect((await call()).ok).toBe(true);
+    expect(await open()).toHaveLength(0);
+  });
+
+  it('429 / 529 overloaded: retried once; still failing → WARNING incident; recovering on the retry → no incident', async () => {
+    fetchSpy.mockImplementation(async () => err(529, 'overloaded_error', 'Overloaded'));
+    vi.stubGlobal('fetch', fetchSpy);
+    const r = await call();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(r.ok).toBe(false);
+    expect((await open())[0]).toMatchObject({ severity: 'warning' });
+
+    fetchSpy.mockReset();
+    let n = 0;
+    fetchSpy.mockImplementation(async () => (n++ === 0 ? err(429, 'rate_limit_error', 'slow down') : ok()));
+    expect((await call()).ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(await open()).toHaveLength(0);
+  });
+
+  it('401 / 403 and an invalid structured answer are critical', async () => {
+    fetchSpy.mockImplementation(async () => err(403, 'permission_error', 'no access'));
+    vi.stubGlobal('fetch', fetchSpy);
+    await call();
+    expect((await open())[0]).toMatchObject({ severity: 'critical' });
+
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'submit', input: { v: 7 } }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const r = await call();
+    expect(r.error).toMatch(/^Answer failed validation at v:/);
+    const rows = await open();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ severity: 'critical' });
+    fetchSpy.mockImplementation(async () => ok());
+    await call();
   });
 });

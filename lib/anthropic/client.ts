@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { getAnthropicConfig } from './config';
 import { toStrictToolSchema } from './strictSchema';
+import { noteAnthropicOutcome, type AnthropicSeverity } from './incident';
 
 export { toStrictToolSchema } from './strictSchema';
 
@@ -26,8 +27,23 @@ function scrub(text: string, key: string | null): string {
 }
 
 function makeClient(key: string): Anthropic {
-  // Passing globalThis.fetch explicitly means tests can stub it.
-  return new Anthropic({ apiKey: key, maxRetries: 1, fetch: globalThis.fetch, timeout: 60_000 });
+  // Passing globalThis.fetch explicitly means tests can stub it. No SDK retries: askClaude retries a TRANSIENT
+  // failure exactly once itself, so it knows whether an error survived the retry (→ warning incident).
+  return new Anthropic({ apiKey: key, maxRetries: 0, fetch: globalThis.fetch, timeout: 60_000 });
+}
+
+/** Pause before the single retry of a transient failure. */
+export const RETRY_DELAY_MS = 1500;
+
+/** 429 / 529 overloaded / other 5xx / 408 / 409 / network: worth one retry, then a WARNING. Everything else is permanent. */
+export function isTransientError(err: unknown): boolean {
+  if (err instanceof Anthropic.APIConnectionError) return true; // includes timeouts
+  if (err instanceof Anthropic.APIError) {
+    const status = err.status ?? 0;
+    const type = (err.error as { error?: { type?: string } } | undefined)?.error?.type;
+    return status === 408 || status === 409 || status === 429 || status >= 500 || type === 'overloaded_error' || type === 'rate_limit_error';
+  }
+  return false;
 }
 
 export async function askClaude<T>(params: {
@@ -38,44 +54,57 @@ export async function askClaude<T>(params: {
   schema: z.ZodType<T>;
   toolName?: string;
   maxTokens?: number;
+  /** Test hook: delay before the one transient retry (default RETRY_DELAY_MS). */
+  retryDelayMs?: number;
 }): Promise<AskResult<T>> {
   const config = await getAnthropicConfig();
   if (!config.configured || !config.key) {
     return { ok: false, data: null, usage: null, notConfigured: true, error: 'Anthropic API key not configured.', model: null };
   }
   const toolName = params.toolName ?? 'submit';
+  // Every outcome below reaches the anthropic_error incident: a failure opens / refreshes it, a success resolves it.
+  const fail = async (error: string, severity: AnthropicSeverity): Promise<AskResult<T>> => {
+    await noteAnthropicOutcome({ ok: false, error, severity, feature: toolName });
+    return { ok: false, data: null, usage: null, error, model: config.model };
+  };
   try {
     const client = makeClient(config.key);
-    const response = await client.messages.create({
-      model: config.model,
-      max_tokens: params.maxTokens ?? 2048,
-      system: params.system,
-      messages: [{ role: 'user', content: params.user }],
-      tools: [
-        {
-          name: toolName,
-          description: 'Submit the structured answer.',
-          // Strict mode rejects maxItems / minimum / maxLength …: send only the sanitized schema (limits move into
-          // descriptions; the Zod `schema` below still enforces them on the answer).
-          input_schema: toStrictToolSchema(params.inputSchema) as Anthropic.Tool['input_schema'],
-          strict: true,
-        },
-      ],
-      tool_choice: { type: 'tool', name: toolName },
-    });
+    const request = () =>
+      client.messages.create({
+        model: config.model,
+        max_tokens: params.maxTokens ?? 2048,
+        system: params.system,
+        messages: [{ role: 'user', content: params.user }],
+        tools: [
+          {
+            name: toolName,
+            description: 'Submit the structured answer.',
+            // Strict mode rejects maxItems / minimum / maxLength …: send only the sanitized schema (limits move into
+            // descriptions; the Zod `schema` below still enforces them on the answer).
+            input_schema: toStrictToolSchema(params.inputSchema) as Anthropic.Tool['input_schema'],
+            strict: true,
+          },
+        ],
+        tool_choice: { type: 'tool', name: toolName },
+      });
+    let response: Anthropic.Message;
+    try {
+      response = await request();
+    } catch (err) {
+      if (!isTransientError(err)) throw err;
+      await new Promise((r) => setTimeout(r, params.retryDelayMs ?? RETRY_DELAY_MS));
+      response = await request(); // a second failure is caught below as transient → warning
+    }
 
-    if (response.stop_reason === 'refusal') {
-      return { ok: false, data: null, usage: null, error: 'Claude declined the request.', model: config.model };
-    }
+    if (response.stop_reason === 'refusal') return fail('Claude declined the request.', 'warning');
     const block = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-    if (!block) {
-      return { ok: false, data: null, usage: null, error: 'No structured answer returned.', model: config.model };
-    }
+    if (!block) return fail('No structured answer returned.', 'critical');
     const parsed = params.schema.safeParse(block.input);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      return { ok: false, data: null, usage: null, error: `Answer failed validation at ${issue?.path.join('.') || '(root)'}: ${issue?.message}`, model: config.model };
+      return fail(`Answer failed validation at ${issue?.path.join('.') || '(root)'}: ${issue?.message}`, 'critical');
     }
+    await noteAnthropicOutcome({ ok: true });
     return {
       ok: true,
       data: parsed.data,
@@ -83,7 +112,7 @@ export async function askClaude<T>(params: {
       model: config.model,
     };
   } catch (err) {
-    return { ok: false, data: null, usage: null, error: scrub(describeError(err), config.key), model: config.model };
+    return fail(scrub(describeError(err), config.key), isTransientError(err) ? 'warning' : 'critical');
   }
 }
 
