@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
+import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from '@/lib/metrics/transitionRoles';
 import { db, stageTransitions, contacts, stages, syncRuns } from '@/db';
 import { desc, eq } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +12,6 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   try {
-    const fromStage = alias(stages, 'from_stage');
-    const toStage = alias(stages, 'to_stage');
 
     const moves = await db
       .select({
@@ -23,8 +21,8 @@ export async function GET() {
         lastName: contacts.lastName,
         fromName: fromStage.name,
         toName: toStage.name,
-        fromRole: stageTransitions.fromRole,
-        toRole: stageTransitions.toRole,
+        fromRole: resolvedFromRole, // F4: the stage's CURRENT role
+        toRole: resolvedToRole,
         kind: stageTransitions.kind,
         observedAt: stageTransitions.observedAt,
         previousObservedAt: stageTransitions.previousObservedAt,
@@ -33,8 +31,8 @@ export async function GET() {
       })
       .from(stageTransitions)
       .innerJoin(contacts, eq(stageTransitions.contactId, contacts.id))
-      .leftJoin(fromStage, eq(stageTransitions.fromStageId, fromStage.id))
-      .leftJoin(toStage, eq(stageTransitions.toStageId, toStage.id))
+      .leftJoin(fromStage, fromStageJoin)
+      .leftJoin(toStage, toStageJoin)
       .orderBy(desc(stageTransitions.observedAt))
       .limit(500);
 

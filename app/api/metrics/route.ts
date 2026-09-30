@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { toStage, toStageJoin, resolvedToRole } from '@/lib/metrics/transitionRoles';
 import { db, appointments, contacts, stages, pipelines, stageTransitions } from '@/db';
 import { and, gte, lte, eq, asc } from 'drizzle-orm';
 import { getTimezone } from '@/lib/settings';
@@ -200,8 +201,9 @@ export async function GET(request: NextRequest) {
 
     // ---- 6. Activity: stage moves in the window -----------------------------
     const moves = await db
-      .select({ toRole: stageTransitions.toRole, kind: stageTransitions.kind })
+      .select({ toRole: resolvedToRole, kind: stageTransitions.kind })
       .from(stageTransitions)
+      .leftJoin(toStage, toStageJoin)
       .where(and(gte(stageTransitions.observedAt, new Date(startMs)), lte(stageTransitions.observedAt, new Date(endMs))));
     const activityCounts = new Map<string, number>();
     for (const m of moves) {

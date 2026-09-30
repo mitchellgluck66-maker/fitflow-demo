@@ -7,6 +7,7 @@
  */
 
 import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
+import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from './transitionRoles';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments } from '@/db';
 import { localDate, rangeToInstants } from '../dates';
 import { parseCurrency, type Currency } from '../money';
@@ -77,12 +78,16 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     ? await db
         .select({
           contactId: stageTransitions.contactId,
-          fromRole: stageTransitions.fromRole,
-          toRole: stageTransitions.toRole,
+          // F4 (2026-09-30): roles resolved through the stage NOW (a Setup remap reaches history); the stored
+          // role only when the stage no longer exists — lib/metrics/transitionRoles.ts.
+          fromRole: resolvedFromRole,
+          toRole: resolvedToRole,
           toStageId: stageTransitions.toStageId,
           observedAt: stageTransitions.observedAt,
         })
         .from(stageTransitions)
+        .leftJoin(toStage, toStageJoin)
+        .leftJoin(fromStage, fromStageJoin)
         .where(inArray(stageTransitions.contactId, contactIds))
     : [];
 

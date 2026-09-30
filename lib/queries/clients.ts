@@ -7,8 +7,8 @@
  */
 
 import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from '@/lib/metrics/transitionRoles';
 import { isoDayParam } from '../sqlTime';
-import { alias } from 'drizzle-orm/pg-core';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, payments } from '@/db';
 import type { SemanticRole, AttributionClass } from '@/db/schema';
 import { getGhlConfig } from '../ghl/config';
@@ -99,16 +99,14 @@ export async function getClientProfile(id: string): Promise<ClientProfile | null
   if (!row) return null;
   const c = row.c;
 
-  const fromStage = alias(stages, 'from_stage');
-  const toStage = alias(stages, 'to_stage');
   const [transitions, appts, pays, config] = await Promise.all([
     db
       .select({
         id: stageTransitions.id,
         fromName: fromStage.name,
         toName: toStage.name,
-        fromRole: stageTransitions.fromRole,
-        toRole: stageTransitions.toRole,
+        fromRole: resolvedFromRole, // F4: the stage's CURRENT role
+        toRole: resolvedToRole,
         toStageId: stageTransitions.toStageId,
         observedAt: stageTransitions.observedAt,
         previousObservedAt: stageTransitions.previousObservedAt,
@@ -116,8 +114,8 @@ export async function getClientProfile(id: string): Promise<ClientProfile | null
         backfilled: stageTransitions.backfilled,
       })
       .from(stageTransitions)
-      .leftJoin(fromStage, eq(stageTransitions.fromStageId, fromStage.id))
-      .leftJoin(toStage, eq(stageTransitions.toStageId, toStage.id))
+      .leftJoin(fromStage, fromStageJoin)
+      .leftJoin(toStage, toStageJoin)
       .where(eq(stageTransitions.contactId, id))
       .orderBy(desc(stageTransitions.observedAt)),
     db.select().from(appointments).where(eq(appointments.contactId, id)).orderBy(desc(appointments.startTime)),
