@@ -61,7 +61,7 @@ export async function GET() {
           key: s.key,
           label: s.label,
           configured: configured[s.key],
-          lastSuccessAt: worst?.completedAt ?? g.lastSuccessAt,
+          lastSuccessAt: worst?.completedAt ?? null,
           lastRunStatus: g.lastRunStatus,
           ageHours: worst?.ageHours ?? null,
           stale: configured[s.key] && g.stale,

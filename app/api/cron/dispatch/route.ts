@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db, syncRuns } from '@/db';
-import { runGhlSync, readSyncCursor } from '@/lib/ghl/ingest';
+import { and, desc, eq, gt, inArray } from 'drizzle-orm';
+import { db, syncRuns, syncLocks } from '@/db';
+import { runGhlSync, GHL_LOCK } from '@/lib/ghl/ingest';
+import { readMarker } from '@/lib/sync/markers';
 import { runReconcile } from '@/lib/ghl/reconcile';
 import { runMetaSync } from '@/lib/meta/ingest';
 import { runMetaTokenCheck } from '@/lib/meta/token';
@@ -74,14 +75,14 @@ export async function GET(request: NextRequest) {
   const gate = (ok: boolean, reason: string) => (ok ? null : reason);
 
   const ghlKinds = ['ghl_delta', 'ghl_backfill'];
-  const [state, lastGhlOk, liveGhl, ghlCursor, ghlTrackedCompletedAt] = await Promise.all([
+  const [state, lastGhlOk, liveGhl, trackedMarker] = await Promise.all([
     readDispatchState(),
     db.select({ finishedAt: syncRuns.finishedAt }).from(syncRuns)
       .where(and(inArray(syncRuns.kind, ghlKinds), inArray(syncRuns.status, ['succeeded', 'partial'])))
       .orderBy(desc(syncRuns.finishedAt)).limit(1),
-    db.select({ id: syncRuns.id }).from(syncRuns).where(and(inArray(syncRuns.kind, ghlKinds), eq(syncRuns.status, 'running'))).limit(1),
-    readSyncCursor(),
-    getSetting(SETTING_KEYS.ghlTrackedCompletedAt),
+    // A GHL run is live when it holds the lease (lib/syncLock.ts), not when a sync_runs row says 'running'.
+    db.select({ name: syncLocks.name }).from(syncLocks).where(and(eq(syncLocks.name, GHL_LOCK), gt(syncLocks.expiresAt, now))).limit(1),
+    readMarker('ghl.opportunities'),
   ]);
 
   const steps: DispatchStep[] = [
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
       name: 'reconcile',
       after: ['ghl'],
       // Eligible once the TRACKED phases of the current cycle are complete (persisted cycle state, whatever ran first).
-      skip: reconcileGate({ cursorPhase: ghlCursor?.phase ?? null, trackedCompletedAt: ghlTrackedCompletedAt || null, ghlRunLive: liveGhl.length > 0 }),
+      skip: reconcileGate({ trackedCompletedAt: trackedMarker?.completedAt ?? null, ghlRunLive: liveGhl.length > 0 }),
       run: () => runReconcile({ trigger: 'cron' }),
     },
     { name: 'sweep', run: () => sweepIncidentNoise() },

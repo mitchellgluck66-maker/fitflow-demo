@@ -43,6 +43,16 @@ const ghlNumber = z.preprocess(
   z.number(),
 );
 
+/**
+ * Optional pagination numbers (F7, 2026-09-30): GHL sends `meta.nextPage: ""` on a last page (seen live on the
+ * reconcile probes) — "" failed ghlNumber and rejected the WHOLE page. For these fields only, an empty or
+ * non-numeric value means "none" (null); they are hints, the walk is driven by startAfterId + meta.total.
+ */
+const ghlOptionalNumber = z.preprocess(
+  (v) => (v === '' || (typeof v === 'string' && Number.isNaN(Number(v))) ? null : v),
+  ghlNumber.nullish(),
+);
+
 export const GhlPipelineStageSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(''),
@@ -94,10 +104,10 @@ export const GhlOpportunitySearchResponseSchema = z.object({
   meta: z
     .object({
       total: ghlNumber.nullish(),
-      nextPage: ghlNumber.nullish(),
+      nextPage: ghlOptionalNumber,
       nextPageUrl: optionalString,
       startAfterId: optionalString,
-      startAfter: ghlNumber.nullish(),
+      startAfter: ghlOptionalNumber,
     })
     .nullish(),
 });

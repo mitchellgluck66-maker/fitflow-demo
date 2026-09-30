@@ -33,9 +33,16 @@ describe('GhlOpportunitySearchResponseSchema meta', () => {
     expect(GhlOpportunitySearchResponseSchema.parse({ opportunities: [] }).meta).toBeUndefined();
   });
 
-  it('rejects non-numeric strings rather than importing garbage', () => {
-    const res = GhlOpportunitySearchResponseSchema.safeParse({ opportunities: [], meta: { nextPage: 'two' } });
-    expect(res.success).toBe(false);
+  it('F7: pagination HINTS ("" on a last page, non-numeric) are null — they no longer reject the whole page', () => {
+    // Live 2026-09-29: meta.nextPage came back "" on last pages and the reconciler skipped 2 of 9 stages.
+    const empty = GhlOpportunitySearchResponseSchema.parse({ opportunities: [], meta: { total: 1, nextPage: '', startAfter: '' } });
+    expect(empty.meta).toMatchObject({ total: 1, nextPage: null, startAfter: null });
+    expect(GhlOpportunitySearchResponseSchema.parse({ opportunities: [], meta: { nextPage: 'two' } }).meta?.nextPage).toBeNull();
+  });
+
+  it('meta.total stays strict: a non-numeric total is garbage, not "no total" (the walk-completeness check relies on it)', () => {
+    expect(GhlOpportunitySearchResponseSchema.safeParse({ opportunities: [], meta: { total: 'two' } }).success).toBe(false);
+    expect(GhlOpportunitySearchResponseSchema.safeParse({ opportunities: [], meta: { total: '' } }).success).toBe(false);
   });
 });
 

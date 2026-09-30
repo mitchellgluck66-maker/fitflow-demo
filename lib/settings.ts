@@ -36,6 +36,8 @@ export const SETTING_KEYS = {
    * budget. Cleared when a cycle completes.
    */
   ghlSyncCursor: 'ghl_sync_cursor',
+  /** Ingestion v2 (2026-09-30): the weekly mirror pass's cursor — the only GHL cursor (lib/ghl/ingest.ts). */
+  ghlMirrorCursor: 'ghl_mirror_cursor',
   /**
    * Cycle-by-value markers (2026-09-29): when each DATA FAMILY the dashboard
    * displays last completed inside a cycle — stages/opportunities of the

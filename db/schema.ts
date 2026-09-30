@@ -189,6 +189,11 @@ export const contacts = pgTable(
     /** When the contact/opportunity was created in GHL — the "applied" moment. */
     ghlCreatedAt: timestamp('ghl_created_at', { withTimezone: true, mode: 'date' }),
     ghlUpdatedAt: timestamp('ghl_updated_at', { withTimezone: true, mode: 'date' }),
+    /**
+     * createdAt of the FOLLOWED-pipeline opportunity that holds this contact's position — when this application
+     * was made (F14 groundwork, 2026-09-30). Null while the position is held by an unfollowed pipeline.
+     */
+    opportunityCreatedAt: timestamp('opportunity_created_at', { withTimezone: true, mode: 'date' }),
 
     ...provenance,
     ...timestamps,
@@ -199,6 +204,36 @@ export const contacts = pgTable(
     index('contacts_stage_idx').on(t.stageId),
     index('contacts_email_norm_idx').on(t.emailNormalized),
     index('contacts_phone_norm_idx').on(t.phoneNormalized),
+  ],
+);
+
+/**
+ * Every GHL opportunity we read (Ingestion v2, 2026-09-30). `contacts` keeps ONE position per person; this keeps
+ * each opportunity as GHL has it, so the reconciler compares opportunities with opportunities, "applied" can be
+ * dated by the application (createdAt) and a changed opportunity (updatedAt) is what triggers a contact re-fetch.
+ */
+export const ghlOpportunities = pgTable(
+  'ghl_opportunities',
+  {
+    /** The GHL opportunity id. */
+    id: text('id').primaryKey(),
+    ghlContactId: text('ghl_contact_id').notNull(),
+    contactId: text('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+    pipelineId: text('pipeline_id').notNull(),
+    stageId: text('stage_id'),
+    status: text('status').notNull(),
+    name: text('name'),
+    monetaryValueCents: integer('monetary_value_cents').notNull().default(0),
+    ghlCreatedAt: timestamp('ghl_created_at', { withTimezone: true, mode: 'date' }),
+    ghlUpdatedAt: timestamp('ghl_updated_at', { withTimezone: true, mode: 'date' }),
+    lastStageChangeAt: timestamp('last_stage_change_at', { withTimezone: true, mode: 'date' }),
+    lastStatusChangeAt: timestamp('last_status_change_at', { withTimezone: true, mode: 'date' }),
+    ...provenance,
+    ...timestamps,
+  },
+  (t) => [
+    index('ghl_opps_pipeline_stage_idx').on(t.pipelineId, t.stageId, t.status),
+    index('ghl_opps_contact_idx').on(t.ghlContactId),
   ],
 );
 

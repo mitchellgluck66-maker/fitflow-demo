@@ -54,6 +54,13 @@ export interface GhlResult<T = unknown> {
   rateLimit?: { remaining?: string; dailyRemaining?: string };
 }
 
+/** Test hook: the suite fakes GHL, so real spacing only turns a 250-contact walk into 30 s of sleeping. */
+let rateOverride: Partial<Record<'burstMax' | 'burstWindowMs' | 'minIntervalMs', number>> | null = null;
+export function setGhlRateLimitForTests(o: typeof rateOverride): void {
+  rateOverride = o;
+}
+const rl = () => ({ ...RATE_LIMIT, ...(rateOverride ?? {}) });
+
 /** Token bucket honouring GHL's 100-request / 10-second burst ceiling. */
 class RateLimiter {
   private timestamps: number[] = [];
@@ -61,17 +68,18 @@ class RateLimiter {
 
   async acquire(): Promise<void> {
     const now = Date.now();
-    this.timestamps = this.timestamps.filter((t) => now - t < RATE_LIMIT.burstWindowMs);
+    const limit = rl();
+    this.timestamps = this.timestamps.filter((t) => now - t < limit.burstWindowMs);
 
-    if (this.timestamps.length >= RATE_LIMIT.burstMax - 5) {
+    if (this.timestamps.length >= limit.burstMax - 5) {
       const oldest = this.timestamps[0];
-      await sleep(RATE_LIMIT.burstWindowMs - (now - oldest) + 50);
+      await sleep(limit.burstWindowMs - (now - oldest) + 50);
       return this.acquire();
     }
 
     const sinceLast = now - this.lastRequest;
-    if (sinceLast < RATE_LIMIT.minIntervalMs) {
-      await sleep(RATE_LIMIT.minIntervalMs - sinceLast);
+    if (sinceLast < limit.minIntervalMs) {
+      await sleep(limit.minIntervalMs - sinceLast);
     }
 
     this.lastRequest = Date.now();
@@ -137,11 +145,10 @@ export async function ghlRequest<T = unknown>(
     }
   }
 
-  await limiter.acquire();
-  requestCounter += 1;
-
-  try {
-    const response = await fetch(url.toString(), {
+  const send = async () => {
+    await limiter.acquire();
+    requestCounter += 1;
+    return fetch(url.toString(), {
       method: req.method,
       headers: {
         Authorization: `Bearer ${config.token}`,
@@ -151,6 +158,17 @@ export async function ghlRequest<T = unknown>(
       },
       ...(req.body ? { body: JSON.stringify(req.body) } : {}),
     });
+  };
+
+  try {
+    let response = await send();
+    // A 429 (GHL's 100 req / 10 s ceiling, or another client sharing the location) is retried ONCE after the
+    // server's Retry-After (capped at 10 s). A second 429 is returned as the error it is.
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      await sleep(Math.min(10_000, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2_000));
+      response = await send();
+    }
 
     const rateLimit = {
       remaining: response.headers.get('X-RateLimit-Remaining') ?? undefined,
@@ -248,6 +266,8 @@ export interface OpportunityPageResult {
   warnings: string[];
   /** True when this was the last page. */
   done: boolean;
+  /** GHL's own count for the whole search (meta.total), when it sent one — the walk is complete only if we read that many. */
+  total: number | null;
   next: { page: number; startAfterId: string | null; startAfter: number | null };
   error?: string;
 }
@@ -281,14 +301,14 @@ export async function listOpportunitiesPage(params: {
     GhlOpportunitySearchResponseSchema,
   );
   const next = { page: params.page + 1, startAfterId: null as string | null, startAfter: null as number | null };
-  if (!result.ok || !result.data) return { opportunities: [], rejected: 0, warnings: [], done: true, next, error: result.error };
+  if (!result.ok || !result.data) return { opportunities: [], rejected: 0, warnings: [], done: true, total: null, next, error: result.error };
   const parsed = parseMany(GhlOpportunitySchema, result.data.opportunities, 'opportunity');
   const meta = result.data.meta;
   if (meta?.startAfterId) {
     next.startAfterId = meta.startAfterId;
     next.startAfter = meta.startAfter ?? null;
   }
-  return { opportunities: parsed.valid, rejected: parsed.rejected, warnings: parsed.warnings, done: result.data.opportunities.length < limit, next };
+  return { opportunities: parsed.valid, rejected: parsed.rejected, warnings: parsed.warnings, done: result.data.opportunities.length < limit, total: typeof meta?.total === 'number' ? meta.total : null, next };
 }
 
 /**

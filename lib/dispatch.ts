@@ -292,10 +292,10 @@ export function ghlFallbackGate(lastOkFinishedAt: Date | null, now: Date): strin
   return `GHL synced ${Math.max(0, Math.round(ageMs / 60_000))} min ago (/api/cron/sync-ghl) — the dispatch runs GHL only as a fallback after ${GHL_FALLBACK_AFTER_MS / 3_600_000} h`;
 }
 
-/** Skip reason for reconcile, or null when eligible: the tracked phases of the current cycle are complete and no GHL run is live. */
-export function reconcileGate(input: { cursorPhase: string | null; trackedCompletedAt: string | null; ghlRunLive: boolean }): string | null {
+/** Skip reason for reconcile, or null when eligible: the followed pipeline was fully read (its marker) and no GHL run
+ *  holds the lease right now (a moving mirror is not worth comparing). Ingestion v2 (2026-09-30). */
+export function reconcileGate(input: { trackedCompletedAt: string | null; ghlRunLive: boolean }): string | null {
   if (input.ghlRunLive) return 'a GHL sync is running — reconcile waits for a still mirror';
-  if (input.cursorPhase === 'tracked' || input.cursorPhase === 'appointments') return `waiting for the tracked phases of the GHL cycle — paused in phase ${input.cursorPhase}`;
-  if (!input.cursorPhase && !input.trackedCompletedAt) return 'waiting for the tracked phases of the GHL cycle — none completed yet';
+  if (!input.trackedCompletedAt) return 'waiting for the first complete read of the followed pipeline (no ghl.opportunities marker yet)';
   return null;
 }

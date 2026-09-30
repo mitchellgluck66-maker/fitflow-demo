@@ -195,12 +195,10 @@ describe('gates', () => {
     expect(ghlFallbackGate(null, now)).toBeNull();
   });
 
-  it('reconcile reads the persisted cycle state, not whether ghl ran first in this dispatch', () => {
-    expect(reconcileGate({ cursorPhase: null, trackedCompletedAt: '2026-09-30T10:00:00Z', ghlRunLive: false })).toBeNull();
-    expect(reconcileGate({ cursorPhase: 'mirrors', trackedCompletedAt: '2026-09-30T10:00:00Z', ghlRunLive: false })).toBeNull();
-    expect(reconcileGate({ cursorPhase: 'tracked', trackedCompletedAt: '2026-09-29T10:00:00Z', ghlRunLive: false })).toMatch(/phase tracked/);
-    expect(reconcileGate({ cursorPhase: null, trackedCompletedAt: null, ghlRunLive: false })).toMatch(/none completed/);
-    expect(reconcileGate({ cursorPhase: 'mirrors', trackedCompletedAt: 'x', ghlRunLive: true })).toMatch(/GHL sync is running/);
+  it('reconcile waits for a complete read of the followed pipeline (its marker) and for no GHL run holding the lease', () => {
+    expect(reconcileGate({ trackedCompletedAt: '2026-09-30T10:00:00Z', ghlRunLive: false })).toBeNull();
+    expect(reconcileGate({ trackedCompletedAt: null, ghlRunLive: false })).toMatch(/no ghl.opportunities marker yet/);
+    expect(reconcileGate({ trackedCompletedAt: '2026-09-30T10:00:00Z', ghlRunLive: true })).toMatch(/GHL sync is running/);
   });
 });
 

@@ -231,10 +231,11 @@ export default function SetupPage() {
     try {
       const res = await fetch('/api/sync', { method: 'POST' });
       const data = await res.json();
+      // Works: "Followed pipeline: N opportunities refreshed at <time>". Anything else names why (v2, 2026-09-30).
       setToast({
-        message: data.ok ? 'Sync complete' : 'Sync failed',
-        detail: data.message ?? data.error,
-        type: data.ok ? 'success' : 'error',
+        message: data.refreshed ? 'Followed pipeline refreshed' : data.skipped ? 'Sync already running' : data.ok ? 'Sync not finished' : 'Sync failed',
+        detail: data.message ?? data.error ?? `HTTP ${res.status} with no message`,
+        type: data.refreshed ? 'success' : data.skipped ? 'info' : 'error',
       });
       await loadAll();
     } finally {

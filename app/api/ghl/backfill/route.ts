@@ -35,9 +35,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...result,
       provenance: await getDataProvenance(),
-      message: result.ok
-        ? `Backfill complete: ${result.stats.contactsUpserted} contacts, ${result.stats.appointmentsUpserted} appointments, ${result.stats.transitions} stage transitions (${result.requestsUsed} API requests).`
-        : (result.error ?? 'Backfill failed'),
+      // Never "complete" for a run that stopped early (2026-09-30): the message names what happened.
+      message: result.skipped
+        ? `Not started: ${result.skipped}.`
+        : !result.ok
+          ? `Backfill failed: ${result.error ?? 'no error text'}`
+          : !result.trackedComplete
+            ? `Backfill not finished: ${result.progress}`
+            : `Backfill: ${result.progress} — ${result.stats.contactsUpserted} contacts, ${result.stats.transitions} stage transitions (${result.requestsUsed} API requests).`,
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: 'Backfill failed', detail: String(error) }, { status: 500 });

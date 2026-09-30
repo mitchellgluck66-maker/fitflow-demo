@@ -7,12 +7,13 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { eq, asc, isNull } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments, syncLocks } from '@/db';
+import { db, settings, pipelines, stages, contacts, appointments, stageTransitions, syncRuns, syncIncidents, payments, syncLocks, ghlOpportunities } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { CREDENTIAL_KEYS } from '@/lib/ghl/config';
-import { runGhlSync, readSyncCursor, GHL_LOCK, GHL_LOCK_TTL_MS } from '@/lib/ghl/ingest';
+import { runGhlSync, readMirrorCursor, GHL_LOCK, GHL_LOCK_TTL_MS } from '@/lib/ghl/ingest';
 import { acquireLock, releaseLock } from '@/lib/syncLock';
 import { DEFAULT_FOLLOWED_PIPELINE_ID } from '@/lib/ghl/followed';
+import { setGhlRateLimitForTests } from '@/lib/ghl/client';
 
 type Json = Record<string, unknown>;
 
@@ -100,6 +101,8 @@ const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
 });
 
 beforeAll(async () => {
+  // GHL is faked here: keep the limiter's logic, drop its wall-clock spacing.
+  setGhlRateLimitForTests({ minIntervalMs: 0, burstMax: 100_000 });
   vi.stubGlobal('fetch', fakeFetch);
   await runMigrations();
   await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
@@ -252,7 +255,7 @@ describe('runGhlSync', () => {
       updatedAt: '2026-08-28T09:00:00Z',
     });
 
-    const result = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    const result = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'force' });
     expect(result.ok).toBe(true);
     expect(result.stats.opportunities).toBe(2);
     expect(result.stats.stagesUnmapped).toBe(0); // 'Some Random Bucket' is unfollowed noise
@@ -340,213 +343,130 @@ describe('runGhlSync', () => {
   });
 });
 
-describe('resumable cycle (Hobby time limit)', () => {
-  beforeAll(async () => {
-    // An earlier test forgets the token; this suite needs a connected client.
-    await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
-    await setSetting(CREDENTIAL_KEYS.locationId, 'loc-1');
-  });
-
-  it('a budget-limited run pauses at a page cursor as status partial; later runs resume and the last records succeeded with cycle totals', async () => {
-    // Three pipelines: pipe-1 is followed; two unfollowed mirrors with one
-    // opportunity each. PAGE_LIMIT is 50, so each pipeline is one page.
-    account.pipelines.push(
-      { id: 'pipe-b', name: 'Nurture', stages: [{ id: 'st-b', name: 'Nurturing', position: 0 }] },
-      { id: 'pipe-c', name: 'Alumni', stages: [{ id: 'st-c', name: 'Alumni Applied', position: 0 }] },
-    );
-    account.opportunities.push(
-      { id: 'opp-b', name: 'Bea', pipelineId: 'pipe-b', pipelineStageId: 'st-b', status: 'open', contactId: 'ct-b', createdAt: '2026-08-29T09:00:00Z', updatedAt: '2026-08-29T09:00:00Z' },
-      { id: 'opp-c', name: 'Cal', pipelineId: 'pipe-c', pipelineStageId: 'st-c', status: 'open', contactId: 'ct-c', createdAt: '2026-08-29T09:00:00Z', updatedAt: '2026-08-29T09:00:00Z' },
-    );
-    account.contacts['ct-b'] = { id: 'ct-b', firstName: 'Bea', email: 'bea@example.com' };
-    account.contacts['ct-c'] = { id: 'ct-c', firstName: 'Cal', email: 'cal@example.com' };
-    await db.update(settings).set({ value: '' }).where(eq(settings.key, 'ghl_sync_cursor'));
-    const lastSyncBefore = (await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value ?? null;
-    requests.length = 0;
-
-    // Run 1: one page, then pause.
-    const r1 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r1.error, JSON.stringify(r1.warnings)).toBeUndefined();
-    expect(r1.ok).toBe(true);
-    expect(r1.partial).toBe(true);
-    // 2026-09-29 (cycle by value): after the one followed pipeline the next thing is APPOINTMENTS, not the mirrors
-    expect(r1.progress).toMatch(/paused at appointments \(tracked opportunities complete\)/);
-    const c1 = await readSyncCursor();
-    expect(c1).toMatchObject({ mode: 'delta', index: 1, page: 1, runs: 1, phase: 'appointments', trackedCount: 1 });
-    // Followed pipeline first, then the mirrors in position order.
-    expect(c1!.order[0]).toBe('pipe-1');
-    const live = (await db.select({ id: pipelines.id, isTracked: pipelines.isTracked }).from(pipelines).where(isNull(pipelines.archivedAt)));
-    expect(c1!.order).toHaveLength(live.length);
-    expect(c1!.order.slice(1)).toEqual(expect.arrayContaining(['pipe-b', 'pipe-c']));
-    expect(live.filter((p) => p.isTracked).every((p) => c1!.order.indexOf(p.id) < c1!.order.findIndex((id) => !live.find((l) => l.id === id)!.isTracked))).toBe(true);
-    const searches = requests.filter((r) => r.url === '/opportunities/search');
-    expect(searches).toHaveLength(1);
-    const [run1] = await db.select().from(syncRuns).where(eq(syncRuns.id, r1.runId));
-    expect(run1.status).toBe('partial');
-    expect(run1.finishedAt).not.toBeNull();
-    // Not "done" yet: last-sync marker untouched, cursor present.
-    expect((await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value ?? null).toBe(lastSyncBefore);
-
-    // Run 2: the appointments, then resumes at pipeline 2 (no phase 0 again — pipelines endpoint not re-read).
-    requests.length = 0;
-    const r2 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r2.partial).toBe(true);
-    expect(requests.some((r) => r.url === '/opportunities/pipelines')).toBe(false);
-    expect(requests.some((r) => r.url === '/calendars/events')).toBe(true);
-    expect((await readSyncCursor())!).toMatchObject({ index: 2, phase: 'mirrors' });
-    expect(r2.warnings.some((w) => w.startsWith('Resuming delta cycle'))).toBe(true);
-
-    // Remaining runs finish the cycle.
-    let final = r2;
-    for (let i = 0; i < 5 && final.partial; i += 1) final = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(final.partial).toBe(false);
-    expect(final.ok).toBe(true);
-    expect(final.progress).toMatch(/completed 4 pipelines \(1 followed\) in \d+ runs/);
-    expect(final.stats.cycleRuns).toBeGreaterThanOrEqual(4);
-    expect(final.stats.opportunities).toBe(4); // opp-1, opp-off, opp-b, opp-c across the whole cycle
-    expect(await readSyncCursor()).toBeNull();
-    const [runF] = await db.select().from(syncRuns).where(eq(syncRuns.id, final.runId));
-    expect(runF.status).toBe('succeeded');
-    expect((await db.select().from(settings).where(eq(settings.key, 'ghl_last_sync_at')))[0]?.value).not.toBe(lastSyncBefore);
-    // Nothing is ever left 'running'.
-    expect((await db.select().from(syncRuns)).some((r) => r.status === 'running')).toBe(false);
-    // Contacts from the mirrors were imported; Jane's position still belongs to the followed pipeline.
-    const rows = await db.select().from(contacts);
-    expect(rows.map((r) => r.ghlContactId).sort()).toEqual(expect.arrayContaining(['ct-1', 'ct-b', 'ct-c']));
-    expect(rows.find((r) => r.ghlContactId === 'ct-1')!.pipelineId).toBe('pipe-1');
-    expect(rows.find((r) => r.ghlContactId === 'ct-b')!.pipelineId).toBe('pipe-b');
-  });
-
-  it('an explicit --since starts a fresh cycle even when a cursor exists; a full-budget run completes in one go', async () => {
-    const r = await runGhlSync({ mode: 'delta', trigger: 'cli', since: '2026-06-16', maxPages: 1 });
-    expect(r.error, JSON.stringify(r.warnings)).toBeUndefined();
-    expect(r.partial).toBe(true);
-    expect((await readSyncCursor())!.since).toBe(new Date('2026-06-16').toISOString());
-    const done = await runGhlSync({ mode: 'delta', trigger: 'cli', since: '2026-06-16' });
-    expect(done.partial).toBe(false);
-    expect(done.stats.cycleRuns).toBe(1);
-    expect(await readSyncCursor()).toBeNull();
-  });
-});
-
-describe('cycle by value (2026-09-29 production audit)', () => {
-  // 19 consecutive partials, zero completed cycles since Sep 18: the cycle walked ALL pipelines' opportunities before ever
-  // reaching appointments, so appointments were 11 days stale and reconciliation never ran. Now: followed pipelines →
-  // appointments → the family markers (reconciliation eligible) → the untracked mirrors last.
-  beforeAll(async () => {
-    await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
-    await setSetting(CREDENTIAL_KEYS.locationId, 'loc-1');
-  });
+describe('Ingestion v2: the followed pipeline is read completely on EVERY run (F1)', () => {
   const setting = async (key: string) => (await db.select().from(settings).where(eq(settings.key, key)))[0]?.value ?? null;
-  const clear = async (key: string) => db.insert(settings).values({ key, value: '' }).onConflictDoUpdate({ target: settings.key, set: { value: '' } });
-
-  it('a budget-limited cycle refreshes the followed pipelines, then APPOINTMENTS, writes the family markers and is reconciliation-eligible BEFORE any untracked mirror is walked', async () => {
-    await clear('ghl_sync_cursor');
-    await clear('ghl_tracked_opps_completed_at');
-    await clear('ghl_appointments_completed_at');
-    await clear('ghl_tracked_completed_at');
-    const lastSyncBefore = await setting('ghl_last_sync_at');
-    const live = await db.select({ id: pipelines.id, isTracked: pipelines.isTracked }).from(pipelines).where(isNull(pipelines.archivedAt));
-    const followed = live.filter((p) => p.isTracked).map((p) => p.id);
-    expect(followed).toEqual(['pipe-1']);
-    expect(live.length).toBeGreaterThanOrEqual(3);
-
-    // Run 1: the one followed pipeline's page, then the budget is gone — paused BEFORE appointments, and the stats say so.
-    requests.length = 0;
-    const r1 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r1.error, JSON.stringify(r1.warnings)).toBeUndefined();
-    expect(r1.partial).toBe(true);
-    expect(r1.trackedComplete).toBe(false);
-    expect(r1.phase).toBe('appointments');
-    expect(r1.progress).toMatch(/paused at appointments \(tracked opportunities complete\)/);
-    expect(requests.filter((q) => q.url === '/opportunities/search').map((q) => q.url)).toHaveLength(1);
-    expect(requests.some((q) => q.url === '/calendars/events')).toBe(false);
-    const c1 = await readSyncCursor();
-    expect(c1).toMatchObject({ phase: 'appointments', trackedCount: 1, index: 1 });
-    const [run1] = await db.select().from(syncRuns).where(eq(syncRuns.id, r1.runId));
-    expect(run1.status).toBe('partial');
-    expect(run1.stats.phase).toBe('appointments');
-    expect(String(run1.stats.reason)).toMatch(/^budget exhausted paused at appointments/);
-    expect(await setting('ghl_appointments_completed_at')).toBe('');
-
-    // Run 2: the appointments come BEFORE any mirror page; the family markers land; the tracked phases are complete.
-    requests.length = 0;
-    const r2 = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r2.error, JSON.stringify(r2.warnings)).toBeUndefined();
-    expect(r2.partial).toBe(true); // mirrors remain
-    expect(r2.trackedComplete).toBe(true);
-    expect(r2.phase).toBe('mirrors');
-    const firstEvents = requests.findIndex((q) => q.url === '/calendars/events');
-    const firstMirrorPage = requests.findIndex((q) => q.url === '/opportunities/search');
-    expect(firstEvents).toBeGreaterThanOrEqual(0);
-    expect(firstMirrorPage).toBeGreaterThan(firstEvents);
-    expect(requests.some((q) => q.url === '/opportunities/pipelines')).toBe(false); // phase 0 is not repeated
-    const oppsAt = await setting('ghl_tracked_opps_completed_at');
-    const apptsAt = await setting('ghl_appointments_completed_at');
-    expect(oppsAt).toBeTruthy();
-    expect(apptsAt).toBeTruthy();
-    expect(await setting('ghl_tracked_completed_at')).toBe(c1!.cycleStartedAt);
-    // …but the CYCLE is not complete: the delta lower bound waits for the mirrors, as before.
-    expect(await setting('ghl_last_sync_at')).toBe(lastSyncBefore);
-    expect((await readSyncCursor())!.phase).toBe('mirrors');
-    const [run2] = await db.select().from(syncRuns).where(eq(syncRuns.id, r2.runId));
-    expect(String(run2.stats.reason)).toMatch(/^budget exhausted paused at pipeline \d+\/\d+ ".+", page 1 \(phase mirrors\)$/);
-
-    // The rest of the mirrors: the run that finishes records succeeded with the cycle's totals; the markers are untouched.
-    let final = r2;
-    for (let i = 0; i < 6 && final.partial; i += 1) final = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(final.partial).toBe(false);
-    expect(final.phase).toBe('done');
-    expect(final.trackedComplete).toBe(true);
-    expect(final.progress).toMatch(/completed \d+ pipelines \(1 followed\) in \d+ runs/);
-    expect(final.stats.appointmentsUpserted).toBeGreaterThanOrEqual(1);
-    expect(final.stats.opportunities).toBe(live.length); // one opportunity per pipeline in this fixture
-    expect(await setting('ghl_tracked_opps_completed_at')).toBe(oppsAt);
-    expect(await setting('ghl_last_sync_at')).not.toBe(lastSyncBefore);
-    expect(await readSyncCursor()).toBeNull();
-  });
-
-  it('a cursor written before the order-by-value cycle (no phase) that sits past the followed pipelines runs APPOINTMENTS next, then the mirrors', async () => {
-    // the production state on deploy: 19 partials, the cursor deep in the untracked mirrors, appointments never reached
-    const live = await db.select({ id: pipelines.id, isTracked: pipelines.isTracked, position: pipelines.position }).from(pipelines).where(isNull(pipelines.archivedAt));
-    const order = [...live].sort((a, b) => Number(b.isTracked) - Number(a.isTracked) || (a.position ?? 0) - (b.position ?? 0)).map((p) => p.id);
-    const legacy = { mode: 'delta', cycleStartedAt: '2026-09-28T12:00:00.000Z', since: null, order, index: 2, page: 1, startAfterId: null, startAfter: null, stats: {}, warnings: [], runs: 19, timezone: 'America/New_York' };
-    await db.insert(settings).values({ key: 'ghl_sync_cursor', value: JSON.stringify(legacy) }).onConflictDoUpdate({ target: settings.key, set: { value: JSON.stringify(legacy) } });
-    await clear('ghl_appointments_completed_at');
-    const read = await readSyncCursor();
-    expect(read).toMatchObject({ phase: 'appointments', trackedCount: 1, index: 2 });
-
-    requests.length = 0;
-    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r.error, JSON.stringify(r.warnings)).toBeUndefined();
-    expect(r.trackedComplete).toBe(true);
-    const firstEvents = requests.findIndex((q) => q.url === '/calendars/events');
-    const firstPage = requests.findIndex((q) => q.url === '/opportunities/search');
-    expect(firstEvents).toBeGreaterThanOrEqual(0);
-    expect(firstPage === -1 || firstPage > firstEvents).toBe(true);
-    expect(await setting('ghl_appointments_completed_at')).toBeTruthy();
-    expect(await setting('ghl_tracked_completed_at')).toBe('2026-09-28T12:00:00.000Z');
-    // the mirrors resume where the old cursor left them, not from the top
-    const after = await readSyncCursor();
-    if (after) expect(after.index).toBeGreaterThanOrEqual(2);
-    let final = r;
-    for (let i = 0; i < 6 && final.partial; i += 1) final = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(final.partial).toBe(false);
-    expect(await readSyncCursor()).toBeNull();
-  });
-
-  it('a cycle with no followed pipeline still refreshes appointments first', async () => {
+  const marker = async (family: string) => { const v = await setting(`marker:${family}`); return v ? JSON.parse(v) : null; };
+  const clear = async (key: string) => { await db.delete(settings).where(eq(settings.key, key)); };
+  const followedOnly = async () => {
     await db.update(pipelines).set({ isTracked: false });
-    await clear('ghl_sync_cursor');
-    requests.length = 0;
-    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(r.error, JSON.stringify(r.warnings)).toBeUndefined();
-    expect(r.trackedComplete).toBe(true);
-    expect(requests.findIndex((q) => q.url === '/calendars/events')).toBeLessThan(requests.findIndex((q) => q.url === '/opportunities/search'));
-    let final = r;
-    for (let i = 0; i < 6 && final.partial; i += 1) final = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
-    expect(final.partial).toBe(false);
     await db.update(pipelines).set({ isTracked: true }).where(eq(pipelines.id, 'pipe-1'));
+  };
+
+  beforeAll(async () => {
+    await setSetting(CREDENTIAL_KEYS.token, 'pit-test', { secret: true });
+    await setSetting(CREDENTIAL_KEYS.locationId, 'loc-1');
+    // 250 opportunities in the followed pipeline → 3 pages of 100.
+    for (let i = 0; i < 249; i += 1) {
+      const id = `ct-v2-${i}`;
+      account.opportunities.push({ id: `opp-v2-${i}`, name: `P${i}`, pipelineId: 'pipe-1', pipelineStageId: 'st-applied', status: 'open', contactId: id, createdAt: '2026-09-20T10:00:00Z', updatedAt: '2026-09-20T10:00:00Z' });
+      account.contacts[id] = { id, firstName: `P${i}`, email: `p${i}@x.com`, dateAdded: '2026-09-20T09:00:00Z' };
+    }
+    await followedOnly();
+  });
+
+  it("LEGACY CURSOR (would have caught F1): a pre-v2 cursor sitting past the followed pipeline is ignored — the run reads it and only THEN writes the marker", async () => {
+    await setSetting('ghl_sync_cursor', JSON.stringify({ mode: 'delta', cycleStartedAt: '2026-09-18T12:47:00Z', since: null, order: ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'pipe-1'], index: 7, page: 1, startAfterId: null, startAfter: null, stats: {}, warnings: [], runs: 29, timezone: 'America/Edmonton' }));
+    await clear('marker:ghl.opportunities');
+    account.opportunities.push({ id: 'opp-new-sep29', name: 'New applicant', pipelineId: 'pipe-1', pipelineStageId: 'st-applied', status: 'open', contactId: 'ct-new-sep29', createdAt: '2026-09-29T15:00:00Z', updatedAt: '2026-09-29T15:00:00Z' });
+    account.contacts['ct-new-sep29'] = { id: 'ct-new-sep29', firstName: 'New', email: 'new@x.com', dateAdded: '2026-09-29T15:00:00Z' };
+    requests.length = 0;
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    expect(r.error, JSON.stringify(r.warnings)).toBeUndefined();
+    expect(r).toMatchObject({ ok: true, partial: false, trackedComplete: true });
+    expect(requests.filter((q) => q.url === '/opportunities/search').length).toBe(3); // every page of the followed pipeline
+    const [created] = await db.select().from(contacts).where(eq(contacts.ghlContactId, 'ct-new-sep29'));
+    expect(created).toMatchObject({ pipelineId: 'pipe-1', stageId: 'st-applied' });
+    expect(created.opportunityCreatedAt?.toISOString()).toBe('2026-09-29T15:00:00.000Z');
+    const m = await marker('ghl.opportunities');
+    expect(m).toMatchObject({ runId: r.runId, fetched: 251, liveTotal: 251 });
+    expect(await marker('ghl.appointments')).toMatchObject({ runId: r.runId });
+    expect(r.progress).toMatch(/^followed pipeline: 251 opportunities refreshed at /);
+  });
+
+  it('first run after deploy re-reads every contact (no stored opportunity rows); a quiet next run fetches none', async () => {
+    await db.delete(ghlOpportunities);
+    const first = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    expect(first.stats.contactsFetched).toBe(251);
+    const quiet = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    expect(quiet.stats.contactsFetched).toBe(0);
+    expect(quiet.stats.opportunities).toBe(251); // still read every opportunity
+    expect(await db.select().from(ghlOpportunities).where(eq(ghlOpportunities.pipelineId, 'pipe-1'))).toHaveLength(251);
+    // One changed opportunity → exactly that contact is re-fetched.
+    const o = account.opportunities.find((x) => x.id === 'opp-v2-7')!;
+    o.updatedAt = '2026-09-30T08:00:00Z';
+    o.pipelineStageId = 'st-consult';
+    const changed = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    expect(changed.stats.contactsFetched).toBe(1);
+    expect(changed.stats.transitions).toBe(1);
+  });
+
+  it('a run out of budget in the followed pipeline is PARTIAL with its reason and writes NO marker', async () => {
+    const before = await marker('ghl.opportunities');
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
+    expect(r).toMatchObject({ ok: true, partial: true, trackedComplete: false, phase: 'tracked' });
+    expect(r.progress).toMatch(/time budget reached in the followed pipeline "Application Pipeline" after 100 opportunities — no freshness marker written/);
+    expect(await marker('ghl.opportunities')).toEqual(before);
+    const [row] = await db.select().from(syncRuns).where(eq(syncRuns.id, r.runId));
+    expect(row.status).toBe('partial');
+    expect((row.stats as Record<string, unknown>).reason).toMatch(/no freshness marker written/);
+  });
+
+  it("a walk that reads fewer opportunities than GHL's own meta.total FAILS (the marker would lie)", async () => {
+    const before = await marker('ghl.opportunities');
+    const real = fakeFetch.getMockImplementation()!;
+    fakeFetch.mockImplementation(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/opportunities/search') {
+        const res = await real(input, init);
+        const body = await res.json();
+        return json({ ...body, meta: { total: 999 } });
+      }
+      return real(input, init);
+    });
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    fakeFetch.mockImplementation(real);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/read 251 of 999 opportunities GHL reports/);
+    expect(await marker('ghl.opportunities')).toEqual(before);
+    expect((await db.select().from(syncIncidents)).some((i) => /read 251 of 999/.test(i.message))).toBe(true);
+  });
+
+  it('mirrors: the weekly pass uses its own cursor, only after ① completed, and only once a week', async () => {
+    await clear('marker:ghl.mirrors');
+    await clear('ghl_mirror_cursor');
+    account.pipelines.push({ id: 'pipe-m1', name: 'Mirror One', stages: [{ id: 'st-m1', name: 'Old', position: 0 }] });
+    account.opportunities.push({ id: 'opp-m1', name: 'M', pipelineId: 'pipe-m1', pipelineStageId: 'st-m1', status: 'open', contactId: 'ct-m1', createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z' });
+    account.contacts['ct-m1'] = { id: 'ct-m1', firstName: 'M', dateAdded: '2025-01-01T00:00:00Z' };
+    // Pages allowed = the followed walk (3) — nothing left for mirrors: ① complete, mirror pass waits.
+    const tight = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 3 });
+    expect(tight).toMatchObject({ ok: true, partial: false, trackedComplete: true, phase: 'mirrors' });
+    // Two unfollowed pipelines by now: the retired "{ Off } Old Funnel" from an earlier test, and Mirror One.
+    expect(tight.progress).toMatch(/mirrors: weekly pass paused at pipeline 1\/2 "\{ Off \} Old Funnel", page 1 — continues next run/);
+    const next = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(next.phase).toBe('done');
+    expect(next.progress).toMatch(/mirrors: weekly pass complete \(2 runs\)/);
+    expect(await marker('ghl.mirrors')).toMatchObject({ fetched: 2 });
+    expect(await db.select().from(ghlOpportunities).where(eq(ghlOpportunities.pipelineId, 'pipe-m1'))).toHaveLength(1);
+    expect(await setting('ghl_mirror_cursor')).toBe('');
+    const later = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(later.progress).toMatch(/mirrors: weekly pass not due/);
+    account.pipelines.pop();
+  });
+
+  it('a GHL 429 is retried once after Retry-After', async () => {
+    const real = fakeFetch.getMockImplementation()!;
+    let limited = 0;
+    fakeFetch.mockImplementation(async (input: string | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/users/' && limited === 0) {
+        limited += 1;
+        return new Response('slow down', { status: 429, headers: { 'Retry-After': '0' } });
+      }
+      return real(input, init);
+    });
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cron', mirrors: 'skip' });
+    fakeFetch.mockImplementation(real);
+    expect(limited).toBe(1);
+    expect(r.warnings.some((w) => /Users:/.test(w))).toBe(false);
   });
 });
 
@@ -554,13 +474,13 @@ describe('one GHL run at a time (F5, 2026-09-30: atomic lease)', () => {
   it('a run that starts while another holds the lease skips without touching the cursor or recording a row', async () => {
     const other = await acquireLock(GHL_LOCK, 'someone-else', GHL_LOCK_TTL_MS);
     expect(other.ok).toBe(true);
-    const cursorBefore = await readSyncCursor();
+    const cursorBefore = await readMirrorCursor();
     const runsBefore = (await db.select().from(syncRuns)).length;
     const r = await runGhlSync({ mode: 'delta', trigger: 'cron' });
     expect(r).toMatchObject({ ok: true, partial: false, trackedComplete: false, requestsUsed: 0 });
     expect(r.skipped).toMatch(/another GHL sync holds the lock until/);
     expect((await db.select().from(syncRuns)).length).toBe(runsBefore);
-    expect(await readSyncCursor()).toEqual(cursorBefore);
+    expect(await readMirrorCursor()).toEqual(cursorBefore);
     await releaseLock(GHL_LOCK, 'someone-else');
   });
 

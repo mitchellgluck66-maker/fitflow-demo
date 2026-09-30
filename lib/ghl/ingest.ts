@@ -1,40 +1,22 @@
 /**
- * GoHighLevel → Postgres ingestion (READ-ONLY, idempotent, RESUMABLE).
+ * GoHighLevel → Postgres ingestion (READ-ONLY, idempotent) — Ingestion v2 (2026-09-30).
  *
- * One entry point, `runGhlSync`, in two modes:
- *   delta     scheduled. Re-reads pipelines/stages, then every opportunity
- *             pipeline by pipeline (followed first), fetching contacts only
- *             when new or changed since the last completed cycle, then the
- *             calendar events. Stage moves are derived by diffing against
- *             stored positions.
- *   backfill  history import from `backfill_from`. Same code path; every row
- *             it touches is flagged backfilled=true.
+ * F1 (2026-09-29 verification): the followed pipeline had not been read since Sep 18 while the banner said
+ * fresh. The resumable cycle walked 15 pipelines before returning to it, and a legacy cursor skipped it outright
+ * while the appointments block stamped it complete. v2, on EVERY run (`runGhlSync`):
  *
- * A sync is a CYCLE that may span several invocations: each run does what
- * fits in its time budget (Vercel Hobby kills a function at 60s; the daily
- * delta on 15 pipelines did not fit), persists a cursor
- * (settings.ghl_sync_cursor: phase + pipeline index + page) after every
- * processed page, and exits cleanly as status 'partial'. The next invocation
- * resumes at the cursor; the run that finishes the cycle records 'succeeded'
- * with the cycle's totals and advances ghl_last_sync_at. No run is ever left
- * 'running'.
+ *   ① TRACKED  pipelines + stages → EVERY page of the followed pipeline(s) (limit 100, startAfterId; the walk
+ *              is complete only when it read GHL's meta.total) → contacts fetched only when new, when their
+ *              opportunity changed (updatedAt), when we hold no ghl_opportunities row for it (so the first run
+ *              after deploy re-reads everyone), or on a full/backfill run → positions + transitions
+ *              (ON CONFLICT DO NOTHING) → ghl_opportunities → appointments (−14 d … +90 d).
+ *              Markers `ghl.opportunities` / `ghl.appointments` are written HERE, after the fetch, with counts —
+ *              nowhere else. A run out of budget writes no marker and re-reads from page 1 next time.
+ *   ② MIRRORS  unfollowed pipelines, history only: one pass a week (settings.ghl_mirror_cursor), leftover budget
+ *              only, never before ①. Marker `ghl.mirrors` when a pass completes.
  *
- * ORDER BY VALUE (2026-09-29 production audit — 19 consecutive partials, zero
- * completed cycles, appointments 11 days stale, reconciliation never ran):
- *   phase 0      pipelines, stages, users
- *   tracked      the FOLLOWED pipelines' opportunity pages (what the dashboard shows)
- *   appointments the calendar events
- *   marker       ghl_tracked_opps_completed_at / ghl_appointments_completed_at /
- *                ghl_tracked_completed_at — reconciliation is eligible from here,
- *                and the stale banner keys off these per family; payments re-match
- *   mirrors      the untracked pipelines' opportunity pages, LAST — history only
- *   done         ghl_last_sync_at, cursor cleared, status succeeded
- * A budget-limited run refreshes everything the dashboard displays before it
- * spends a second on a mirror, and every partial run's stats say where it
- * stopped and why.
- *
- * Every upsert is keyed by the GHL id, so re-running either mode is safe.
- * Demo rows (origin='demo') are never touched by a sync.
+ * One run at a time (atomic lease, lib/syncLock.ts). Every upsert is keyed by the GHL id. Demo rows are never
+ * touched. The pre-v2 cursor (settings.ghl_sync_cursor) is cleared by migration 0013 and never read.
  */
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -47,6 +29,7 @@ import {
   stageTransitions,
   syncRuns,
   syncIncidents,
+  ghlOpportunities,
   type SemanticRole,
 } from '@/db';
 import { getDayBounds } from '../day';
@@ -72,6 +55,7 @@ import type { GhlContact, GhlOpportunity } from './schemas';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 import { acquireLock, releaseLock } from '../syncLock';
+import { readMarker, writeMarker } from '../sync/markers';
 import { runPaymentMatching } from '../stripe/matching';
 import { classifyAttribution } from '../attribution/classify';
 import { isDefaultFollowedPipeline } from './followed';
@@ -111,11 +95,12 @@ export interface SyncResult {
   partial: boolean;
   /** Human-readable progress ("paused at pipeline 3/15, page 2" / "completed …"). */
   progress: string | null;
-  /** The TRACKED phases (followed pipelines' opportunities + appointments) of the current cycle are complete — reconciliation is eligible. */
+  /** The followed pipeline(s) AND appointments were fully read in THIS run (their markers were written). */
   trackedComplete: boolean;
-  /** Where the run ended: tracked | appointments | mirrors | done. */
+  /** Where the run ended: tracked | appointments (① incomplete) | mirrors (weekly pass continues) | done. */
   phase: SyncPhase | 'done';
-  cursor: SyncCursor | null;
+  /** The weekly mirror pass cursor after this run (null when no pass is in progress). */
+  cursor: MirrorCursor | null;
   runId: string;
   mode: SyncMode;
   since: Date | null;
@@ -361,86 +346,65 @@ export async function syncPipelines(options: { backfilled: boolean; now: Date })
 }
 
 // ---------------------------------------------------------------------------
-// The sync — chunked and resumable
+// The sync — Ingestion v2 (2026-09-30): a TRACKED job every run, then a weekly MIRROR pass
 // ---------------------------------------------------------------------------
 
 /**
- * Where a sync CYCLE stopped. Persisted in settings.ghl_sync_cursor after
- * every processed opportunity page, cleared when the cycle completes. A cycle
- * is: phase 0 (pipelines/stages, users) → phase 1 (opportunities + contacts,
- * one pipeline at a time, followed pipelines first, untracked mirrors last)
- * → phase 2 (calendar events, payment re-match, bookkeeping).
+ * The weekly mirror pass's cursor (settings.ghl_mirror_cursor) — the only cursor v2 keeps. The followed pipeline
+ * never needs one: it is walked completely on every run.
  */
-export interface SyncCursor {
-  mode: SyncMode;
-  /** ISO — becomes the next delta's `since` once the cycle completes. */
-  cycleStartedAt: string;
-  /** ISO lower bound used for "changed since" throughout the cycle (null = everything). */
-  since: string | null;
-  /** Pipeline ids in processing order: followed first, then the rest. */
+export interface MirrorCursor {
+  /** ISO — when this pass started. */
+  passStartedAt: string;
+  /** Unfollowed live pipeline ids, in position order. */
   order: string[];
-  /** How many of `order` are followed — the tracked phase covers order[0..trackedCount). */
-  trackedCount: number;
-  /** Which phase the cycle is in. A cursor written before 2026-09-29 has none; readSyncCursor derives it. */
-  phase: SyncPhase;
   index: number;
   page: number;
   startAfterId: string | null;
   startAfter: number | null;
-  /** Stats accumulated across the cycle's runs so far. */
-  stats: SyncStats;
-  warnings: string[];
+  /** Opportunities read so far in this pass. */
+  fetched: number;
   runs: number;
-  timezone: string;
 }
 
-/** Default time budget per invocation: Vercel Hobby kills at 60s; one page of contact fetches can add ~10s. */
-export const DEFAULT_BUDGET_MS = 40_000;
-/** Opportunities per page — small so a page (with its contact fetches) fits the budget. */
-export const PAGE_LIMIT = 50;
+/** Per-run time budget. Pro: every syncing route has maxDuration 300 s; a full followed-pipeline refresh
+ *  (≈5 pages + up to ~400 contact GETs at GHL's 100 req / 10 s) takes ~45–60 s, so it always fits. */
+export const DEFAULT_BUDGET_MS = 200_000;
+/** Opportunities per page (GHL's maximum). */
+export const PAGE_LIMIT = 100;
+/** The mirrors (history only; nothing on screen reads them) are walked once a week, in slices. */
+export const MIRROR_PASS_EVERY_MS = 7 * 86_400_000;
+/** Do not start mirror pages with less than this left in the run's budget. */
+export const MIN_MIRROR_SLICE_MS = 15_000;
 
-export async function readSyncCursor(): Promise<SyncCursor | null> {
-  const raw = await getSetting(SETTING_KEYS.ghlSyncCursor);
+export async function readMirrorCursor(): Promise<MirrorCursor | null> {
+  const raw = await getSetting(SETTING_KEYS.ghlMirrorCursor);
   if (!raw) return null;
   try {
-    const c = JSON.parse(raw) as Partial<SyncCursor>;
-    if (!c || !Array.isArray(c.order) || typeof c.index !== 'number') return null;
-    if (c.phase === 'tracked' || c.phase === 'appointments' || c.phase === 'mirrors') return c as SyncCursor;
-    // A cursor from before the order-by-value cycle (2026-09-29): its order was already followed-first, so
-    // the tracked count is the followed pipelines of today. Inside the followed block → still tracked; past it →
-    // the appointments have not run this cycle, so they run NEXT, before any more mirrors.
-    const tracked = await db.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.isTracked, true), isNull(pipelines.archivedAt)));
-    const followed = new Set(tracked.map((t) => t.id));
-    const trackedCount = c.order.filter((id) => followed.has(id)).length;
-    const phase: SyncPhase = c.index < trackedCount ? 'tracked' : 'appointments';
-    return { ...(c as SyncCursor), trackedCount, phase };
+    const c = JSON.parse(raw) as MirrorCursor;
+    return c && Array.isArray(c.order) && typeof c.index === 'number' ? c : null;
   } catch {
     return null;
   }
 }
 
-async function writeSyncCursor(cursor: SyncCursor | null): Promise<void> {
-  await setSetting(SETTING_KEYS.ghlSyncCursor, cursor ? JSON.stringify(cursor) : '');
-}
-
-function addStats(into: SyncStats, from: SyncStats): SyncStats {
-  const out: SyncStats = { ...into };
-  for (const k of Object.keys(from) as Array<keyof SyncStats>) {
-    const a = out[k], b = from[k];
-    if (typeof b === 'number') (out as unknown as Record<string, number>)[k] = (typeof a === 'number' ? a : 0) + b;
-  }
-  return out;
+async function writeMirrorCursor(cursor: MirrorCursor | null): Promise<void> {
+  await setSetting(SETTING_KEYS.ghlMirrorCursor, cursor ? JSON.stringify(cursor) : '');
 }
 
 export async function runGhlSync(options: {
   mode: SyncMode;
   trigger: SyncTrigger;
-  /** Override the delta lower bound / backfill start (ISO). Starts a fresh cycle. */
+  /** Backfill / manual: lower bound of the appointment window (ISO). */
   since?: string;
-  /** Stop starting new pages after this much wall time; the cursor resumes next run. */
+  /** Stop starting new pages after this much wall time (default DEFAULT_BUDGET_MS). */
   budgetMs?: number;
   /** Test hook: at most this many opportunity pages in one run. */
   maxPages?: number;
+  /** Re-fetch every followed contact (backfill does too). */
+  full?: boolean;
+  /** Mirror pass: 'auto' (weekly, leftover budget), 'skip' ("Sync now"), 'force' (start/continue one now). */
+  mirrors?: 'auto' | 'skip' | 'force';
 }): Promise<SyncResult> {
   const startedAt = new Date();
   await sweepStaleRuns(startedAt);
@@ -471,19 +435,20 @@ export const GHL_LOCK_TTL_MS = 330_000;
 
 async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], startedAt: Date): Promise<SyncResult> {
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
-  const overBudget = () => Date.now() - startedAt.getTime() >= budgetMs;
+  const elapsed = () => Date.now() - startedAt.getTime();
   const stats = emptyStats();
   const warnings: string[] = [];
   let incidents = 0;
   let requestsUsed = 0;
+  let pagesThisRun = 0;
+  const outOfTime = () => elapsed() >= budgetMs;
+  // maxPages (test hook) limits OPPORTUNITY pages only; appointments are stopped by the time budget alone.
+  const outOfRoom = () => outOfTime() || (options.maxPages !== undefined && pagesThisRun >= options.maxPages);
 
-  const config = await getGhlConfig();
-
-  // ---- Resume or start a cycle ------------------------------------------
-  const existing = options.since ? null : await readSyncCursor();
-  const resuming = Boolean(existing);
-  const mode: SyncMode = existing?.mode ?? options.mode;
+  const mode: SyncMode = options.mode;
   const backfilled = mode === 'backfill';
+  const full = backfilled || Boolean(options.full);
+  const mirrorsMode = options.mirrors ?? (backfilled ? 'force' : 'auto');
 
   const [run] = await db
     .insert(syncRuns)
@@ -496,26 +461,27 @@ async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], start
     await db.insert(syncIncidents).values({ syncRunId: runId, kind, severity, message, details });
   };
 
-  const finish = async (status: 'succeeded' | 'partial' | 'failed', since: Date | null, extra: { error?: string; cycleStats?: SyncStats; progress?: string; cursor?: SyncCursor | null; trackedComplete?: boolean; phase?: SyncPhase | 'done' } = {}): Promise<SyncResult> => {
+  let trackedComplete = false;
+  let mirrorCursor: MirrorCursor | null = null;
+  const finish = async (status: 'succeeded' | 'partial' | 'failed', extra: { error?: string; progress: string; phase: SyncPhase | 'done' }): Promise<SyncResult> => {
     const finishedAt = new Date();
-    const reported: SyncStats = { ...(extra.cycleStats ?? stats) };
-    const phase: SyncPhase | 'done' = extra.phase ?? (extra.cursor ? extra.cursor.phase : 'done');
-    reported.phase = phase;
-    if (status !== 'succeeded' && (extra.progress || extra.error)) reported.reason = extra.error ? `failed: ${extra.error}` : `budget exhausted ${extra.progress}`;
+    const reported: SyncStats = { ...stats, phase: extra.phase };
+    // Every row says what the run did or why it stopped — never an empty "partial".
+    reported.reason = extra.error ? `failed: ${extra.error}` : extra.progress;
     await db
       .update(syncRuns)
-      .set({ status, finishedAt, since, requestsUsed, stats: reported as unknown as Record<string, number>, warnings, error: extra.error ?? null })
+      .set({ status, finishedAt, since: options.since ? toDate(options.since) : null, requestsUsed, stats: reported as unknown as Record<string, number>, warnings, error: extra.error ?? null })
       .where(eq(syncRuns.id, runId));
     return {
       ok: status !== 'failed',
       partial: status === 'partial',
-      progress: extra.progress ?? null,
-      trackedComplete: extra.trackedComplete ?? (extra.cursor ? extra.cursor.phase === 'mirrors' : status === 'succeeded'),
-      phase,
-      cursor: extra.cursor ?? null,
+      progress: extra.progress,
+      trackedComplete,
+      phase: extra.phase,
+      cursor: mirrorCursor,
       runId,
       mode,
-      since,
+      since: options.since ? toDate(options.since) : null,
       stats: reported,
       warnings,
       incidents,
@@ -525,19 +491,17 @@ async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], start
     };
   };
 
+  const config = await getGhlConfig();
   if (!config.configured) {
     await raise('error', 'warning', 'Sync skipped: no GoHighLevel credentials configured.');
-    return finish('failed', null, { error: 'No GoHighLevel credentials configured.' });
+    return finish('failed', { error: 'No GoHighLevel credentials configured.', progress: 'not started', phase: 'tracked' });
   }
 
-  const timezone = existing?.timezone ?? (await getTimezone());
-  let cursor: SyncCursor;
-  let roleOf: (stageId: string | null) => SemanticRole | null;
-  let trackedPipelineIds: Set<string>;
-  const userNames = new Map<string, string>();
-
   try {
-    // ---- Users (id → name); cheap, every run -------------------------
+    const timezone = await getTimezone(); // F8: throws when not configured → this run fails with the reason
+    const userNames = new Map<string, string>();
+
+    // ---- Users (id → name); cheap, every run ---------------------------------------------------------------------
     const usersRes = await listUsers();
     requestsUsed += 1;
     if (usersRes.ok && usersRes.data) {
@@ -549,123 +513,60 @@ async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], start
       warnings.push(`Users: ${usersRes.error}`);
     }
 
-    if (existing) {
-      cursor = existing;
-      warnings.push(`Resuming ${mode} cycle started ${cursor.cycleStartedAt}: pipeline ${cursor.index + 1}/${cursor.order.length}, page ${cursor.page}.`);
-      // Roles / followed set from the DB (phase 0 already ran this cycle).
-      const stageRows = await db.select({ id: stages.id, role: stages.semanticRole }).from(stages);
-      const roleMap = new Map(stageRows.map((r) => [r.id, r.role ?? null]));
-      roleOf = (id) => (id ? (roleMap.get(id) ?? null) : null);
-      const tracked = await db.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.isTracked, true), isNull(pipelines.archivedAt)));
-      trackedPipelineIds = new Set(tracked.map((t) => t.id));
-    } else {
-      // ---- Phase 0: pipelines & stages, window, order -------------------
-      let since: Date | null;
-      if (options.since) since = toDate(options.since);
-      else if (backfilled) since = new Date(getDayBounds((await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl, timezone).startMs);
-      else since = toDate(await getSetting(SETTING_KEYS.ghlLastSyncAt));
-
-      const pipelineSync = await syncPipelines({ backfilled, now: startedAt });
-      requestsUsed += 1;
-      if (pipelineSync.error) {
-        await raise('error', 'critical', `Pipeline read failed: ${pipelineSync.error}`);
-        return finish('failed', since, { error: pipelineSync.error });
-      }
-      stats.pipelines = pipelineSync.pipelines;
-      stats.stages = pipelineSync.stages;
-      stats.stagesUnmapped = pipelineSync.unmapped.length;
-      warnings.push(...pipelineSync.warnings);
-      for (const u of pipelineSync.unmapped) {
-        if (!(await hasIncidentForStage(u.stageId))) {
-          await raise(
-            'unmapped_stage',
-            'warning',
-            `Stage "${u.stageName}" in "${u.pipelineName}" has no semantic role. Suggested: ${u.suggested} (${Math.round(u.confidence * 100)}%). Confirm it in Setup.`,
-            { stageId: u.stageId, stageName: u.stageName, suggested: u.suggested, confidence: u.confidence },
-          );
-        }
-      }
-      roleOf = (stageId) => (stageId ? (pipelineSync.roleOf.get(stageId) ?? null) : null);
-      trackedPipelineIds = new Set(pipelineSync.trackedPipelineIds);
-      // Stages mapped / unfollowed since last time no longer deserve an open incident.
-      try {
-        await sweepIncidentNoise(startedAt);
-      } catch (err) {
-        warnings.push(`Incident sweep failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-
-      // Followed pipelines first (they drive dashboards), untracked mirrors last.
-      const live = await db
-        .select({ id: pipelines.id, isTracked: pipelines.isTracked, position: pipelines.position })
-        .from(pipelines)
-        .where(and(eq(pipelines.origin, 'ghl'), isNull(pipelines.archivedAt)));
-      const sorted = [...live].sort((a, b) => Number(b.isTracked) - Number(a.isTracked) || (a.position ?? 0) - (b.position ?? 0));
-      const order = sorted.map((p) => p.id);
-      const trackedCount = sorted.filter((p) => p.isTracked).length;
-
-      cursor = {
-        mode,
-        cycleStartedAt: startedAt.toISOString(),
-        since: since?.toISOString() ?? null,
-        order,
-        trackedCount,
-        phase: trackedCount > 0 ? 'tracked' : 'appointments',
-        index: 0,
-        page: 1,
-        startAfterId: null,
-        startAfter: null,
-        stats: emptyStats(),
-        warnings: [],
-        runs: 0,
-        timezone,
-      };
-      await writeSyncCursor(cursor);
+    // ---- Pipelines & stages; every run (one request) --------------------------------------------------------------
+    const pipelineSync = await syncPipelines({ backfilled, now: startedAt });
+    requestsUsed += 1;
+    if (pipelineSync.error) {
+      await raise('error', 'critical', `Pipeline read failed: ${pipelineSync.error}`);
+      return finish('failed', { error: pipelineSync.error, progress: 'at pipelines', phase: 'tracked' });
     }
+    stats.pipelines = pipelineSync.pipelines;
+    stats.stages = pipelineSync.stages;
+    stats.stagesUnmapped = pipelineSync.unmapped.length;
+    warnings.push(...pipelineSync.warnings);
+    for (const u of pipelineSync.unmapped) {
+      if (!(await hasIncidentForStage(u.stageId))) {
+        await raise(
+          'unmapped_stage',
+          'warning',
+          `Stage "${u.stageName}" in "${u.pipelineName}" has no semantic role. Suggested: ${u.suggested} (${Math.round(u.confidence * 100)}%). Confirm it in Setup.`,
+          { stageId: u.stageId, stageName: u.stageName, suggested: u.suggested, confidence: u.confidence },
+        );
+      }
+    }
+    const roleOf = (stageId: string | null) => (stageId ? (pipelineSync.roleOf.get(stageId) ?? null) : null);
+    const trackedPipelineIds = new Set(pipelineSync.trackedPipelineIds);
+    try {
+      await sweepIncidentNoise(startedAt);
+    } catch (err) {
+      warnings.push(`Incident sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const live = await db
+      .select({ id: pipelines.id, name: pipelines.name, isTracked: pipelines.isTracked, position: pipelines.position })
+      .from(pipelines)
+      .where(and(eq(pipelines.origin, 'ghl'), isNull(pipelines.archivedAt)));
+    const byPosition = [...live].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    const followed = byPosition.filter((p) => trackedPipelineIds.has(p.id));
+    const unfollowed = byPosition.filter((p) => !trackedPipelineIds.has(p.id));
+    const nameOf = new Map(live.map((p) => [p.id, p.name]));
 
-    const since = cursor.since ? new Date(cursor.since) : null;
-    const previousSyncAt = backfilled ? null : since;
-    cursor.runs += 1;
-    let pagesThisRun = 0;
-    const pipelineLabel = async (id: string): Promise<string> => {
-      const [row] = await db.select({ name: pipelines.name }).from(pipelines).where(eq(pipelines.id, id)).limit(1);
-      return row?.name ? `"${row.name}"` : id;
-    };
-    // The one pause: persist the cycle's stats + where it stopped, say why, exit partial. The reason names the pipeline
-    // and page (or the phase) so a run row never reads as an empty "partial".
-    const pause = async (what: string) => {
-      cursor.stats = addStats(cursor.stats, stats);
-      cursor.warnings = [...cursor.warnings, ...warnings].slice(-50);
-      await writeSyncCursor(cursor);
-      const progress = `at ${what} (phase ${cursor.phase})`;
-      warnings.push(`Time budget reached — paused ${progress}. The next run continues from here.`);
-      return finish('partial', since, { progress: `paused ${progress}`, cursor });
-    };
-    const pageProgress = async () => `pipeline ${cursor.index + 1}/${cursor.order.length} ${await pipelineLabel(cursor.order[cursor.index])}, page ${cursor.page}`;
-
-    const outOfRoom = () => overBudget() || (options.maxPages !== undefined && pagesThisRun >= options.maxPages);
-    // One opportunity page of the pipeline the cursor points at. Returns false when the cycle must stop (a read failed —
-    // the cursor stays on this page so the next run retries it).
-    const onePage = async (): Promise<SyncResult | null> => {
-      const pipelineId = cursor.order[cursor.index];
-      const pageRes = await listOpportunitiesPage({ pipelineId, page: cursor.page, startAfterId: cursor.startAfterId, startAfter: cursor.startAfter, limit: PAGE_LIMIT });
+    const fetchedContacts = new Set<string>();
+    // One page of one pipeline: read, process (contacts, positions, transitions, ghl_opportunities).
+    const readPage = async (pipelineId: string, at: { page: number; startAfterId: string | null; startAfter: number | null }, tracked: boolean, previousSyncAt: Date | null) => {
+      const pageRes = await listOpportunitiesPage({ pipelineId, page: at.page, startAfterId: at.startAfterId, startAfter: at.startAfter, limit: PAGE_LIMIT });
       requestsUsed += 1;
       pagesThisRun += 1;
       stats.rejectedRows += pageRes.rejected;
       warnings.push(...pageRes.warnings);
-      if (pageRes.error) {
-        await raise('error', 'critical', `Opportunity read failed (pipeline ${pipelineId}, page ${cursor.page}): ${pageRes.error}`);
-        cursor.stats = addStats(cursor.stats, stats);
-        await writeSyncCursor(cursor); // resume at the same page next time
-        return finish('failed', since, { error: pageRes.error, cursor, progress: `at ${await pageProgress()}` });
-      }
-
+      if (pageRes.error) return { error: pageRes.error, pageRes };
       const processed = await processOpportunityPage({
         opportunities: pageRes.opportunities,
-        pipelineTracked: trackedPipelineIds.has(pipelineId),
+        pipelineTracked: tracked,
         trackedPipelineIds,
-        since,
-        previousSyncAt,
+        previousSyncAt: backfilled ? null : previousSyncAt,
         backfilled,
+        full,
+        fetchedContacts,
         startedAt,
         runId,
         roleOf,
@@ -678,165 +579,210 @@ async function runGhlSyncLocked(options: Parameters<typeof runGhlSync>[0], start
       stats.transitions += processed.transitions;
       stats.pagesDone += 1;
       warnings.push(...processed.warnings);
-
-      // Advance the cursor and persist it — this page is done for good.
-      if (pageRes.done) {
-        cursor.index += 1;
-        cursor.page = 1;
-        cursor.startAfterId = null;
-        cursor.startAfter = null;
-      } else {
-        cursor.page = pageRes.next.page;
-        cursor.startAfterId = pageRes.next.startAfterId;
-        cursor.startAfter = pageRes.next.startAfter;
-      }
-      await writeSyncCursor(cursor);
-      return null;
+      return { error: null as string | null, pageRes };
     };
 
-    // ---- Phase "tracked": the FOLLOWED pipelines' opportunities — what the dashboard shows ----
-    while (cursor.phase === 'tracked') {
-      if (cursor.index >= cursor.trackedCount) { cursor.phase = 'appointments'; await writeSyncCursor(cursor); break; }
-      if (outOfRoom()) return pause(await pageProgress());
-      const stop = await onePage();
-      if (stop) return stop;
-    }
-
-    // ---- Phase "appointments": the calendar events, then the family markers (reconciliation is eligible from here) ----
-    if (cursor.phase === 'appointments') {
-      if (outOfRoom()) return pause('appointments (tracked opportunities complete)');
-      const appt = await syncAppointments();
-      if (appt.error) return finish('failed', since, { error: appt.error, cursor, progress: 'at appointments' });
-      // The tracked phases are complete for this cycle: the dashboard's data is fresh, whatever the mirrors do later.
-      const doneAt = new Date().toISOString();
-      if (!backfilled) {
-        await setSetting(SETTING_KEYS.ghlTrackedOppsCompletedAt, doneAt);
-        await setSetting(SETTING_KEYS.ghlAppointmentsCompletedAt, doneAt);
-        await setSetting(SETTING_KEYS.ghlTrackedCompletedAt, cursor.cycleStartedAt);
+    // ================================================================================================================
+    // ① TRACKED — the followed pipeline(s), completely, on EVERY run. What the dashboard shows is refreshed here.
+    // ================================================================================================================
+    const previousTracked = await readMarker('ghl.opportunities');
+    const trackedPrevAt = previousTracked ? new Date(previousTracked.completedAt) : null;
+    let trackedFetched = 0;
+    let trackedLiveTotal: number | null = 0;
+    for (const p of followed) {
+      let at = { page: 1, startAfterId: null as string | null, startAfter: null as number | null };
+      let pipelineFetched = 0;
+      let pipelineTotal: number | null = null;
+      for (;;) {
+        if (outOfRoom()) {
+          // No marker: the followed pipeline was NOT fully read this run. The next run walks it again from page 1.
+          return finish('partial', { progress: `time budget reached in the followed pipeline "${p.name}" after ${pipelineFetched} opportunities — no freshness marker written; the next run re-reads it`, phase: 'tracked' });
+        }
+        const r = await readPage(p.id, at, true, trackedPrevAt);
+        if (r.error) {
+          await raise('error', 'critical', `Opportunity read failed (followed pipeline "${p.name}", page ${at.page}): ${r.error}`);
+          return finish('failed', { error: r.error, progress: `at followed pipeline "${p.name}" page ${at.page}`, phase: 'tracked' });
+        }
+        if (pipelineTotal === null) pipelineTotal = r.pageRes.total;
+        pipelineFetched += r.pageRes.opportunities.length + r.pageRes.rejected;
+        if (r.pageRes.done || !r.pageRes.next.startAfterId && r.pageRes.opportunities.length === 0) break;
+        at = { page: r.pageRes.next.page, startAfterId: r.pageRes.next.startAfterId, startAfter: r.pageRes.next.startAfter };
       }
-      // Contacts that arrived this cycle may be the identities unmatched Stripe payments were waiting for; cheap and
-      // idempotent, manual matches never overwritten. Here, not after the mirrors — the dashboard shows payments too.
-      try {
-        const matching = await runPaymentMatching();
-        stats.paymentsMatched += matching.matched;
-      } catch (err) {
-        warnings.push(`Payment re-match after sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      // A walk is complete only if it read what GHL says exists — otherwise the "fresh" marker would lie (F1).
+      if (pipelineTotal !== null && pipelineFetched < pipelineTotal) {
+        const msg = `Followed pipeline "${p.name}": read ${pipelineFetched} of ${pipelineTotal} opportunities GHL reports — pagination stopped early`;
+        await raise('error', 'critical', msg, { pipelineId: p.id, fetched: pipelineFetched, liveTotal: pipelineTotal });
+        return finish('failed', { error: msg, progress: msg, phase: 'tracked' });
       }
-      cursor.phase = 'mirrors';
-      cursor.index = cursor.trackedCount;
-      cursor.page = 1;
-      cursor.startAfterId = null;
-      cursor.startAfter = null;
-      cursor.stats = addStats(cursor.stats, stats);
-      await writeSyncCursor(cursor);
-      // stats now live in the cursor; this run's own counters restart at zero so nothing is double-counted
-      for (const k of Object.keys(stats) as Array<keyof SyncStats>) if (typeof stats[k] === 'number') (stats as unknown as Record<string, number>)[k] = 0;
+      trackedFetched += pipelineFetched;
+      trackedLiveTotal = pipelineTotal === null || trackedLiveTotal === null ? null : trackedLiveTotal + pipelineTotal;
+    }
+    await writeMarker({
+      family: 'ghl.opportunities',
+      runId,
+      fetched: trackedFetched,
+      liveTotal: trackedLiveTotal,
+      detail: `${followed.length} followed pipeline${followed.length === 1 ? '' : 's'} · ${trackedFetched} opportunities`,
+    });
+    if (!backfilled) await setSetting(SETTING_KEYS.ghlLastSyncAt, startedAt.toISOString());
+    if (followed.length > 0 && trackedFetched === 0) {
+      await raise('silence', 'warning', 'The followed pipeline returned zero opportunities.');
     }
 
-    // ---- Phase "mirrors": the untracked pipelines, LAST — history only, never what the dashboard displays ----
-    while (cursor.phase === 'mirrors' && cursor.index < cursor.order.length) {
-      if (outOfRoom()) return pause(await pageProgress());
-      const stop = await onePage();
-      if (stop) return stop;
+    // ---- Appointments (every run) ----------------------------------------------------------------------------------
+    if (outOfTime()) {
+      return finish('partial', { progress: `followed pipeline refreshed (${trackedFetched} opportunities); time budget reached before appointments — no appointments marker written`, phase: 'appointments' });
     }
+    const previousAppts = await readMarker('ghl.appointments');
+    const appt = await syncAppointments(previousAppts ? new Date(previousAppts.completedAt) : null);
+    if (appt.error) {
+      await raise('error', 'critical', `Appointments read failed: ${appt.error}`);
+      return finish('failed', { error: appt.error, progress: 'at appointments', phase: 'appointments' });
+    }
+    await writeMarker({ family: 'ghl.appointments', runId, fetched: appt.fetched, detail: `${appt.calendars} calendar${appt.calendars === 1 ? '' : 's'} · ${appt.fetched} events` });
+    trackedComplete = true;
 
-    // ---- Done: bookkeeping ------------------------------------------------
-    const cycleStats = addStats(cursor.stats, stats);
-    cycleStats.cycleRuns = cursor.runs;
-    if (!backfilled) await setSetting(SETTING_KEYS.ghlLastSyncAt, cursor.cycleStartedAt);
-    await writeSyncCursor(null);
-    warnings.unshift(...cursor.warnings);
-    return finish('succeeded', since, { cycleStats, trackedComplete: true, phase: 'done', progress: `completed ${cursor.order.length} pipelines (${cursor.trackedCount} followed) in ${cursor.runs} run${cursor.runs === 1 ? '' : 's'}` });
-
-    // The calendar events for the cycle's window — one request per active calendar. Counts land in this run's stats.
-    async function syncAppointments(): Promise<{ error?: string }> {
-    const calendarsRes = await listCalendars();
-    requestsUsed += 1;
-    const calendars = calendarsRes.ok && calendarsRes.data ? calendarsRes.data.calendars : [];
-    if (!calendarsRes.ok) warnings.push(`Calendars: ${calendarsRes.error}`);
-    stats.calendars = calendars.length;
-
-    const followedRaw = await getSetting('ghl_followed_calendars');
-    let followedCalendars: string[] = [];
+    // Contacts that arrived may be the identities unmatched Stripe payments were waiting for (manual matches kept).
     try {
-      followedCalendars = followedRaw ? (JSON.parse(followedRaw) as string[]) : [];
-    } catch {
-      followedCalendars = [];
+      const matching = await runPaymentMatching();
+      stats.paymentsMatched += matching.matched;
+    } catch (err) {
+      warnings.push(`Payment re-match after sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    const activeCalendars = calendars.filter((c) => c.isActive !== false && (followedCalendars.length === 0 || followedCalendars.includes(c.id)));
-    const cycleStart = new Date(cursor.cycleStartedAt);
-    const windowStartMs = backfilled ? (since ?? cycleStart).getTime() : Math.min((since ?? cycleStart).getTime(), cycleStart.getTime() - DELTA_LOOKBACK_DAYS * 86_400_000);
-    const windowEndMs = cycleStart.getTime() + LOOKAHEAD_DAYS * 86_400_000;
+    const trackedLine = `followed pipeline: ${trackedFetched} opportunities refreshed at ${new Date().toISOString()}; appointments: ${appt.fetched} events`;
 
-    const events: Array<{ event: import('./schemas').GhlAppointment; calendarName: string }> = [];
-    for (const cal of activeCalendars) {
-      const res = await listAppointments({ startTimeMs: windowStartMs, endTimeMs: windowEndMs, calendarId: cal.id });
+    // ================================================================================================================
+    // ② MIRRORS — unfollowed pipelines, history only: one pass a week, leftover budget only, never before ①.
+    // ================================================================================================================
+    mirrorCursor = await readMirrorCursor();
+    const lastPass = await readMarker('ghl.mirrors');
+    const passDue = !lastPass || Date.now() - Date.parse(lastPass.completedAt) >= MIRROR_PASS_EVERY_MS;
+    if (mirrorsMode === 'skip' || unfollowed.length === 0) {
+      return finish('succeeded', { progress: `${trackedLine}; mirrors: ${mirrorsMode === 'skip' ? 'skipped for this run' : 'none to mirror'}`, phase: 'done' });
+    }
+    if (!mirrorCursor && !(mirrorsMode === 'force' || passDue)) {
+      return finish('succeeded', { progress: `${trackedLine}; mirrors: weekly pass not due (last completed ${lastPass?.completedAt})`, phase: 'done' });
+    }
+    if (!mirrorCursor) {
+      mirrorCursor = { passStartedAt: startedAt.toISOString(), order: unfollowed.map((p) => p.id), index: 0, page: 1, startAfterId: null, startAfter: null, fetched: 0, runs: 0 };
+    }
+    mirrorCursor.runs += 1;
+    const mirrorPrevAt = lastPass ? new Date(lastPass.completedAt) : null;
+    const leftover = () => budgetMs - elapsed() >= MIN_MIRROR_SLICE_MS || options.maxPages !== undefined;
+    while (mirrorCursor.index < mirrorCursor.order.length) {
+      if (outOfRoom() || !leftover()) {
+        await writeMirrorCursor(mirrorCursor);
+        const where = `pipeline ${mirrorCursor.index + 1}/${mirrorCursor.order.length} "${nameOf.get(mirrorCursor.order[mirrorCursor.index]) ?? mirrorCursor.order[mirrorCursor.index]}", page ${mirrorCursor.page}`;
+        return finish('succeeded', { progress: `${trackedLine}; mirrors: weekly pass paused at ${where} — continues next run`, phase: 'mirrors' });
+      }
+      const pid = mirrorCursor.order[mirrorCursor.index];
+      if (trackedPipelineIds.has(pid)) {
+        mirrorCursor.index += 1; // followed since the pass began — ① covers it
+        continue;
+      }
+      const r = await readPage(pid, mirrorCursor, false, mirrorPrevAt);
+      if (r.error) {
+        await writeMirrorCursor(mirrorCursor); // retry this page next run
+        warnings.push(`Mirror pipeline ${pid} page ${mirrorCursor.page}: ${r.error}`);
+        return finish('succeeded', { progress: `${trackedLine}; mirrors: read failed at pipeline ${mirrorCursor.index + 1}/${mirrorCursor.order.length} — retried next run (${r.error})`, phase: 'mirrors' });
+      }
+      mirrorCursor.fetched += r.pageRes.opportunities.length;
+      if (r.pageRes.done) {
+        mirrorCursor = { ...mirrorCursor, index: mirrorCursor.index + 1, page: 1, startAfterId: null, startAfter: null };
+      } else {
+        mirrorCursor = { ...mirrorCursor, page: r.pageRes.next.page, startAfterId: r.pageRes.next.startAfterId, startAfter: r.pageRes.next.startAfter };
+      }
+      await writeMirrorCursor(mirrorCursor);
+    }
+    await writeMarker({ family: 'ghl.mirrors', runId, fetched: mirrorCursor.fetched, detail: `${mirrorCursor.order.length} unfollowed pipelines · ${mirrorCursor.fetched} opportunities in ${mirrorCursor.runs} run${mirrorCursor.runs === 1 ? '' : 's'}` });
+    const passRuns = mirrorCursor.runs;
+    await writeMirrorCursor(null);
+    mirrorCursor = null;
+    return finish('succeeded', { progress: `${trackedLine}; mirrors: weekly pass complete (${passRuns} run${passRuns === 1 ? '' : 's'})`, phase: 'done' });
+
+    // The calendar events — one request per active calendar. Window: from the last completed appointments fetch
+    // (never less than 14 days back; backfill / explicit since go further back) to 90 days ahead.
+    async function syncAppointments(previousAt: Date | null): Promise<{ error?: string; fetched: number; calendars: number }> {
+      const calendarsRes = await listCalendars();
       requestsUsed += 1;
-      stats.rejectedRows += res.rejected;
-      warnings.push(...res.warnings);
-      if (res.error) {
-        warnings.push(`Calendar "${cal.name}": ${res.error}`);
-        continue;
-      }
-      for (const event of res.events) events.push({ event, calendarName: cal.name });
-    }
+      if (!calendarsRes.ok) return { error: `Calendars: ${calendarsRes.error}`, fetched: 0, calendars: 0 };
+      const calendars = calendarsRes.data ? calendarsRes.data.calendars : [];
+      stats.calendars = calendars.length;
 
-    // Contact ids for the events' people, whatever run of the cycle imported them.
-    const eventContactIds = Array.from(new Set(events.map((e) => e.event.contactId)));
-    const contactRows = eventContactIds.length
-      ? await db.select({ id: contacts.id, ghlContactId: contacts.ghlContactId, ghlOpportunityId: contacts.ghlOpportunityId }).from(contacts).where(inArray(contacts.ghlContactId, eventContactIds))
-      : [];
-    const byGhl = new Map(contactRows.map((r) => [r.ghlContactId, r]));
-
-    for (const { event, calendarName } of events) {
-      const start = toDate(event.startTime);
-      if (!start) {
-        stats.rejectedRows += 1;
-        continue;
+      const followedRaw = await getSetting('ghl_followed_calendars');
+      let followedCalendars: string[] = [];
+      try {
+        followedCalendars = followedRaw ? (JSON.parse(followedRaw) as string[]) : [];
+      } catch {
+        followedCalendars = [];
       }
-      const c = byGhl.get(event.contactId);
-      const values = {
-        ghlEventId: event.id,
-        ghlCalendarId: event.calendarId,
-        calendarName,
-        ghlContactId: event.contactId,
-        contactId: c?.id ?? null,
-        ghlOpportunityId: c?.ghlOpportunityId ?? null,
-        type: inferAppointmentType(calendarName, event.title ?? ''),
-        title: event.title ?? null,
-        startTime: start,
-        endTime: toDate(event.endTime),
-        timezone,
-        assignedUserId: event.assignedUserId ?? null,
-        assignedTo: event.assignedUserId ? (userNames.get(event.assignedUserId) ?? null) : null,
-        ghlStatus: event.appointmentStatus ?? 'confirmed',
-        outcome: outcomeFromGhlStatus(event.appointmentStatus),
-        ghlCreatedAt: toDate(event.dateAdded),
-        ghlUpdatedAt: toDate(event.dateUpdated),
-        source: 'ghl',
-        origin: 'ghl',
-        syncedAt: startedAt,
-        backfilled,
-        updatedAt: startedAt,
-      };
-      await db.insert(appointments).values(values).onConflictDoUpdate({ target: appointments.ghlEventId, set: values });
-      stats.appointmentsUpserted += 1;
-    }
-    if (events.length === 0 && activeCalendars.length > 0 && !backfilled) {
-      await raise('silence', 'info', 'Sync window contained zero calendar events.');
-    }
-    const soFar = addStats(cursor.stats, stats);
-    if (soFar.opportunities === 0 && soFar.pipelines > 0 && cursor.trackedCount > 0) {
-      await raise('silence', 'warning', 'Sync cycle returned zero opportunities across the followed pipelines.');
-    }
-    return {};
+      const activeCalendars = calendars.filter((c) => c.isActive !== false && (followedCalendars.length === 0 || followedCalendars.includes(c.id)));
+      const lookback = startedAt.getTime() - DELTA_LOOKBACK_DAYS * 86_400_000;
+      const explicit = options.since ? toDate(options.since) : null;
+      const backfillFrom = backfilled ? new Date(getDayBounds((await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl, timezone).startMs) : null;
+      const windowStartMs = Math.min(lookback, previousAt?.getTime() ?? lookback, explicit?.getTime() ?? lookback, backfillFrom?.getTime() ?? lookback);
+      const windowEndMs = startedAt.getTime() + LOOKAHEAD_DAYS * 86_400_000;
+
+      const events: Array<{ event: import('./schemas').GhlAppointment; calendarName: string }> = [];
+      for (const cal of activeCalendars) {
+        const res = await listAppointments({ startTimeMs: windowStartMs, endTimeMs: windowEndMs, calendarId: cal.id });
+        requestsUsed += 1;
+        stats.rejectedRows += res.rejected;
+        warnings.push(...res.warnings);
+        if (res.error) return { error: `Calendar "${cal.name}": ${res.error}`, fetched: 0, calendars: activeCalendars.length };
+        for (const event of res.events) events.push({ event, calendarName: cal.name });
+      }
+
+      const eventContactIds = Array.from(new Set(events.map((e) => e.event.contactId)));
+      const contactRows = eventContactIds.length
+        ? await db.select({ id: contacts.id, ghlContactId: contacts.ghlContactId, ghlOpportunityId: contacts.ghlOpportunityId }).from(contacts).where(inArray(contacts.ghlContactId, eventContactIds))
+        : [];
+      const byGhl = new Map(contactRows.map((r) => [r.ghlContactId, r]));
+
+      for (const { event, calendarName } of events) {
+        const start = toDate(event.startTime);
+        if (!start) {
+          stats.rejectedRows += 1;
+          continue;
+        }
+        const c = byGhl.get(event.contactId);
+        const values = {
+          ghlEventId: event.id,
+          ghlCalendarId: event.calendarId,
+          calendarName,
+          ghlContactId: event.contactId,
+          contactId: c?.id ?? null,
+          ghlOpportunityId: c?.ghlOpportunityId ?? null,
+          type: inferAppointmentType(calendarName, event.title ?? ''),
+          title: event.title ?? null,
+          startTime: start,
+          endTime: toDate(event.endTime),
+          timezone,
+          assignedUserId: event.assignedUserId ?? null,
+          assignedTo: event.assignedUserId ? (userNames.get(event.assignedUserId) ?? null) : null,
+          ghlStatus: event.appointmentStatus ?? 'confirmed',
+          outcome: outcomeFromGhlStatus(event.appointmentStatus),
+          ghlCreatedAt: toDate(event.dateAdded),
+          ghlUpdatedAt: toDate(event.dateUpdated),
+          source: 'ghl',
+          origin: 'ghl',
+          syncedAt: startedAt,
+          backfilled,
+          updatedAt: startedAt,
+        };
+        await db.insert(appointments).values(values).onConflictDoUpdate({ target: appointments.ghlEventId, set: values });
+        stats.appointmentsUpserted += 1;
+      }
+      if (events.length === 0 && activeCalendars.length > 0 && !backfilled) {
+        await raise('silence', 'info', 'Sync window contained zero calendar events.');
+      }
+      return { fetched: events.length, calendars: activeCalendars.length };
     }
   } catch (err) {
     captureException(err, { source: 'ghl' });
     const message = err instanceof Error ? err.message : String(err);
     await raise('error', 'critical', `Sync crashed: ${message}`);
-    // The cursor (last completed page) stays put, so the next run resumes.
-    return finish('failed', null, { error: message });
+    return finish('failed', { error: message, progress: 'crashed', phase: trackedComplete ? 'mirrors' : 'tracked' });
   }
 }
 
@@ -853,9 +799,12 @@ async function processOpportunityPage(p: {
   opportunities: GhlOpportunity[];
   pipelineTracked: boolean;
   trackedPipelineIds: Set<string>;
-  since: Date | null;
   previousSyncAt: Date | null;
   backfilled: boolean;
+  /** Re-fetch every contact on this page (backfill / --full). */
+  full: boolean;
+  /** Contacts already fetched in this run (a contact with several opportunities is fetched once). */
+  fetchedContacts: Set<string>;
   startedAt: Date;
   runId: string;
   roleOf: (stageId: string | null) => SemanticRole | null;
@@ -876,12 +825,21 @@ async function processOpportunityPage(p: {
     .from(contacts)
     .where(inArray(contacts.ghlContactId, ids));
   const existingByGhlId = new Map(existingRows.map((r) => [r.ghlContactId, r]));
+  // What we stored for these opportunities last time: an opportunity we never stored, or one GHL updated since,
+  // is what makes a contact worth re-fetching (v2 — replaces "changed since the last completed cycle").
+  const storedOpps = await db
+    .select({ id: ghlOpportunities.id, ghlUpdatedAt: ghlOpportunities.ghlUpdatedAt })
+    .from(ghlOpportunities)
+    .where(inArray(ghlOpportunities.id, p.opportunities.map((o) => o.id)));
+  const storedOppById = new Map(storedOpps.map((o) => [o.id, o]));
 
   const transitions: DerivedTransition[] = [];
   for (const [ghlContactId, opp] of oppByContact) {
     const existing = existingByGhlId.get(ghlContactId);
     const oppUpdated = toDate(opp.updatedAt);
-    const needsFetch = p.backfilled || !existing || !p.since || (oppUpdated !== null && oppUpdated > p.since);
+    const stored = storedOppById.get(opp.id);
+    const changed = !stored || (oppUpdated !== null && (!stored.ghlUpdatedAt || oppUpdated > stored.ghlUpdatedAt));
+    const needsFetch = !p.fetchedContacts.has(ghlContactId) && (p.full || !existing || changed);
 
     // Does this opportunity own the contact's position?
     const existingTracked = existing?.pipelineId ? p.trackedPipelineIds.has(existing.pipelineId) : false;
@@ -893,6 +851,7 @@ async function processOpportunityPage(p: {
     if (needsFetch) {
       const res = await getContact(ghlContactId);
       out.requests += 1;
+      p.fetchedContacts.add(ghlContactId);
       if (res.ok && res.data) {
         full = res.data.contact;
         out.contactsFetched += 1;
@@ -926,6 +885,8 @@ async function processOpportunityPage(p: {
       opportunityName: opp.name,
       monetaryValueCents: opp.monetaryValue != null ? Math.round(opp.monetaryValue * 100) : 0,
       lastStageChangeAt: toDate(opp.lastStageChangeAt),
+      // When THIS application was made — only for a followed-pipeline position (F14 groundwork).
+      opportunityCreatedAt: p.pipelineTracked ? toDate(opp.createdAt) : null,
       firstName: first,
       lastName: last,
       email,
@@ -980,8 +941,8 @@ async function processOpportunityPage(p: {
         };
 
     const positionSet = takesPosition
-      ? { pipelineId: values.pipelineId, stageId: values.stageId, opportunityStatus: values.opportunityStatus, ghlOpportunityId: values.ghlOpportunityId, opportunityName: values.opportunityName, monetaryValueCents: values.monetaryValueCents, lastStageChangeAt: values.lastStageChangeAt }
-      : { pipelineId: undefined, stageId: undefined, opportunityStatus: undefined, ghlOpportunityId: undefined, opportunityName: undefined, monetaryValueCents: undefined, lastStageChangeAt: undefined };
+      ? { pipelineId: values.pipelineId, stageId: values.stageId, opportunityStatus: values.opportunityStatus, ghlOpportunityId: values.ghlOpportunityId, opportunityName: values.opportunityName, monetaryValueCents: values.monetaryValueCents, lastStageChangeAt: values.lastStageChangeAt, opportunityCreatedAt: values.opportunityCreatedAt }
+      : { pipelineId: undefined, stageId: undefined, opportunityStatus: undefined, ghlOpportunityId: undefined, opportunityName: undefined, monetaryValueCents: undefined, lastStageChangeAt: undefined, opportunityCreatedAt: undefined };
 
     const [row] = await db
       .insert(contacts)
@@ -1016,6 +977,40 @@ async function processOpportunityPage(p: {
       );
       if (t) transitions.push(t);
     }
+  }
+
+  // Every opportunity on the page, as GHL has it (not only the one that holds a position).
+  const pageContactIds = Array.from(new Set(p.opportunities.map((o) => o.contactId)));
+  const contactIdRows = pageContactIds.length
+    ? await db.select({ id: contacts.id, ghlContactId: contacts.ghlContactId }).from(contacts).where(inArray(contacts.ghlContactId, pageContactIds))
+    : [];
+  const contactIdByGhl = new Map(contactIdRows.map((r) => [r.ghlContactId, r.id]));
+  const oppRows = Array.from(new Map(p.opportunities.map((o) => [o.id, o])).values()).map((o) => ({
+    id: o.id,
+    ghlContactId: o.contactId,
+    contactId: contactIdByGhl.get(o.contactId) ?? null,
+    pipelineId: o.pipelineId,
+    stageId: o.pipelineStageId,
+    status: o.status,
+    name: o.name,
+    monetaryValueCents: o.monetaryValue != null ? Math.round(o.monetaryValue * 100) : 0,
+    ghlCreatedAt: toDate(o.createdAt),
+    ghlUpdatedAt: toDate(o.updatedAt),
+    lastStageChangeAt: toDate(o.lastStageChangeAt),
+    lastStatusChangeAt: toDate(o.lastStatusChangeAt),
+    source: 'ghl',
+    origin: 'ghl',
+    syncedAt: p.startedAt,
+    backfilled: p.backfilled,
+    updatedAt: p.startedAt,
+  }));
+  if (oppRows.length > 0) {
+    await db.insert(ghlOpportunities).values(oppRows).onConflictDoUpdate({
+      target: ghlOpportunities.id,
+      set: Object.fromEntries(
+        (Object.keys(oppRows[0]) as Array<keyof (typeof oppRows)[number]>).filter((k) => k !== 'id').map((k) => [k, sql.raw(`excluded."${(ghlOpportunities as unknown as Record<string, { name: string }>)[k].name}"`)]),
+      ),
+    });
   }
 
   if (transitions.length > 0) {
