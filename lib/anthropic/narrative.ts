@@ -33,11 +33,13 @@ export async function runWeeklyNarrative(kind: NarrativeKind, opts: { force?: bo
   const inputHash = hashInsightInput(input);
   const base = { periodStart: result.range.start, periodEnd: result.range.end };
 
+  // One narrative per period (2026-09-29 heartbeat): the dispatch now runs hourly and last week's numbers
+  // still move on Monday, so a hash cache would regenerate on every run. force (manual) always regenerates.
   if (!opts.force) {
     const [cached] = await db
       .select()
       .from(aiReports)
-      .where(and(eq(aiReports.kind, REPORT_KIND[kind]), eq(aiReports.inputHash, inputHash)))
+      .where(and(eq(aiReports.kind, REPORT_KIND[kind]), eq(aiReports.periodStart, base.periodStart), eq(aiReports.periodEnd, base.periodEnd)))
       .orderBy(desc(aiReports.createdAt))
       .limit(1);
     if (cached) return { ok: true, cached: true, paragraph: String((cached.content as { paragraph?: string }).paragraph ?? ''), model: cached.model, ...base };

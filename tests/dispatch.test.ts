@@ -72,6 +72,9 @@ describe('statsForOutcome — a skipped, stored or partial step says why', () =>
   it('a step that "succeeded" by doing nothing says what it did not do', () => {
     expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { kind: 'daily_todo', status: 'stored' } })).toBe('stored, not sent — RESEND_API_KEY / RESEND_FROM_EMAIL not configured');
     expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { status: 'skipped_empty' } })).toBe('skipped — the digest was empty');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { status: 'already_recorded', error: 'already stored for this period' } })).toBe('already stored for this period — not re-archived');
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { status: 'retries_exhausted', error: '3 failed attempts for this period — use Send now on /reports' } })).toMatch(/^gave up — 3 failed attempts/);
+    expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, skipped: 'another GHL sync is already running (started …) — skipped' } })).toMatch(/already running/);
     expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: false, notConfigured: true } })).toBe('not configured — no credentials for this step');
     expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, skipped: 'waiting for the tracked phases of the GHL cycle — the sync did not run' } })).toMatch(/^waiting for the tracked phases/);
     expect(outcomeReason({ status: 'succeeded', durationMs: 3, result: { ok: true, partial: true, progress: 'paused at pipeline 3/15 "Alumni", page 2 (phase mirrors)' } })).toBe('partial — paused at pipeline 3/15 "Alumni", page 2 (phase mirrors)');

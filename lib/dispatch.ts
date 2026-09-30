@@ -84,6 +84,8 @@ export function outcomeReason(outcome: StepOutcome): string | null {
     if (o.status === 'stored') return `stored, not sent — RESEND_API_KEY / RESEND_FROM_EMAIL not configured${err}`;
     if (o.status === 'skipped_empty') return 'skipped — the digest was empty';
     if (o.status === 'already_sent') return 'already sent for this period';
+    if (o.status === 'already_recorded') return `${o.error ?? 'already recorded for this period'} — not re-archived`;
+    if (o.status === 'retries_exhausted') return `gave up — ${o.error ?? 'too many failed attempts for this period'}`;
     if (o.status === 'disabled') return 'disabled on /reports';
     return `${o.status}${err}`;
   }

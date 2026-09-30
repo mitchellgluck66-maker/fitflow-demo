@@ -5,7 +5,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * GET /api/cron/sync-ghl — hourly GHL delta sync (vercel.json).
+ * GET /api/cron/sync-ghl — GHL delta sync: daily via vercel.json (Hobby) and
+ * hourly via the GitHub Actions heartbeat (.github/workflows/heartbeat.yml).
+ * Safe to call at any cadence: each call continues the resumable cycle from its
+ * cursor, and a call that lands while another GHL run is live returns 200
+ * `skipped` without touching anything (lib/ghl/ingest.ts).
  *
  * Vercel invokes cron routes with `Authorization: Bearer $CRON_SECRET`. We
  * require it in production so nobody can trigger syncs from outside; locally

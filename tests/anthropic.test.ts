@@ -175,6 +175,21 @@ describe('runInsights', () => {
     expect(await db.select().from(aiReports).where(eq(aiReports.kind, 'insight'))).toHaveLength(2);
   });
 
+  it('minIntervalMs (the 30-min heartbeat): a fresh card for the period is served even when the numbers moved', async () => {
+    // Pretend the numbers moved since the stored cards: their hash no longer matches.
+    await db.update(aiReports).set({ inputHash: 'numbers-moved' }).where(eq(aiReports.kind, 'insight'));
+    vi.stubGlobal('fetch', fetchSpy);
+    const calls = fetchSpy.mock.calls.length;
+    const fresh = await runInsights({ range: 'last_week', minIntervalMs: 20 * 3_600_000 });
+    expect(fresh).toMatchObject({ ok: true, cached: true });
+    expect(fresh.skipped).toMatch(/at most every 20h/);
+    expect(fetchSpy).toHaveBeenCalledTimes(calls);
+
+    const later = await runInsights({ range: 'last_week', minIntervalMs: 20 * 3_600_000, now: new Date(Date.now() + 21 * 3_600_000) });
+    expect(later.cached).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(calls + 1);
+  });
+
   it('rejects a finding whose link is not a deep link, and never stores it', async () => {
     fetchSpy.mockImplementation(async () =>
       messagesResponse({ findings: [{ title: 't', detail: 'd', metric: 'm', direction: 'up', severity: 'info', link: 'https://example.com' }] }),
@@ -209,6 +224,16 @@ describe('narrative', () => {
     expect(r.paragraph).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await getNarrative('weekly', r.periodStart, r.periodEnd)).toBeNull();
+  });
+
+  it('is generated once per period: an unforced run reuses the stored paragraph whatever the numbers do', async () => {
+    const probe = await runWeeklyNarrative('weekly', { force: true });
+    await db.insert(aiReports).values({ kind: 'weekly_narrative', periodStart: probe.periodStart, periodEnd: probe.periodEnd, model: 'm', inputHash: 'older-numbers', content: { paragraph: 'Stored earlier.' } });
+    vi.stubGlobal('fetch', fetchSpy);
+    const calls = fetchSpy.mock.calls.length;
+    const r = await runWeeklyNarrative('weekly');
+    expect(r).toMatchObject({ ok: true, cached: true, paragraph: 'Stored earlier.' });
+    expect(fetchSpy).toHaveBeenCalledTimes(calls);
   });
 });
 

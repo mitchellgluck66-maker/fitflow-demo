@@ -79,6 +79,35 @@ set NAME`):
 Then run it once by hand (Actions → Nightly database backup → Run workflow,
 or `gh workflow run backup.yml`) and rehearse a restore (runbook section 3).
 
+## Cron heartbeat (hourly)
+
+Vercel Hobby runs the two crons in `vercel.json` only once a day, so
+`.github/workflows/heartbeat.yml` calls `GET /api/cron/sync-ghl` and then
+`GET /api/cron/dispatch` every hour at :17 (90 s timeout each). A non-2xx from
+either route fails the run, so it shows as a red ✗ under Actions; the log
+lists what each dispatch step did. The daily Vercel crons stay on as a
+fallback. Configure **two repo secrets**:
+
+| Secret | Value |
+| --- | --- |
+| `APP_URL` | the production origin, e.g. `https://fitflow.vercel.app` (no trailing path) |
+| `CRON_SECRET` | exactly the value of the Vercel env var `CRON_SECRET` (`openssl rand -hex 32` if you are setting both fresh) |
+
+**Actions minute budget.** GitHub Free gives private repos 2,000 Actions
+minutes a month, billed per job and rounded **up** to the whole minute. One
+heartbeat run takes about 2 billed minutes (sync-ghl ~40 s + dispatch ~50 s +
+runner start-up), so hourly is ~1,440 minutes a month. The nightly backup adds
+~90, for ~1,530 of the 2,000. That is why it runs hourly rather than every 30
+minutes, which would be ~2,900 and GitHub would stop running it mid-month. The job is capped at 4
+minutes (`timeout-minutes`). If runs keep hitting their 90 s timeouts, usage
+climbs towards that cap. Check GitHub → Settings → Billing → Usage, and don't
+add workflows without redoing this sum. Public repos aren't metered.
+
+Run it once by hand (`gh workflow run heartbeat.yml`) and check the log.
+GitHub starts scheduled runs late under load, and it **disables scheduled
+workflows in public repos after 60 days without commits** (re-enable under
+Actions). The daily Vercel crons still run if that happens.
+
 ## Connecting GoHighLevel (read-only)
 
 1. In GHL: Settings → Private Integrations → create a token with only the
@@ -89,8 +118,10 @@ or `gh workflow run backup.yml`) and rehearse a restore (runbook section 3).
 4. Confirm any **unmapped stages** in the stage-role table.
 5. **Remove sample data** once real rows are present.
 
-Vercel crons (`vercel.json`, `CRON_SECRET`-protected): `/api/cron/sync-ghl` hourly and
-`/api/cron/dispatch` (GHL → Meta → Stripe → digests) at 11/12 UTC. CLI equivalents:
+Crons (`CRON_SECRET`-protected): `/api/cron/sync-ghl` and `/api/cron/dispatch`
+(Stripe → Meta → Google → GHL → reconcile → insights → digests) run daily from
+`vercel.json` (12:00 / 13:00 UTC) and hourly from the GitHub Actions
+heartbeat (above). CLI equivalents:
 `npm run sync:now`, `npm run backfill`, `npm run sync:meta`, `npm run sync:stripe`.
 
 Meta Ads and Stripe are connected the same way on **/setup** (token pasted, verified

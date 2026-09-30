@@ -4,7 +4,15 @@
  *   empty & !force        → 'skipped_empty' row, nothing sent
  *   no RESEND_API_KEY     → 'stored' row (rendered, viewable in Reports)
  *   already sent, !force  → 'already_sent' (no new row)
+ *   already stored / skipped_empty for the period, !force → 'already_recorded' (no new row)
+ *   MAX_FAILED_ATTEMPTS failures for the period, !force  → 'retries_exhausted' (no new row)
  *   otherwise             → send; 'sent' or 'failed'
+ *
+ * 2026-09-29 heartbeat: the dispatch now runs hourly, so a period's
+ * outcome must be decided ONCE — otherwise an unconfigured Resend or an empty
+ * day would archive a new row on every run from 6am to midnight, and a
+ * failing send would retry ~18 times. A manual "Send now" (force) bypasses all
+ * three.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -13,7 +21,10 @@ import { getSetting, SETTING_KEYS } from '../settings';
 import { buildDigest, type DigestKind } from './digests';
 import { sendEmail, resendConfigured } from './resend';
 
-export type DigestStatus = 'sent' | 'stored' | 'skipped_empty' | 'failed' | 'already_sent' | 'disabled';
+export type DigestStatus = 'sent' | 'stored' | 'skipped_empty' | 'failed' | 'already_sent' | 'already_recorded' | 'retries_exhausted' | 'disabled';
+
+/** Unforced sends stop retrying a period after this many recorded failures. */
+export const MAX_FAILED_ATTEMPTS = 3;
 
 export interface DigestRunResult {
   kind: DigestKind;
@@ -66,18 +77,17 @@ export async function runDigest(kind: DigestKind, options: { force?: boolean; to
 
   if (!options.force) {
     const prior = await db
-      .select({ id: emailDigests.id })
+      .select({ id: emailDigests.id, status: emailDigests.status })
       .from(emailDigests)
-      .where(
-        and(
-          eq(emailDigests.kind, kind),
-          eq(emailDigests.periodStart, digest.periodStart),
-          eq(emailDigests.periodEnd, digest.periodEnd),
-          eq(emailDigests.status, 'sent'),
-        ),
-      )
-      .limit(1);
-    if (prior.length > 0) return { ...base, status: 'already_sent', digestId: prior[0].id };
+      .where(and(eq(emailDigests.kind, kind), eq(emailDigests.periodStart, digest.periodStart), eq(emailDigests.periodEnd, digest.periodEnd)));
+    const sent = prior.find((r) => r.status === 'sent');
+    if (sent) return { ...base, status: 'already_sent', digestId: sent.id };
+    const recorded = prior.find((r) => r.status === 'stored' || r.status === 'skipped_empty');
+    if (recorded) return { ...base, status: 'already_recorded', digestId: recorded.id, error: `already ${recorded.status} for this period` };
+    const failures = prior.filter((r) => r.status === 'failed').length;
+    if (failures >= MAX_FAILED_ATTEMPTS) {
+      return { ...base, status: 'retries_exhausted', error: `${failures} failed attempts for this period — use Send now on /reports` };
+    }
   }
 
   const record = async (status: DigestStatus, extra: { resendId?: string; error?: string; sentAt?: Date } = {}) => {

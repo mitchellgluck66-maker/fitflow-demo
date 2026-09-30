@@ -1,9 +1,17 @@
 /**
  * Nightly insight cards. Cached in ai_reports by the sha256 of the metrics
  * snapshot: same numbers → same report, no API call.
+ *
+ * 2026-09-29 heartbeat: the dispatch runs hourly and the numbers move
+ * between runs, so the hash alone would call the model ~24×/day. The dispatch
+ * passes `minIntervalMs` (INSIGHT_MIN_INTERVAL_MS): a card for the same period
+ * younger than that is served as-is. Manual / API calls pass nothing.
  */
 
 import { and, desc, eq } from 'drizzle-orm';
+
+/** The dispatch regenerates a period's insight at most this often (keeps the old once-a-day cadence). */
+export const INSIGHT_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;
 import { db, aiReports } from '@/db';
 import { getScorecard } from '../metrics/service';
 import { buildInsightInput, hashInsightInput, validateInsights, InsightsAnswerSchema, type InsightFinding, type InsightInput } from '../metrics/insights';
@@ -31,6 +39,8 @@ export interface InsightsResult {
   periodEnd: string;
   inputHash: string;
   error?: string;
+  /** Why no generation was attempted (fresh card within minIntervalMs). */
+  skipped?: string;
 }
 
 async function findCached(inputHash: string) {
@@ -43,7 +53,7 @@ async function findCached(inputHash: string) {
   return row ?? null;
 }
 
-export async function runInsights(params: { range?: string | null; compare?: string | null; start?: string | null; end?: string | null; force?: boolean } = {}): Promise<InsightsResult> {
+export async function runInsights(params: { range?: string | null; compare?: string | null; start?: string | null; end?: string | null; force?: boolean; minIntervalMs?: number; now?: Date } = {}): Promise<InsightsResult> {
   const result = await getScorecard({ range: params.range ?? 'this_week', compare: params.compare ?? 'previous_period', start: params.start, end: params.end });
   const input = buildInsightInput(result);
   const inputHash = hashInsightInput(input);
@@ -54,6 +64,20 @@ export async function runInsights(params: { range?: string | null; compare?: str
     if (cached) {
       const c = cached.content as unknown as InsightsContent;
       return { ok: true, cached: true, reportId: cached.id, findings: c.findings, generatedAt: c.generatedAt, model: cached.model, ...base };
+    }
+    if (params.minIntervalMs) {
+      const [recent] = await db
+        .select()
+        .from(aiReports)
+        .where(and(eq(aiReports.kind, 'insight'), eq(aiReports.periodStart, base.periodStart), eq(aiReports.periodEnd, base.periodEnd)))
+        .orderBy(desc(aiReports.createdAt))
+        .limit(1);
+      const now = params.now ?? new Date();
+      if (recent && now.getTime() - recent.createdAt.getTime() < params.minIntervalMs) {
+        const c = recent.content as unknown as InsightsContent;
+        const hours = Math.round(params.minIntervalMs / 3_600_000);
+        return { ok: true, cached: true, reportId: recent.id, findings: c.findings, generatedAt: c.generatedAt, model: recent.model, ...base, skipped: `insight for this period generated ${recent.createdAt.toISOString()} — regenerates at most every ${hours}h` };
+      }
     }
   }
 

@@ -123,6 +123,8 @@ export interface SyncResult {
   incidents: number;
   requestsUsed: number;
   error?: string;
+  /** Set when the run did nothing because another GHL run is still in flight (runId = that run). */
+  skipped?: string;
   durationMs: number;
 }
 
@@ -448,6 +450,26 @@ export async function runGhlSync(options: {
   let requestsUsed = 0;
 
   await sweepStaleRuns(startedAt);
+
+  // ---- One GHL run at a time (2026-09-29 heartbeat) ---------------------
+  // The GitHub Actions heartbeat (hourly), the Vercel crons and "Sync
+  // now" can land together. Two runs would read the same cursor, walk the same
+  // page and each diff the same contacts into duplicate stage_transitions
+  // (no unique key there). A live (non-stale) running row wins; this run
+  // records nothing and says why. Stale rows were just swept above.
+  const [inFlight] = await db
+    .select({ id: syncRuns.id, startedAt: syncRuns.startedAt })
+    .from(syncRuns)
+    .where(and(inArray(syncRuns.kind, ['ghl_delta', 'ghl_backfill']), eq(syncRuns.status, 'running')))
+    .limit(1);
+  if (inFlight) {
+    const skipped = `another GHL sync is already running (started ${inFlight.startedAt.toISOString()}) — skipped`;
+    return {
+      ok: true, partial: false, progress: skipped, trackedComplete: false, phase: 'done', cursor: null,
+      runId: inFlight.id, mode: options.mode, since: null, stats: emptyStats(), warnings: [], incidents: 0,
+      requestsUsed: 0, skipped, durationMs: Date.now() - startedAt.getTime(),
+    };
+  }
 
   const config = await getGhlConfig();
 

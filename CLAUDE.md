@@ -252,6 +252,8 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
   `0 * * * *`, dispatch to `0 11,12 * * *` (lands on 7am ET across DST) and
   optionally add per-job lines (routes still exist under `app/api/cron/*`).
   Do not edit vercel.json casually — it is Hobby-constrained on purpose.
+  Since 2026-09-29 the real cadence is the GitHub Actions heartbeat (hourly,
+  see "Ops runbook" below); the Vercel crons are the fallback.
 - Read-only GHL guarantee untouched: `npm run verify:readonly` still passes.
 
 ## Phase D status (done 2026-08-26 — intelligence + design; keys paste in later)
@@ -638,6 +640,61 @@ cycle) had never run.
   predicate for the dispatch and the per-job digest routes); per-period
   dedupe keeps it to one send a day. DST fixtures in `tests/email.test.ts`.
   Digests therefore arrive ~7:28 in summer and ~6:28 in winter (Edmonton).
+
+## Ops runbook — cron heartbeat (2026-09-29)
+
+- **What**: `.github/workflows/heartbeat.yml`, `17 * * * *` (hourly, off
+  the top of the hour) + manual. GETs
+  `$APP_URL/api/cron/sync-ghl`, then `$APP_URL/api/cron/dispatch` (runs even if
+  the first failed), `Authorization: Bearer $CRON_SECRET`, curl `--max-time
+  90`. Non-2xx on either → the run fails (red ✗ in Actions). The log prints a
+  jq summary (ok / phase / each dispatch step's status + reason), never the
+  raw body. Repo secrets: `APP_URL` (origin, no path) and `CRON_SECRET` (same
+  value as Vercel's). `vercel.json` is untouched — its daily crons are the
+  fallback if GitHub disables or delays the schedule.
+- **Minute budget — why hourly, never every 30 min**: GitHub Free = 2,000
+  Actions minutes/month for private repos, billed per job ROUNDED UP to the
+  minute. A run ≈ 2 billed min → ~1,440/month + nightly backup ~90 ≈ 1,530.
+  30-min cadence ≈ 2,900 → GitHub stops the heartbeat mid-month, silently.
+  `timeout-minutes: 4` caps a hung run. Any new workflow must redo this sum.
+- **Why it is safe to call repeatedly** (audited step by step; every new
+  dispatch step must hold the same property):
+  - `sync-ghl` / dispatch `ghl`: resumable cycle; each call continues the
+    cursor. **One GHL run at a time** — `runGhlSync` returns `skipped` (ok,
+    no run row, cursor untouched) while another `ghl_delta`/`ghl_backfill`
+    row is live and not stale (overlapping runs would diff the same contacts
+    into duplicate `stage_transitions`). Manual Sync now says "Not started".
+  - `stripe` (last 7 days), `meta` (last 3 days), `google`: upserts keyed by
+    external id. `meta_token`: one GET; one open incident at most.
+  - `reconcile`: `limit=1` counts per followed stage; one incident per
+    stage, refreshed/resolved — idempotent. `sweep`: idempotent.
+  - `insights`: the dispatch passes `INSIGHT_MIN_INTERVAL_MS` (20 h) — a
+    card for the same period younger than that is served, so the model is
+    called ~once a day, not whenever the numbers move. Manual/API calls
+    unaffected.
+  - `narrative_weekly` / `_monthly`: gated to the 6am-local send window
+    (so the run that sends the digest writes it first) and ONE per period —
+    an unforced run reuses any stored paragraph for the period.
+  - digests: at/after 6am local; `runDigest` decides a period once —
+    `sent` → `already_sent`; `stored` / `skipped_empty` → `already_recorded`
+    (no new archive row); after `MAX_FAILED_ATTEMPTS` (3) `failed` rows →
+    `retries_exhausted`. "Send now" (force) bypasses all of it. Consequence:
+    configuring Resend mid-day does not re-send that day's stored digest
+    automatically — use Send now.
+  - `prune` (`lib/syncRunsPrune.ts`): once per business-local day
+    (`settings.sync_runs_pruned_on`) deletes `sync_runs` rows older than 30
+    days, keeping the newest row per (kind, status) so Sync health's "last
+    run" and the freshness fallback survive for idle sources. Incidents keep
+    their text (FK ON DELETE SET NULL). `tests/prune.test.ts`.
+- **Volume**: ~14 `dispatch:*` rows per run (~340/day) — bounded by the
+  prune to ~30 days. Keep the per-step reasons; prune, never go quiet.
+- **Red ✗ triage**: open the run log → the failing step's reason. 401 =
+  secret mismatch with Vercel; 503/500 "CRON_SECRET is not configured" =
+  Vercel env; curl-exit-28 = 90 s timeout (a step outran its budget); no
+  runs at all mid-month = Actions minutes exhausted (Settings → Billing).
+  Tests: `tests/ingest.test.ts` → "one GHL run at a time",
+  `tests/email.test.ts` (heartbeat-safe / retries), `tests/anthropic.test.ts`
+  (minIntervalMs, once per period), `tests/dispatch.test.ts` (reasons).
 
 ## Working agreements
 

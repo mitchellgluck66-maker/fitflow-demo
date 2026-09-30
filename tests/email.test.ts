@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
 import { db, pipelines, stages, contacts, emailDigests } from '@/db';
 import { buildDailyTodo } from '@/lib/email/digests';
-import { runDigest, resolveRecipients } from '@/lib/email/send';
+import { runDigest, resolveRecipients, MAX_FAILED_ATTEMPTS } from '@/lib/email/send';
 import { localHour, inSendWindow, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
 
 const TODAY = '2026-08-26';
@@ -100,6 +100,31 @@ describe('runDigest', () => {
 
     const forced = await runDigest('daily_todo', { today: TODAY, force: true });
     expect(forced.status).toBe('stored');
+  });
+
+  it('heartbeat-safe: a stored or empty period is decided once, not re-archived every run', async () => {
+    const day = '2026-08-27';
+    const first = await runDigest('daily_todo', { today: day });
+    const before = (await db.select().from(emailDigests)).length;
+    const again = await runDigest('daily_todo', { today: day });
+    expect(again.status).toBe('already_recorded');
+    expect(again.digestId).toBe(first.digestId);
+    expect((await db.select().from(emailDigests)).length).toBe(before);
+
+    // The empty day recorded earlier in this file is also final.
+    expect((await runDigest('daily_todo', { today: '2026-01-10' })).status).toBe('already_recorded');
+    expect((await db.select().from(emailDigests)).length).toBe(before);
+  });
+
+  it('stops retrying a period after MAX_FAILED_ATTEMPTS failures (force still sends)', async () => {
+    const day = '2026-08-28';
+    const failed = { kind: 'daily_todo', periodStart: day, periodEnd: day, recipients: ['x@example.com'], subject: 'f', html: '<p/>', status: 'failed', error: 'boom' };
+    await db.insert(emailDigests).values(Array.from({ length: MAX_FAILED_ATTEMPTS }, () => ({ ...failed })));
+    const before = (await db.select().from(emailDigests)).length;
+    const r = await runDigest('daily_todo', { today: day });
+    expect(r.status).toBe('retries_exhausted');
+    expect((await db.select().from(emailDigests)).length).toBe(before);
+    expect((await runDigest('daily_todo', { today: day, force: true })).status).toBe('stored');
   });
 
   it('weekly scorecard builds and archives from the same engine', async () => {

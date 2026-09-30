@@ -16,6 +16,8 @@ import { ENC_PREFIX, keyStatus, openSecret, sealSecret } from './crypto/credenti
 
 export const SETTING_KEYS = {
   timezone: 'timezone',
+  /** Business-local date (YYYY-MM-DD) of the last sync_runs prune (lib/syncRunsPrune). */
+  syncRunsPrunedOn: 'sync_runs_pruned_on',
   /** Comma-separated recipient lists per digest. */
   digestRecipients: 'digest_recipients',
   digestRecipientsTodo: 'digest_recipients_todo',

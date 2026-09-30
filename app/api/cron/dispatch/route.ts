@@ -6,7 +6,7 @@ import { runMetaSync } from '@/lib/meta/ingest';
 import { runMetaTokenCheck } from '@/lib/meta/token';
 import { runStripeSync } from '@/lib/stripe/ingest';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
-import { runInsights } from '@/lib/anthropic/insights';
+import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
 import { inSendWindow, localHour, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
@@ -14,6 +14,7 @@ import { getTimezone } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
 import { runDispatch, statsForOutcome, type DispatchStep, type StepOutcome } from '@/lib/dispatch';
 import { sweepIncidentNoise } from '@/lib/incidents/noise';
+import { runNightlyPrune } from '@/lib/syncRunsPrune';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -25,10 +26,16 @@ export const maxDuration = 300;
  * its own outcome row. Order = cheap and critical first, the long GHL walk
  * (budgeted, resumable) after, digests last:
  *   stripe → meta → google → ghl (20s budget) → reconcile → incident sweep
- *   → insights → narratives → daily / weekly / monthly digests
+ *   → sync_runs prune (once a day) → insights → narratives → daily / weekly / monthly digests
  * Reconcile runs when the GHL cycle's TRACKED phases are complete (its
  * mirrors may still be walking); every dispatch row's stats carry a reason.
- * `?only=stripe,meta,google,ghl,reconcile,sweep,insights,narrative,daily,weekly,monthly`
+ *
+ * Callers: the daily Vercel cron (fallback) AND the GitHub Actions heartbeat
+ * every hour (.github/workflows/heartbeat.yml). Every step is safe to repeat:
+ * sources upsert by external id; GHL refuses to overlap a live run; reconcile
+ * and sweep are idempotent; insights regenerate at most every 20 h; narratives
+ * and digests are once per period inside the 6am-local window.
+ * `?only=stripe,meta,google,ghl,reconcile,sweep,prune,insights,narrative,daily,weekly,monthly`
  * limits the steps; `?force=1` bypasses the hour/day guards (never the secret).
  */
 export async function GET(request: NextRequest) {
@@ -75,9 +82,12 @@ export async function GET(request: NextRequest) {
     },
     { name: 'reconcile', run: async () => (ghlTracked.complete ? runReconcile({ trigger: 'cron' }) : { ok: true, skipped: `waiting for the tracked phases of the GHL cycle — ${ghlTracked.progress ?? 'the sync did not run'}` }) },
     { name: 'sweep', run: () => sweepIncidentNoise() },
-    { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period' }) },
-    { name: 'narrative_weekly', skip: gate(force || dow === 1, 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
-    { name: 'narrative_monthly', skip: gate(force || d === 1, 'not the 1st'), run: () => runWeeklyNarrative('monthly', { force }) },
+    // sync_runs retention: once per local day, rows > 30 days (the newest per kind + status always kept).
+    { name: 'prune', run: () => runNightlyPrune(today, { force }) },
+    { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },
+    // Narratives wait for the send window so the run that sends the digest writes its narrative first (once per period).
+    { name: 'narrative_weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
+    { name: 'narrative_monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runWeeklyNarrative('monthly', { force }) },
     { name: 'daily', skip: gate(isSendHour, `before ${SEND_WINDOW_START_LOCAL}am local`), run: () => runDigest('daily_todo', { force }) },
     { name: 'weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runDigest('weekly', { force }) },
     { name: 'monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runDigest('monthly', { force }) },

@@ -1,0 +1,72 @@
+# Cron heartbeat (2026-09-29).
+#
+# Vercel Hobby fires our two crons once a day (vercel.json — kept as the
+# fallback, do not edit). This workflow calls the same two routes every hour
+# so the GHL cycle, Stripe, Meta and the 6am digests keep moving between them.
+# Hourly, not every 30 min: GitHub Free gives private repos 2,000 Actions
+# minutes/month, billed per job rounded UP to the minute. One run ≈ 2 billed
+# minutes (sync-ghl ~40 s + dispatch ~50 s) → ~1,440/month, plus the nightly
+# backup (~90) — under the cap. Every 30 min would be ~2,900 and GitHub
+# would stop the heartbeat mid-month. Both routes are safe at this cadence (see CLAUDE.md → Ops
+# runbook → Heartbeat): GHL refuses to overlap a live run, sources upsert by
+# external id, insights regenerate at most every 20 h, narratives and digests
+# are decided once per period.
+#
+# Repo secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      production origin, e.g. https://fitflow.vercel.app (no path)
+#   CRON_SECRET  the SAME value as Vercel's CRON_SECRET env var
+#
+# A non-2xx from either route fails the run (red X in Actions). The dispatch
+# returns 500 when any of its steps failed; the log lists each step's outcome.
+name: Cron heartbeat
+
+on:
+  schedule:
+    # :17 past every hour — off the busy top of the hour (GitHub delays those)
+    # and off the Vercel crons at 12:00 / 13:00 UTC. Late starts are fine.
+    - cron: '17 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    # Hard cap on billed minutes if both curls hit their 90 s timeouts.
+    timeout-minutes: 4
+    env:
+      APP_URL: ${{ secrets.APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Check secrets are configured
+        run: |
+          missing=0
+          [ -n "$APP_URL" ] || { echo "::error::Repo secret APP_URL is not set"; missing=1; }
+          [ -n "$CRON_SECRET" ] || { echo "::error::Repo secret CRON_SECRET is not set"; missing=1; }
+          exit $missing
+
+      - name: GET /api/cron/sync-ghl
+        run: |
+          set -uo pipefail
+          code=$(curl -sS --max-time 90 -o body.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/sync-ghl") || code="curl-exit-$?"
+          echo "HTTP $code"
+          # Summary only — never dump the raw body into the log.
+          jq -r '"ok=\(.ok) partial=\(.partial) phase=\(.phase) \(.skipped // .progress // "") \(.error // "")"' body.json 2>/dev/null || head -c 300 body.json 2>/dev/null || true
+          case "$code" in 2??) ;; *) echo "::error::sync-ghl returned $code"; exit 1 ;; esac
+
+      - name: GET /api/cron/dispatch
+        # Runs even when sync-ghl failed: the dispatch isolates its own steps.
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          code=$(curl -sS --max-time 90 -o body.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/dispatch") || code="curl-exit-$?"
+          echo "HTTP $code"
+          jq -r '"ok=\(.ok) localHour=\(.localHour) \(.durationMs)ms", (.steps // {} | to_entries[] | "  \(.key): \(.value.status) \(.value.reason // .value.error // "")")' body.json 2>/dev/null || head -c 300 body.json 2>/dev/null || true
+          case "$code" in 2??) ;; *) echo "::error::dispatch returned $code"; exit 1 ;; esac

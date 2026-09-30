@@ -548,3 +548,24 @@ describe('cycle by value (2026-09-29 production audit)', () => {
     await db.update(pipelines).set({ isTracked: true }).where(eq(pipelines.id, 'pipe-1'));
   });
 });
+
+describe('one GHL run at a time (2026-09-29 heartbeat)', () => {
+  it('a run that lands while another is live skips without touching the cursor or recording a row', async () => {
+    const [live] = await db.insert(syncRuns).values({ kind: 'ghl_delta', trigger: 'cron', status: 'running', startedAt: new Date() }).returning({ id: syncRuns.id });
+    const cursorBefore = await readSyncCursor();
+    const runsBefore = (await db.select().from(syncRuns)).length;
+    const r = await runGhlSync({ mode: 'delta', trigger: 'cron' });
+    expect(r).toMatchObject({ ok: true, partial: false, trackedComplete: false, runId: live.id, requestsUsed: 0 });
+    expect(r.skipped).toMatch(/already running/);
+    expect((await db.select().from(syncRuns)).length).toBe(runsBefore);
+    expect(await readSyncCursor()).toEqual(cursorBefore);
+
+    // A dead run (older than the stale window) is swept and no longer blocks.
+    await db.update(syncRuns).set({ startedAt: new Date(Date.now() - 11 * 60_000) }).where(eq(syncRuns.id, live.id));
+    const next = await runGhlSync({ mode: 'delta', trigger: 'cron', maxPages: 1 });
+    expect(next.skipped).toBeUndefined();
+    expect(next.runId).not.toBe(live.id);
+    const [swept] = await db.select().from(syncRuns).where(eq(syncRuns.id, live.id));
+    expect(swept.status).toBe('failed');
+  });
+});
