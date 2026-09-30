@@ -18,7 +18,7 @@ interface SourceFreshness {
 }
 interface Status {
   staleSources: SourceFreshness[];
-  inProgress: boolean;
+  scheduler?: { silent: boolean; detail: string } | null;
   reconcile: { at: string; ok: boolean; mismatches: number; stagesChecked: number } | null;
 }
 
@@ -36,10 +36,10 @@ export function relativeAge(iso: string | null, now: number = Date.now()): strin
 }
 
 /**
- * Slim amber banner on every data page when ANY connected source — GHL, Meta
- * or Stripe — last completed a sync more than 26 hours ago (or never), naming
- * the source and offering its own sync button. Also shows when the nightly
- * reconciliation found the mirror drifting from GoHighLevel.
+ * Slim amber banner on every data page when ANY connected source's data family — GHL opportunities /
+ * appointments, Meta spend, Stripe payments — last COMPLETED more than 3 hours ago (or never), per its freshness
+ * marker (Ingestion v2, 2026-09-30), naming the family and offering its own sync button. Also: the scheduler has
+ * not run for 3 h (red), and the nightly reconciliation found the mirror drifting from GoHighLevel.
  */
 export const StaleSyncBanner: React.FC = () => {
   const pathname = usePathname();
@@ -64,7 +64,8 @@ export const StaleSyncBanner: React.FC = () => {
   if (!status) return null;
   const stale = status.staleSources ?? [];
   const drift = status.reconcile && !status.reconcile.ok ? status.reconcile : null;
-  if (stale.length === 0 && !drift) return null;
+  const silent = status.scheduler?.silent ? status.scheduler : null;
+  if (stale.length === 0 && !drift && !silent) return null;
 
   const syncNow = async (s: SourceFreshness) => {
     setBusy(s.key);
@@ -88,6 +89,12 @@ export const StaleSyncBanner: React.FC = () => {
       className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-1.5 text-[12.5px]"
       style={{ background: 'var(--warning-muted)', borderBottom: '1px solid var(--warning-border)', color: 'var(--warning)' }}
     >
+      {silent && (
+        <span className="inline-flex items-center gap-2" style={{ color: 'var(--negative-text, var(--danger))' }}>
+          <Clock size={13} strokeWidth={2.4} className="shrink-0" />
+          <strong>{silent.detail}</strong>
+        </span>
+      )}
       {stale.map((s) => (
         <span key={s.key} className="inline-flex items-center gap-2">
           <Clock size={13} strokeWidth={2.4} className="shrink-0" />
@@ -101,7 +108,6 @@ export const StaleSyncBanner: React.FC = () => {
                 {s.label} last synced <strong>{relativeAge(s.lastSuccessAt)}</strong>
               </>
             )}
-            {s.key === 'ghl' && status.inProgress ? ' · a sync cycle is in progress and continues on the next run' : ''}
           </span>
           <Button variant="ghost" icon={RefreshCw} loading={busy === s.key} disabled={busy !== null && busy !== s.key} onClick={() => syncNow(s)} className="h-6 px-2 text-[12px]">
             Sync now

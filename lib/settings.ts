@@ -62,6 +62,8 @@ export const SETTING_KEYS = {
   /** F12 (2026-09-30): the per-day completeness sweep — its cursor and its last summary (lib/stripe/completeness.ts). */
   stripeCompletenessCursor: 'stripe_completeness_cursor',
   stripeCompleteness: 'stripe_completeness',
+  /** Ingestion v2 (2026-09-30): the last cron invocation {route, at, via} — the scheduler-silent check (lib/sync/scheduler.ts). */
+  schedulerLastRun: 'scheduler_last_run',
   /** Dispatch fairness + stuck detection (lib/dispatch.ts): per-step history, JSON. */
   dispatchState: 'dispatch_state',
   /** ISO date the GHL / Stripe backfill starts from (Phase G: 2026-06-01). */

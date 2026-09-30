@@ -11,11 +11,11 @@ const H = 3_600_000;
 const NOW = Date.parse('2026-09-29T12:00:00Z');
 
 describe('familyFreshness', () => {
-  it('a family completed 2 h ago is fresh; 30 h ago is stale (26 h threshold); never is stale', () => {
+  it('hourly schedule (2026-09-30): a family completed 2 h ago is fresh; 4 h ago is stale (3 h threshold); never is stale', () => {
     expect(familyFreshness({ key: 'appointments', completedAt: new Date(NOW - 2 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: false, partialOnly: false, ageHours: 2 });
-    expect(familyFreshness({ key: 'appointments', completedAt: new Date(NOW - 30 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
+    expect(familyFreshness({ key: 'appointments', completedAt: new Date(NOW - 4 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
     expect(familyFreshness({ key: 'appointments', completedAt: null, lastRunAt: null, now: NOW })).toMatchObject({ stale: true, partialOnly: false, ageHours: null, completedAt: null });
-    expect(STALE_AFTER_HOURS).toBe(26);
+    expect(STALE_AFTER_HOURS).toBe(3);
   });
 
   it('THE AUDIT: runs every day for 11 days, appointments last completed 11 days ago → stale AND partial-only, and the detail names the family', () => {
@@ -23,13 +23,13 @@ describe('familyFreshness', () => {
     expect(f.stale).toBe(true);
     expect(f.partialOnly).toBe(true);
     expect(f.detail).toBe('appointments: last completed 11 days ago — every run since has been partial');
-    expect(PARTIAL_ONLY_AFTER_HOURS).toBe(48);
+    expect(PARTIAL_ONLY_AFTER_HOURS).toBe(6);
   });
 
-  it('partial-only needs BOTH a run after the completion AND more than 48 h since it; a 30 h gap with no run since is stale but not partial-only', () => {
-    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 60 * H), lastRunAt: new Date(NOW - 70 * H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
-    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 30 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
-    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 50 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: true });
+  it('partial-only needs BOTH a run after the completion AND more than 6 h since it; a 5 h gap with no run since is stale but not partial-only', () => {
+    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 8 * H), lastRunAt: new Date(NOW - 9 * H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
+    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 5 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: false });
+    expect(familyFreshness({ key: 'stages_opportunities', completedAt: new Date(NOW - 7 * H), lastRunAt: new Date(NOW - H), now: NOW })).toMatchObject({ stale: true, partialOnly: true });
     // never completed, but runs have been happening for three days
     expect(familyFreshness({ key: 'stages_opportunities', completedAt: null, lastRunAt: new Date(NOW - 72 * H), now: NOW }).detail).toBe('pipeline stages & opportunities: never completed — runs since have all been partial');
   });

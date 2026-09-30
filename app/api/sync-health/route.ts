@@ -12,6 +12,11 @@ import { readReconcileSummary } from '@/lib/ghl/reconcile';
 import { assessMetaToken, readMetaTokenStatus } from '@/lib/meta/token';
 import { getTimezone } from '@/lib/settings';
 import { readGhlFreshness } from '@/lib/sync/ghlFreshness';
+import { readMarker } from '@/lib/sync/markers';
+import { markerFreshness } from '@/lib/sync/freshness';
+import { checkSchedulerSilence } from '@/lib/sync/scheduler';
+import { readMetaAccount } from '@/lib/meta/ingest';
+import { readCompletenessSummary } from '@/lib/stripe/completeness';
 import type { FamilyFreshness } from '@/lib/sync/freshness';
 
 export const dynamic = 'force-dynamic';
@@ -22,8 +27,8 @@ export interface SourceHealth {
   configured: boolean;
   pending?: boolean;
   cadence: string;
-  /** GHL only (2026-09-29): when each data family last completed — the truth about freshness, not the last run row. */
-  families?: FamilyFreshness[];
+  /** Every data family's freshness from its marker (Ingestion v2, 2026-09-30) — not the last run row. */
+  families?: Array<Pick<FamilyFreshness, 'label' | 'detail' | 'stale' | 'completedAt'> & { key: string }>;
   lastRun: {
     id: string;
     kind: string;
@@ -41,10 +46,10 @@ export interface SourceHealth {
 }
 
 const SOURCES: Array<{ key: SourceHealth['key']; label: string; kinds: string[]; cadence: string; rowKeys: string[] }> = [
-  { key: 'ghl', label: 'GoHighLevel', kinds: ['ghl_delta', 'ghl_backfill'], cadence: 'hourly', rowKeys: ['contactsUpserted', 'appointmentsUpserted'] },
-  { key: 'meta', label: 'Meta Ads', kinds: ['meta_delta', 'meta_backfill'], cadence: 'daily (dispatch)', rowKeys: ['rows'] },
-  { key: 'stripe', label: 'Stripe', kinds: ['stripe_delta', 'stripe_reconcile', 'stripe_backfill'], cadence: 'hourly delta + daily reconcile (dispatch) + webhook', rowKeys: ['charges', 'subscriptions', 'refunds', 'rows', 'payments'] },
-  { key: 'google', label: 'Google Ads', kinds: ['google_delta', 'google_backfill'], cadence: 'daily (dispatch) / CSV', rowKeys: ['rows'] },
+  { key: 'ghl', label: 'GoHighLevel', kinds: ['ghl_delta', 'ghl_backfill'], cadence: 'followed pipeline every hour (:07) · mirrors weekly', rowKeys: ['contactsUpserted', 'appointmentsUpserted'] },
+  { key: 'meta', label: 'Meta Ads', kinds: ['meta_delta', 'meta_backfill'], cadence: 'hourly (dispatch :37) · account-level check daily', rowKeys: ['rows'] },
+  { key: 'stripe', label: 'Stripe', kinds: ['stripe_delta', 'stripe_reconcile', 'stripe_backfill', 'stripe_completeness'], cadence: 'hourly delta + webhook · completeness sweep daily', rowKeys: ['charges', 'subscriptions', 'refunds', 'rows', 'payments'] },
+  { key: 'google', label: 'Google Ads', kinds: ['google_delta', 'google_backfill'], cadence: 'hourly (dispatch) / CSV', rowKeys: ['rows'] },
 ];
 
 export async function GET() {
@@ -60,6 +65,21 @@ export async function GET() {
       isStaleRun(r.status, r.startedAt, now) ? { ...r, status: 'failed', error: r.error ?? STALE_RUN_ERROR } : r,
     );
     const ghlFreshness = await readGhlFreshness(now.getTime());
+    // Ingestion v2: every family's freshness comes from its marker (never run activity), with counts.
+    const [metaMarker, stripeMarker, completenessMarker, metaAccount, completeness] = await Promise.all([
+      readMarker('meta.spend'), readMarker('stripe.payments'), readMarker('stripe.completeness'), readMetaAccount(), readCompletenessSummary(),
+    ]);
+    const fam = (key: string, label: string, marker: Parameters<typeof markerFreshness>[0]['marker'], staleAfterHours?: number) => ({ key, ...markerFreshness({ label, marker, now: now.getTime(), staleAfterHours }) });
+    const familiesBy: Record<SourceHealth['key'], Array<{ key: string; label: string; detail: string; stale: boolean; completedAt: string | null }>> = {
+      ghl: [...ghlFreshness.families, fam('mirrors', 'unfollowed pipelines (weekly pass)', ghlFreshness.markers.mirrors, 8 * 24)],
+      meta: [fam('spend', `spend${metaAccount ? ` (${metaAccount.currency} · ${metaAccount.timezone ?? 'timezone unknown'})` : ''}`, metaMarker)],
+      stripe: [
+        fam('payments', 'payments (delta)', stripeMarker),
+        fam('completeness', `completeness since ${completeness?.checkedFrom ?? 'backfill_from'}${completeness?.stillDiffering?.length ? ` — ${completeness.stillDiffering.length} day(s) still differ` : ''}`, completenessMarker, 26),
+      ],
+      google: [],
+    };
+    const scheduler = await checkSchedulerSilence(now);
     const sources: SourceHealth[] = SOURCES.map((s) => {
       const r = runs.find((run) => s.kinds.includes(run.kind));
       const stats = (r?.stats ?? {}) as Record<string, number | string>;
@@ -70,7 +90,7 @@ export async function GET() {
         configured: configuredBy[s.key],
         pending: s.key === 'google' ? google.pending : undefined,
         cadence: s.cadence,
-        families: s.key === 'ghl' ? ghlFreshness.families : undefined,
+        families: familiesBy[s.key],
         lastRun: r
           ? {
               id: r.id,
@@ -124,6 +144,9 @@ export async function GET() {
       sentry: sentryConfigured(),
       reconcile: await readReconcileSummary(),
       ghlFreshness,
+      scheduler: { lastRun: scheduler.last, silent: scheduler.silent, ageHours: scheduler.ageHours, detail: scheduler.detail },
+      stripeCompleteness: completeness,
+      metaAccount,
       // H2: the last Meta debug_token self-check (nightly), assessed now.
       metaToken: await (async () => {
         const status = await readMetaTokenStatus();

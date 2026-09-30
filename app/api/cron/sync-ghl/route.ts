@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runGhlSync } from '@/lib/ghl/ingest';
+import { recordScheduledRun, schedulerVia } from '@/lib/sync/scheduler';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * GET /api/cron/sync-ghl — GHL delta sync: daily via vercel.json (Hobby) and
- * hourly via the GitHub Actions heartbeat (.github/workflows/heartbeat.yml).
- * Safe to call at any cadence: each call continues the resumable cycle from its
- * cursor, and a call that lands while another GHL run is live returns 200
- * `skipped` without touching anything (lib/ghl/ingest.ts).
+ * GET /api/cron/sync-ghl — the GHL sync (Ingestion v2, 2026-09-30). Primary schedule: Vercel Pro cron hourly at
+ * :07 (vercel.json); fallback: the GitHub Actions heartbeat every 6 h. Every call records itself for the
+ * scheduler-silent check. Safe at any cadence: one run at a time (atomic lease); a call that lands while another
+ * run holds it returns 200 `skipped` without touching anything.
  *
  * Vercel invokes cron routes with `Authorization: Bearer $CRON_SECRET`. We
  * require it in production so nobody can trigger syncs from outside; locally
@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET is not configured' }, { status: 500 });
   }
 
+  await recordScheduledRun('/api/cron/sync-ghl', schedulerVia(request.headers));
+  // Ingestion v2: the followed pipeline in full (200 s budget < maxDuration 300), then the weekly mirror pass if due.
   const result = await runGhlSync({ mode: 'delta', trigger: 'cron' });
   return NextResponse.json(result, { status: result.ok ? 200 : 500 });
 }

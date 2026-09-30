@@ -21,9 +21,7 @@ interface Family {
   key: string;
   label: string;
   completedAt: string | null;
-  ageHours: number | null;
   stale: boolean;
-  partialOnly: boolean;
   detail: string;
 }
 interface Source {
@@ -59,6 +57,7 @@ interface Health {
   recentRuns: Array<{ id: string; kind: string; trigger: string; status: string; startedAt: string; requestsUsed: number; stats: Record<string, number>; error: string | null }>;
   sentry: boolean;
   reconcile: { at: string; ok: boolean; stagesChecked: number; mismatches: Array<{ stageName: string; pipelineName: string; live: number; mirror: number }>; skipped: string[] } | null;
+  scheduler?: { silent: boolean; detail: string; lastRun: { route: string; at: string; via: string } | null } | null;
   metaToken: {
     configured: boolean;
     status: { checkedAt: string; valid: boolean; expiresAt: string | null; type: string | null } | null;
@@ -179,11 +178,12 @@ export const SyncHealth: React.FC = () => {
 
   const needsHuman = health.unmappedStages.length;
   const lastRunAt = health.recentRuns[0]?.startedAt ?? null;
-  // The summary says when the DASHBOARD's data last completed, not when a run last happened (2026-09-29).
-  const ghlFamilies = health.sources.find((s) => s.key === 'ghl')?.families ?? [];
-  const staleFamily = ghlFamilies.find((f) => f.stale);
+  // The summary says when the DASHBOARD's data last completed (markers), and whether the scheduler is alive (v2).
+  const staleSource = health.sources.find((s) => s.configured && (s.families ?? []).some((f) => f.stale));
+  const staleFamily = staleSource?.families?.find((f) => f.stale);
   const summary = [
-    staleFamily ? `GoHighLevel ${staleFamily.detail}` : lastRunAt ? `Last sync ${ago(lastRunAt)}` : 'No runs yet',
+    health.scheduler?.silent ? health.scheduler.detail : null,
+    staleFamily ? `${staleSource!.label} ${staleFamily.detail}` : lastRunAt ? `Last sync ${ago(lastRunAt)}` : 'No runs yet',
     needsHuman ? `${needsHuman} unmapped stage${needsHuman === 1 ? '' : 's'}` : null,
   ]
     .filter(Boolean)
@@ -195,7 +195,7 @@ export const SyncHealth: React.FC = () => {
       summary={summary}
       subtitle="Every source and everything that needs a human. Incidents have their own log below."
       icon={Activity}
-      defaultOpen={needsHuman > 0}
+      defaultOpen={needsHuman > 0 || Boolean(health.scheduler?.silent) || Boolean(staleFamily)}
       action={
         <div className="flex items-center gap-2">
           {health.sentry && (
@@ -210,6 +210,20 @@ export const SyncHealth: React.FC = () => {
         </div>
       }
     >
+
+      {/* ---- Scheduler (Ingestion v2): is anything actually running us? ---- */}
+      {health.scheduler && (
+        <div
+          role={health.scheduler.silent ? 'alert' : undefined}
+          className="text-[12.5px] mb-3 px-3 py-2 rounded-[8px]"
+          style={{
+            background: health.scheduler.silent ? 'var(--negative-muted, var(--danger-muted))' : 'var(--surface-sunken)',
+            color: health.scheduler.silent ? 'var(--negative-text, var(--danger))' : 'var(--text-secondary)',
+          }}
+        >
+          Scheduler: {health.scheduler.detail}
+        </div>
+      )}
 
       {/* ---- Per-source status ---- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-5">

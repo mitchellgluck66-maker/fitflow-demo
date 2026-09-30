@@ -20,6 +20,7 @@ import {
   type DispatchStep, type StepOutcome,
 } from '@/lib/dispatch';
 import { readDispatchState, writeDispatchState, syncStuckIncidents } from '@/lib/dispatchState';
+import { recordScheduledRun, schedulerVia } from '@/lib/sync/scheduler';
 import { sweepIncidentNoise } from '@/lib/incidents/noise';
 import { runNightlyPrune } from '@/lib/syncRunsPrune';
 
@@ -29,8 +30,8 @@ export const maxDuration = 300;
 /**
  * GET /api/cron/dispatch — the ONE scheduled job besides sync-ghl.
  *
- * Callers: the GitHub Actions heartbeat (hourly, right after
- * /api/cron/sync-ghl) and the daily Vercel cron (fallback).
+ * Callers: the Vercel Pro cron hourly at :37 (primary, vercel.json) and the GitHub Actions heartbeat every 6 h
+ * (fallback). Every call records itself for the scheduler-silent check (lib/sync/scheduler.ts).
  *
  * Every step is isolated (lib/dispatch.ts): its own try/catch and timeout,
  * its own outcome row. Since 2026-09-30:
@@ -62,6 +63,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET is not configured' }, { status: 500 });
   }
 
+  await recordScheduledRun('/api/cron/dispatch', schedulerVia(request.headers));
   const force = request.nextUrl.searchParams.get('force') === '1';
   const only = new Set((request.nextUrl.searchParams.get('only') ?? '').split(',').filter(Boolean));
   const want = (step: string) => only.size === 0 || only.has(step);
@@ -87,19 +89,20 @@ export async function GET(request: NextRequest) {
   ]);
 
   const steps: DispatchStep[] = [
-    { name: 'stripe', ownsRun: true, run: () => runScheduledStripeSync({ budgetMs: 15_000 }) },
+    { name: 'stripe', ownsRun: true, timeoutMs: 60_000, run: () => runScheduledStripeSync({ budgetMs: 45_000 }) },
     // F12: the per-day completeness sweep since backfill_from — refills any day that differs (Sep 2–11 included).
     { name: 'stripe_completeness', ownsRun: true, timeoutMs: 90_000, run: () => runStripeCompleteness({ trigger: 'cron', budgetMs: 75_000 }) },
-    { name: 'meta', ownsRun: true, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
+    { name: 'meta', ownsRun: true, timeoutMs: 60_000, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
     // H2: one debug_token GET — when does the stored Meta token expire? (7-day warning incident)
     { name: 'meta_token', timeoutMs: 10_000, run: () => runMetaTokenCheck() },
     { name: 'google', ownsRun: true, run: () => runGoogleAdsSync({ mode: 'delta', trigger: 'cron' }) },
     {
       name: 'ghl',
       ownsRun: true,
-      timeoutMs: 30_000,
+      // Fallback only (sync-ghl normally covers it): a full followed-pipeline read fits 150 s.
+      timeoutMs: 180_000,
       skip: force ? null : ghlFallbackGate(lastGhlOk[0]?.finishedAt ?? null, now),
-      run: () => runGhlSync({ mode: 'delta', trigger: 'cron', budgetMs: 20_000 }),
+      run: () => runGhlSync({ mode: 'delta', trigger: 'cron', budgetMs: 150_000, mirrors: 'skip' }),
     },
     {
       name: 'reconcile',

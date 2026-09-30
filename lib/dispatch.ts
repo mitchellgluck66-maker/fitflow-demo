@@ -56,9 +56,10 @@ export interface DispatchOutcome {
   durationMs: number;
 }
 
-export const DEFAULT_STEP_TIMEOUT_MS = 25_000;
-/** Do not START a new step after this much wall time (Vercel Hobby kills at 60s). */
-export const DEFAULT_DISPATCH_BUDGET_MS = 52_000;
+/** Vercel Pro (2026-09-30): maxDuration 300 s. A step gets 60 s unless it says otherwise. */
+export const DEFAULT_STEP_TIMEOUT_MS = 60_000;
+/** Do not START a new step after this much wall time — leaves a step's timeout inside the 300 s maxDuration. */
+export const DEFAULT_DISPATCH_BUDGET_MS = 110_000;
 
 /** A step whose source / key is not connected did NOTHING — it is `skipped` with this reason, never `succeeded` (2026-09-30). */
 export const NOT_CONFIGURED_REASON = 'not configured — no credentials for this step';

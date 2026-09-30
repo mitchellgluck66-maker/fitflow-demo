@@ -18,10 +18,13 @@ export const GHL_FAMILIES: Array<{ key: GhlFamilyKey; label: string }> = [
   { key: 'appointments', label: 'appointments' },
 ];
 
-/** Data older than this is called out on every data page. */
-export const STALE_AFTER_HOURS = 26;
-/** Runs kept happening but a family has not completed in this long → the banner names the family. */
-export const PARTIAL_ONLY_AFTER_HOURS = 48;
+/**
+ * Data older than this is called out on every data page. 3 h since 2026-09-30 (Vercel Pro, hourly): every family
+ * is refreshed each hour, so two missed hours is already news. (Was 26 h on the once-a-day Hobby schedule.)
+ */
+export const STALE_AFTER_HOURS = 3;
+/** Runs kept happening but a family has not completed in this long → the banner says every run since was partial. */
+export const PARTIAL_ONLY_AFTER_HOURS = 6;
 
 export interface FamilyFreshness {
   key: GhlFamilyKey;
@@ -61,4 +64,29 @@ export function familyFreshness(input: {
     ? `${label}: never completed${partialOnly ? ' — runs since have all been partial' : ''}`
     : `${label}: last completed ${age}${partialOnly ? ' — every run since has been partial' : ''}`;
   return { key: input.key, label, completedAt: doneMs === null ? null : new Date(doneMs).toISOString(), ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10, stale, partialOnly, detail };
+}
+
+/**
+ * Freshness of any marker family (lib/sync/markers.ts) — pure. The banner and Sync health read markers ONLY:
+ * a family is stale when its marker is older than STALE_AFTER_HOURS or does not exist.
+ */
+export function markerFreshness(input: {
+  label: string;
+  marker: { completedAt: string; fetched: number; detail?: string } | null;
+  now?: number;
+  staleAfterHours?: number;
+}): { label: string; completedAt: string | null; ageHours: number | null; stale: boolean; fetched: number | null; detail: string } {
+  const now = input.now ?? Date.now();
+  const staleAfter = input.staleAfterHours ?? STALE_AFTER_HOURS;
+  if (!input.marker) return { label: input.label, completedAt: null, ageHours: null, stale: true, fetched: null, detail: `${input.label}: never completed` };
+  const ageHours = (now - Date.parse(input.marker.completedAt)) / 3_600_000;
+  const age = ageHours < 1 ? `${Math.max(0, Math.round(ageHours * 60))} min ago` : ageHours < 48 ? `${Math.round(ageHours)} h ago` : `${Math.round(ageHours / 24)} days ago`;
+  return {
+    label: input.label,
+    completedAt: input.marker.completedAt,
+    ageHours: Math.round(ageHours * 10) / 10,
+    stale: ageHours > staleAfter,
+    fetched: input.marker.fetched,
+    detail: `${input.label}: last completed ${age}${input.marker.detail ? ` (${input.marker.detail})` : ''}`,
+  };
 }

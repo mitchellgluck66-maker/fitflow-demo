@@ -1,34 +1,26 @@
-# Cron heartbeat (2026-09-29).
+# Cron heartbeat — FALLBACK (2026-09-30, Ingestion v2).
 #
-# Vercel Hobby fires our two crons once a day (vercel.json — kept as the
-# fallback, do not edit). This workflow calls the same two routes every hour
-# so the GHL cycle, Stripe, Meta and the 6am digests keep moving between them.
-# Hourly, not every 30 min: GitHub Free gives private repos 2,000 Actions
-# minutes/month, billed per job rounded UP to the minute. One run ≈ 2 billed
-# minutes (sync-ghl ~40 s + dispatch ~50 s) → ~1,440/month, plus the nightly
-# backup (~90) — under the cap. Every 30 min would be ~2,900 and GitHub
-# would stop the heartbeat mid-month. Both routes are safe at this cadence (see CLAUDE.md → Ops
-# runbook → Heartbeat): GHL refuses to overlap a live run, sources upsert by
-# external id, insights regenerate at most every 20 h, narratives and digests
-# are decided once per period.
+# Vercel Pro crons are the primary scheduler (vercel.json: sync-ghl hourly at :07, dispatch hourly at :37).
+# GitHub scheduled runs are best-effort (this job fired 3 times in 9 overnight hours on 2026-09-29), so this
+# workflow is only a fallback: every 6 hours it calls the same two routes with the X-FitFlow-Trigger header,
+# which /api/sync/status reports as `via: github`. If Vercel's crons stop, the app's own scheduler-silent check
+# (3 h without any scheduled run → critical incident + red banner) fires long before this runs again.
+#
+# Minutes: 4 runs/day × ~5 billed min ≈ 600 min/month (sync-ghl may use its full 200 s budget) + the nightly
+# backup (~90) — well under GitHub Free's 2,000 for private repos.
 #
 # Repo secrets (Settings → Secrets and variables → Actions):
 #   APP_URL      production origin, e.g. https://fitflow.vercel.app (no path)
 #   CRON_SECRET  the SAME value as Vercel's CRON_SECRET env var
 #
-# A non-2xx from either route fails the run (red X in Actions), and a red X
-# means something is actually broken: the dispatch returns 500 ONLY when a
-# step failed or the same step timed out / was deferred 3 runs in a row
-# (it also opens a `dispatch_stuck` incident). Steps merely deferred for the
-# time budget → 200 with partial:true; they run first next time. The log
-# lists each step's outcome in the order it ran.
+# A non-2xx from either route fails the run (red X). The dispatch returns 500 only when a step failed or one was
+# stuck 3 runs in a row; the log lists every step's outcome.
 name: Cron heartbeat
 
 on:
   schedule:
-    # :17 past every hour — off the busy top of the hour (GitHub delays those)
-    # and off the Vercel crons at 12:00 / 13:00 UTC. Late starts are fine.
-    - cron: '17 * * * *'
+    # Every 6 hours at :17 — a fallback, off the Vercel crons (:07 / :37). Late starts are fine.
+    - cron: '17 */6 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -41,8 +33,8 @@ concurrency:
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    # Hard cap on billed minutes if both curls hit their 90 s timeouts.
-    timeout-minutes: 4
+    # sync-ghl may use its full 200 s budget, dispatch ~110 s + one step: cap well above both.
+    timeout-minutes: 12
     env:
       APP_URL: ${{ secrets.APP_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -57,8 +49,8 @@ jobs:
       - name: GET /api/cron/sync-ghl
         run: |
           set -uo pipefail
-          code=$(curl -sS --max-time 90 -o body.json -w '%{http_code}' \
-            -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/sync-ghl") || code="curl-exit-$?"
+          code=$(curl -sS --max-time 290 -o body.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" -H "X-FitFlow-Trigger: github-heartbeat" "${APP_URL%/}/api/cron/sync-ghl") || code="curl-exit-$?"
           echo "HTTP $code"
           # Summary only — never dump the raw body into the log.
           jq -r '"ok=\(.ok) partial=\(.partial) phase=\(.phase) \(.skipped // .progress // "") \(.error // "")"' body.json 2>/dev/null || head -c 300 body.json 2>/dev/null || true
@@ -69,8 +61,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -uo pipefail
-          code=$(curl -sS --max-time 90 -o body.json -w '%{http_code}' \
-            -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/dispatch") || code="curl-exit-$?"
+          code=$(curl -sS --max-time 290 -o body.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" -H "X-FitFlow-Trigger: github-heartbeat" "${APP_URL%/}/api/cron/dispatch") || code="curl-exit-$?"
           echo "HTTP $code"
           # 200 = healthy (partial=true only means some steps were deferred to the next run and go first there).
           # 500 = a step FAILED, or one was stuck (timed out / deferred 3 runs in a row) — see failed / stuck.
