@@ -11,6 +11,8 @@ import {
   computeFunnel,
   computeCac,
   computeRevenue,
+  computeRevenueSummary,
+  failedPayments,
   computeShowRates,
   computeSourceBreakdown,
   computeTimeInStage,
@@ -183,6 +185,32 @@ describe('spend, CAC and revenue', () => {
       refundedCents: 50_000,
     });
     expect(r.roas).toBeCloseTo(250_000 / 120_000);
+  });
+
+  // Audit P1 #5 (2026-09-30): Zoe's one $525 invoice failed 6 times and was then paid on Sep 22 — it read as "6 failed".
+  it('failed payments count per invoice, only while still unpaid, by the latest attempt', () => {
+    const pay = (id: string, on: string, status: string, invoiceId: string | null, amountCents = 52_500): MetricsInput['payments'][number] =>
+      ({ id, stripeId: id, contactId: 'c1', currency: 'CAD' as const, amountCents, refundedCents: 0, status, on, origin: 'stripe', kind: invoiceId ? 'invoice' : 'charge', invoiceId, paymentClass: status === 'succeeded' ? 'recurring' : 'excluded' });
+    const input: MetricsInput = {
+      ...FIXTURE,
+      payments: [
+        ...['08-02', '08-03', '08-04', '08-05', '08-06', '08-08'].map((d, i) => pay(`zoe-f${i}`, `2026-${d}`, 'failed', 'in_zoe')), // 6 retries …
+        pay('zoe-paid', '2026-09-22', 'succeeded', 'in_zoe'), // … paid later (outside the range, still "paid")
+        pay('amy-f1', '2026-08-03', 'failed', 'in_amy', 40_000), // still unpaid: an older attempt …
+        pay('amy-f2', '2026-08-07', 'failed', 'in_amy', 41_000), // … and the latest one (counts once, at 41,000)
+        pay('card-f', '2026-08-05', 'failed', null, 12_300), // a plain charge with no invoice counts on its own
+      ],
+    };
+    const f = failedPayments(input, R);
+    expect(f.count).toBe(2);
+    expect(f.cents).toBe(41_000 + 12_300);
+    expect(f.laterPaid).toBe(6);
+    expect(f.rows.map((p) => p.id).sort()).toEqual(['amy-f2', 'card-f']);
+    expect(computeRevenue(input, R).failedCount).toBe(2);
+    const summary = computeRevenueSummary(input, R);
+    expect(summary).toMatchObject({ failedCount: 2, failedCents: 53_300, failedLaterPaid: 6 });
+    expect(summary.payments.filter((p) => p.stillUnpaid).map((p) => p.id).sort()).toEqual(['amy-f2', 'card-f']);
+    expect(summary.payments.find((p) => p.id === 'zoe-f5')!.stillUnpaid).toBe(false);
   });
 });
 

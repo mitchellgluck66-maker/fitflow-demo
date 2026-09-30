@@ -95,7 +95,7 @@ const Row: React.FC<{ p: PaymentDetail }> = ({ p }) => {
       </td>
       <td className="px-3 py-2.5">
         <Badge variant={STATUS_VARIANT[p.status] ?? 'neutral'} size="xs">
-          {p.status}
+          {p.status === 'failed' ? (p.stillUnpaid ? 'failed · still unpaid' : 'failed · paid later') : p.status}
         </Badge>
       </td>
       <td className="px-3 py-2.5">
@@ -163,8 +163,9 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
     return <EmptyState title="No payments in this period" description="Stripe is connected; nothing was charged in the selected dates." />;
   }
 
-  const failed = rows.filter((p) => p.status === 'failed');
-  const rest = rows.filter((p) => p.status !== 'failed');
+  // P1 #5: pin only the invoices still unpaid (latest attempt each); a retry that was paid later is an ordinary row.
+  const failed = rows.filter((p) => p.stillUnpaid);
+  const rest = rows.filter((p) => !p.stillUnpaid);
   const activeSort = t.state.sort ?? 'date';
   const dir = t.state.sort ? t.state.dir : 'desc';
 
@@ -227,7 +228,7 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
                   <tr>
                     <td colSpan={7} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--negative-text)', background: 'var(--negative-muted)' }}>
                       <span className="inline-flex items-center gap-1.5">
-                        <AlertTriangle size={12} strokeWidth={2.4} /> Needs attention · {failed.length} failed
+                        <AlertTriangle size={12} strokeWidth={2.4} /> Still unpaid · {failed.length} invoice{failed.length === 1 ? '' : 's'} (latest attempt each)
                       </span>
                     </td>
                   </tr>

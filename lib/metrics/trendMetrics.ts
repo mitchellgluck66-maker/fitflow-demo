@@ -55,7 +55,7 @@ export const TREND_METRICS: readonly TrendMetric[] = [
   M('initial_cash', 'Initial cash collected', 'cents', false, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).initialCents)),
   M('recurring_cash', 'Recurring cash', 'cents', false, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).recurringCents)),
   M('collected', 'Cash collected', 'cents', false, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).collectedCents)),
-  M('failed', 'Failed payments', 'count', true, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).failedCount)),
+  M('failed', 'Still unpaid invoices', 'count', true, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).failedCount)),
   M('refunds', 'Refunds', 'cents', true, '/revenue', (i, r) => (computeRevenue(i, r).awaitingStripe ? null : computeRevenue(i, r).refundedCents)),
   M('enrollments', 'Enrollments', 'count', false, '/funnel', count('enrolled')),
   M('applied', 'Applied', 'count', false, '/funnel', count('applied')),

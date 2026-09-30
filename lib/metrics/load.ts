@@ -182,6 +182,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       description: payments.description,
       matchSource: payments.matchSource,
       paymentClass: payments.paymentClass,
+      invoiceId: sql<string | null>`${payments.metadata}->>'invoice'`,
     })
     .from(payments);
 
@@ -250,6 +251,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
       description: p.description,
       matchSource: p.matchSource,
       paymentClass: p.paymentClass ?? null,
+      invoiceId: p.invoiceId ?? null,
     })),
   };
   // Computed while mapping the contacts above (appliedDate fills it).

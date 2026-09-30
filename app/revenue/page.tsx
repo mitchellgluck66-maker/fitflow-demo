@@ -154,7 +154,7 @@ function RevenueTab() {
             subtext={`${revenue.activeSubscriptions} active · monthly-normalised plan value, not range-bound`}
           />
           <KpiDeltaTile
-            label="Failed"
+            label="Still unpaid"
             trendMetric="failed"
             trendRange={range}
             value={String(revenue.failedCount)}
@@ -162,7 +162,13 @@ function RevenueTab() {
             comparisonLabel={cmpLabel}
             icon={AlertTriangle}
             accent="danger"
-            subtext={revenue.failedCount > 0 ? `${formatCents(revenue.failedCents, ccy)} not collected` : 'nothing failed in period'}
+            subtext={
+              revenue.failedCount > 0
+                ? `${formatCents(revenue.failedCents, ccy)} across ${revenue.failedCount} invoice${revenue.failedCount === 1 ? '' : 's'} still unpaid${revenue.failedLaterPaid > 0 ? ` · ${revenue.failedLaterPaid} failed attempt${revenue.failedLaterPaid === 1 ? '' : 's'} paid later` : ''}`
+                : revenue.failedLaterPaid > 0
+                  ? `nothing still unpaid · ${revenue.failedLaterPaid} failed attempt${revenue.failedLaterPaid === 1 ? '' : 's'} paid later`
+                  : 'nothing failed in period'
+            }
           />
           <KpiDeltaTile
             label="Refunds"
@@ -214,7 +220,7 @@ function RevenueTab() {
         <Card padding="lg">
           <CardHeader
             title="Payments"
-            subtitle={`${range.presetLabel} · ${range.resolvedLabel} · failed payments pinned first · filter by class to see initial vs recurring`}
+            subtitle={`${range.presetLabel} · ${range.resolvedLabel} · still-unpaid invoices pinned first · filter by class to see initial vs recurring`}
             icon={Banknote}
           />
           <PaymentsTable payments={revenue.payments} unmatchedCount={revenue.unmatchedCount} />

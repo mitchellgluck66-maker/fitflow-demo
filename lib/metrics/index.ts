@@ -155,6 +155,8 @@ export interface PaymentRow {
   contactId: string | null;
   /** charge | invoice | subscription | refund */
   kind?: string;
+  /** The Stripe invoice this charge paid or tried to pay (retries share it). */
+  invoiceId?: string | null;
   amountCents: number;
   refundedCents: number;
   /** Currency amountCents / refundedCents are in (as Stripe charged it). */
@@ -744,6 +746,31 @@ function netCents(p: PaymentRow): number {
  * zero (its amount was never kept), a partial refund reduces the class it
  * belongs to. Failed payments are counted, never summed.
  */
+/**
+ * Failed payments, counted per INVOICE (audit P1 #5, 2026-09-30): Stripe retries a failing invoice, and each
+ * retry is its own charge row — one $525 invoice that failed 6 times and was then paid read as "6 failed". An
+ * invoice counts once, by its latest failed attempt, and only while it is still unpaid: an invoice with a kept
+ * charge anywhere in the data (any date) is not owed. A failed charge with no invoice counts on its own.
+ */
+export function failedPayments(raw: MetricsInput, range: Range): { count: number; cents: number; rows: PaymentRow[]; laterPaid: number } {
+  const input = inReportingCurrency(raw);
+  const paidInvoices = new Set(input.payments.filter((p) => p.invoiceId && p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded')).map((p) => p.invoiceId as string));
+  const latest = new Map<string, PaymentRow>();
+  let laterPaid = 0;
+  for (const p of input.payments) {
+    if (p.status !== 'failed' || p.kind === 'subscription' || p.kind === 'refund' || !inRange(p.on, range)) continue;
+    if (p.invoiceId && paidInvoices.has(p.invoiceId)) {
+      laterPaid += 1;
+      continue;
+    }
+    const key = p.invoiceId ?? `charge:${p.stripeId ?? p.id ?? Math.random()}`;
+    const prev = latest.get(key);
+    if (!prev || (p.on ?? '') > (prev.on ?? '')) latest.set(key, p);
+  }
+  const rows = Array.from(latest.values());
+  return { count: rows.length, cents: sumCents(rows.map((p) => ({ cents: p.amountCents, currency: p.currency })), input.money.reporting), rows, laterPaid };
+}
+
 export function computeRevenue(raw: MetricsInput, range: Range): Revenue {
   const input = inReportingCurrency(raw);
   const ccy = input.money.reporting;
@@ -786,7 +813,7 @@ export function computeRevenue(raw: MetricsInput, range: Range): Revenue {
     initialCount,
     recurringCount,
     paymentCount: cash.filter((p) => p.status === 'succeeded').length,
-    failedCount: rows.filter((p) => p.status === 'failed').length,
+    failedCount: failedPayments(input, range).count,
     refundedCents: refunded.total,
     roas: !awaitingStripe && spendCents > 0 ? initialCents / spendCents : null,
     awaitingStripe,
@@ -1585,6 +1612,8 @@ export interface PaymentDetail {
   stripeId: string | null;
   kind: string;
   status: string;
+  /** A failed attempt whose invoice is still unpaid (the latest attempt) — the ones to chase. */
+  stillUnpaid?: boolean;
   /** In the reporting currency (`currency`). */
   amountCents: number;
   refundedCents: number;
@@ -1649,8 +1678,11 @@ export interface RevenueSummary {
   /** Monthly-normalised sum of active subscriptions (not range-bound). */
   mrrCents: number;
   activeSubscriptions: number;
+  /** Still-unpaid invoices (one per invoice, latest attempt) — see failedPayments. */
   failedCount: number;
   failedCents: number;
+  /** Failed attempts in range whose invoice was paid later — not owed, not counted. */
+  failedLaterPaid: number;
   refundedCents: number;
   refundCount: number;
   /** Payments in range, failed pinned first, then newest first. */
@@ -1718,6 +1750,9 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
     byReason[excludedReasonOf(p)] += 1;
     excludedCount += 1;
   }
+  const failed = failedPayments(input, range);
+  const stillUnpaid = new Set(failed.rows.map((p) => p.id ?? p.stripeId ?? ''));
+  for (const d of list) d.stillUnpaid = d.status === 'failed' && stillUnpaid.has(d.id);
   const grossRows = inR.filter((p) => p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded'));
   const notYetClassifiedCount = inR.filter((p) => (p.paymentClass ?? null) === null && !(grossRows.includes(p) && netCents(p) > 0)).length;
 
@@ -1733,8 +1768,9 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
     unclassifiedCount: base.unclassifiedCount,
     mrrCents: sumCents(subs.map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),
     activeSubscriptions: subs.length,
-    failedCount: base.failedCount,
-    failedCents: sumCents(inR.filter((p) => p.status === 'failed').map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),
+    failedCount: failed.count,
+    failedCents: failed.cents,
+    failedLaterPaid: failed.laterPaid,
     refundedCents: base.refundedCents,
     refundCount: inR.filter((p) => p.refundedCents > 0).length,
     payments: list,
