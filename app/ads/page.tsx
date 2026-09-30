@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense } from 'react';
+import { FetchError } from '@/components/FetchError';
 import Link from 'next/link';
 import { DollarSign, Users, CalendarCheck, Target, TrendingUp, Megaphone, Map } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
@@ -19,7 +20,7 @@ import { computeDelta, formatCents } from '@/lib/metrics';
 
 function AdsTab() {
   const businessTz = useBusinessTimezone().timezone;
-  const { data, loading, error } = useScorecard();
+  const { data, loading, error, reload } = useScorecard();
   const display = useDisplayedMetrics();
   const show = (key: string) => display.enabled.has(key);
 
@@ -38,7 +39,7 @@ function AdsTab() {
       <>
         <PageHeader title="Ads" />
         <PageBody>
-          <EmptyState title="Could not load the scorecard" description={error ?? 'Unknown error'} />
+          <FetchError title="Could not load the scorecard" error={error ?? 'Unknown error'} onRetry={reload} />
         </PageBody>
       </>
     );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchJson } from '@/lib/clientFetch';
 import { useSearchParams } from 'next/navigation';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import { CURRENCY_CHANGED_EVENT } from '@/lib/money';
@@ -33,12 +34,7 @@ export function useScorecard(): {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/scorecard?${query}`)
-      .then(async (r) => {
-        const body = await r.json();
-        if (!r.ok) throw new Error(body.detail ?? body.error ?? 'Request failed');
-        return body as ScorecardResult;
-      })
+    fetchJson<ScorecardResult>(`/api/scorecard?${query}`)
       .then((d) => {
         if (!cancelled) {
           setData(d);

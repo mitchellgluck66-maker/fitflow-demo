@@ -6,6 +6,8 @@ import { Hourglass } from 'lucide-react';
 import { AccordionCard, Badge, Button, Input, Toast } from '@/components';
 import { MATURITY_DEFAULTS, computeMaturity, maturingCaveatText } from '@/lib/metrics/maturity';
 import { todayInTimezone } from '@/lib/dates';
+import { fetchJson } from '@/lib/clientFetch';
+import { FetchError } from '@/components/FetchError';
 
 /**
  * Setup → Data caveats: the two dates behind the self-expiring "maturing
@@ -24,16 +26,22 @@ export const DataCaveatsCard: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((d: { historyCompleteSince?: string; disclaimerSunset?: string }) => {
+    fetchJson<{ historyCompleteSince?: string; disclaimerSunset?: string }>('/api/settings')
+      .then((d) => {
+        setLoadError(null);
         if (d.historyCompleteSince) setSince(d.historyCompleteSince);
         if (d.disclaimerSunset) setSunset(d.disclaimerSunset);
+        setLoaded(true);
       })
-      .catch(() => undefined)
-      .finally(() => setLoaded(true));
-  }, []);
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, [attempt]);
+  const retry = () => {
+    setLoadError(null);
+    setAttempt((a) => a + 1);
+  };
 
   const save = async () => {
     setBusy(true);
@@ -52,7 +60,7 @@ export const DataCaveatsCard: React.FC = () => {
   return (
     <AccordionCard
       title="Data caveats"
-      summary={!loaded ? 'Loading…' : retired ? 'Maturing-data notice retired' : `Notice active for ranges before ${since} · retires ${sunset}`}
+      summary={!loaded ? (loadError ? 'Could not load' : 'Loading…') : retired ? 'Maturing-data notice retired' : `Notice active for ranges before ${since} · retires ${sunset}`}
       subtitle="Live stage history began on the first date; before it GoHighLevel kept only each person's latest stage. Affected numbers carry a small amber badge until the second date."
       icon={Hourglass}
       action={
@@ -61,6 +69,11 @@ export const DataCaveatsCard: React.FC = () => {
         </Badge>
       }
     >
+      {loadError && !loaded && (
+        <div className="mb-3">
+          <FetchError compact title="Could not load the data caveat dates" error={loadError} onRetry={retry} />
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Input label="Stage history complete since" type="date" value={since} onChange={(e) => setSince(e.target.value)} hint="Ranges that start before this date get the badge on history-dependent numbers." />
         <Input label="Notice retires on" type="date" value={sunset} onChange={(e) => setSunset(e.target.value)} hint="From this day the badge and the AI caveat stop rendering everywhere — no redeploy." />

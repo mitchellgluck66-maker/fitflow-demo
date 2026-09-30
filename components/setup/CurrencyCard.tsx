@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { Coins } from 'lucide-react';
 import { AccordionCard, Badge, Button, Input, Select, Toast } from '@/components';
 import { CURRENCY_CHANGED_EVENT, formatRate, type Currency, type FxRate } from '@/lib/money';
+import { fetchJson } from '@/lib/clientFetch';
+import { FetchError } from '@/components/FetchError';
 
 interface CurrencyState {
   today: string;
@@ -33,17 +35,21 @@ export const CurrencyCard: React.FC = () => {
     setRate(d.usdCad === null ? '' : formatRate(d.usdCad));
   };
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const load = () =>
-      fetch('/api/currency')
-        .then((r) => r.json())
-        .then(apply)
-        .catch(() => undefined);
+      fetchJson<CurrencyState>('/api/currency')
+        .then((d) => {
+          setLoadError(null);
+          apply(d);
+        })
+        .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
     load();
     // The nav toggle flips the same setting.
     window.addEventListener(CURRENCY_CHANGED_EVENT, load);
     return () => window.removeEventListener(CURRENCY_CHANGED_EVENT, load);
-  }, []);
+  }, [attempt]);
 
   const post = async (body: Record<string, unknown>, ok: string) => {
     setBusy(true);
@@ -64,10 +70,10 @@ export const CurrencyCard: React.FC = () => {
   return (
     <AccordionCard
       title="Currency"
-      summary={state ? state.note : 'Loading…'}
+      summary={state ? state.note : loadError ? 'Could not load' : 'Loading…'}
       subtitle="Payments arrive in CAD and USD; Meta bills in USD. Every amount is converted to the reporting currency when it is read, at its own date's rate — nothing stored is rewritten."
       icon={Coins}
-      defaultOpen={seedOnly}
+      defaultOpen={seedOnly || Boolean(loadError)}
       action={
         state ? (
           <Badge variant={seedOnly ? 'warning' : 'neutral'} dot>
@@ -76,6 +82,11 @@ export const CurrencyCard: React.FC = () => {
         ) : undefined
       }
     >
+      {loadError && !state && (
+        <div className="mb-3">
+          <FetchError compact title="Could not load the currency settings" error={loadError} onRetry={() => setAttempt((a) => a + 1)} />
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Select
           label="Reporting currency"

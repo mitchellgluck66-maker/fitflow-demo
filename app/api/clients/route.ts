@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { listClients, type ClientListParams } from '@/lib/queries/clients';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     const p = request.nextUrl.searchParams;
     const sort = p.get('sort');
     const dir = p.get('dir');
-    const result = await listClients({
+    const result = await dbTimeout(listClients({
       q: p.get('q'),
       stageId: p.get('stage'),
       source: p.get('source'),
@@ -27,11 +28,10 @@ export async function GET(request: NextRequest) {
       offset: p.get('offset') ? Number(p.get('offset')) : undefined,
       sort: sort && SORTS.has(sort) ? (sort as ClientListParams['sort']) : undefined,
       dir: dir === 'asc' ? 'asc' : dir === 'desc' ? 'desc' : undefined,
-    });
+    }), 'list clients');
     return NextResponse.json(result);
   } catch (error) {
-    // a malformed from/to (lib/sqlTime#isoDayParam) is the caller's error, said by name — never a 500, never "Invalid Date" sent to Postgres
-    if (error instanceof RangeError) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ error: 'Failed to list clients', detail: String(error) }, { status: 500 });
+    // a malformed from/to (lib/sqlTime#isoDayParam) is the caller's error (400); a query that never answered is a 504, never a 300 s hang
+    return apiErrorResponse(error, 'Failed to list clients');
   }
 }

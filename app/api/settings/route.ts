@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { getAllSettings, setSetting, SETTING_KEYS, getTimezone } from '@/lib/settings';
 import { getGhlConfig, REQUIRED_SCOPES, ENABLE_WRITEBACK } from '@/lib/ghl/config';
 import { testConnection } from '@/lib/ghl/client';
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [stored, connection, config] = await Promise.all([getAllSettings(), testConnection(), getGhlConfig()]);
+    const [stored, connection, config] = await dbTimeout(Promise.all([getAllSettings(), testConnection(), getGhlConfig()]), 'settings');
     // F8: the resolved business timezone, or null + the reason — never a silent America/New_York.
     const tz = await getTimezone().then((timezone) => ({ timezone, error: null as string | null })).catch((e: unknown) => ({ timezone: null, error: e instanceof Error ? e.message : String(e) }));
 
@@ -52,7 +53,7 @@ export async function GET() {
       queue: { pending: 0, failed: 0, succeeded: 0, dryRun: 0, isDryRun: false },
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch settings', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to fetch settings');
   }
 }
 

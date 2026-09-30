@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense } from 'react';
+import { FetchError } from '@/components/FetchError';
 import Link from 'next/link';
 import { Banknote, Repeat, AlertTriangle, Undo2, Sparkles, CalendarClock } from 'lucide-react';
 import { Area, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ComposedChart } from 'recharts';
@@ -13,7 +14,7 @@ import { useScorecard } from '@/components/useScorecard';
 import { computeDelta, formatCents, EXCLUDED_REASON_LABELS } from '@/lib/metrics';
 
 function RevenueTab() {
-  const { data, loading, error } = useScorecard();
+  const { data, loading, error, reload } = useScorecard();
 
   if (loading && !data) {
     return (
@@ -30,7 +31,7 @@ function RevenueTab() {
       <>
         <PageHeader title="Revenue" />
         <PageBody>
-          <EmptyState title="Could not load the scorecard" description={error ?? 'Unknown error'} />
+          <FetchError title="Could not load the scorecard" error={error ?? 'Unknown error'} onRetry={reload} />
         </PageBody>
       </>
     );

@@ -21,6 +21,7 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 declare global {
   var __fitflowDb: Db | undefined;
+  var __fitflowPg: ReturnType<typeof postgres> | undefined;
 }
 
 // CLI scripts (tsx) do not load .env.local the way Next does. Load it here so
@@ -46,7 +47,15 @@ function createDb(): Db {
   if (DATABASE_URL) {
     // Supabase's transaction pooler (port 6543) does not support prepared
     // statements; prepare:false is safe on the session pooler too.
-    const client = postgres(DATABASE_URL, { prepare: false, max: 5 });
+    //
+    // 2026-09-30 (audit P1 #1): on Vercel, /api/clients, /api/currency and /api/settings hung until the
+    // 300 s function timeout while Postgres showed NO running query — the warm function was reusing a
+    // socket that had died while the function was frozen, so the query was written into the void.
+    // Connections now close after 20 s idle (nothing survives a freeze), live at most 15 min, and a
+    // connect attempt gives up after 10 s. `lib/dbTimeout.ts` bounds every route's wait and resets this
+    // pool when it trips, so the next request gets a fresh socket instead of the dead one.
+    const client = postgres(DATABASE_URL, { prepare: false, max: 5, idle_timeout: 20, max_lifetime: 60 * 15, connect_timeout: 10 });
+    globalThis.__fitflowPg = client;
     return drizzlePostgres(client, { schema }) as unknown as Db;
   }
 
@@ -63,6 +72,24 @@ function getDb(): Db {
   // handle (or a new Postgres pool) on every module re-evaluation.
   if (!globalThis.__fitflowDb) globalThis.__fitflowDb = createDb();
   return globalThis.__fitflowDb;
+}
+
+/**
+ * Drop the Postgres pool so the next query opens fresh connections. Called when a query did not answer
+ * within `lib/dbTimeout`'s budget (a dead socket); a no-op on PGlite. Ending the old client is best
+ * effort and never awaited past a second — its sockets may be the very ones that are dead.
+ */
+export async function resetDbConnection(reason: string): Promise<void> {
+  const pg = globalThis.__fitflowPg;
+  if (!pg) return;
+  globalThis.__fitflowPg = undefined;
+  globalThis.__fitflowDb = undefined;
+  console.warn(`[db] resetting the Postgres pool: ${reason}`);
+  try {
+    await pg.end({ timeout: 1 });
+  } catch {
+    /* the pool was already unusable */
+  }
 }
 
 /**

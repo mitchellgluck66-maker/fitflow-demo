@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense } from 'react';
+import { FetchError } from '@/components/FetchError';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { DollarSign, Trophy, Target, TrendingUp, CalendarCheck, Scale, Map } from 'lucide-react';
@@ -17,7 +18,7 @@ import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
 function CommandCenter() {
-  const { data, loading, error } = useScorecard();
+  const { data, loading, error, reload } = useScorecard();
   const search = useSearchParams();
 
   const trendRows = (data?.trend.current ?? []).map((p, i) => {
@@ -73,7 +74,7 @@ function CommandCenter() {
       <>
         <PageHeader title="Command Center" />
         <PageBody>
-          <EmptyState title="Could not load the scorecard" description={error ?? 'Unknown error'} />
+          <FetchError title="Could not load the scorecard" error={error ?? 'Unknown error'} onRetry={reload} />
         </PageBody>
       </>
     );

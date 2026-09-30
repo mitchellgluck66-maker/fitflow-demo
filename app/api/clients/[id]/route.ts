@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { getClientProfile } from '@/lib/queries/clients';
 import { setAttributionOverride } from '@/lib/attribution/run';
 import { isAttributionClass } from '@/lib/attribution/classify';
@@ -9,11 +10,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const profile = await getClientProfile(id);
+    const profile = await dbTimeout(getClientProfile(id), 'client profile');
     if (!profile) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     return NextResponse.json(profile);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to load client', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to load client');
   }
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense, useCallback } from 'react';
+import { FetchError } from '@/components/FetchError';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Filter, Hourglass, Table2, CalendarCheck, Route, CalendarRange } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -20,7 +21,7 @@ function pct(n: number, d: number): number | null {
 }
 
 function FunnelTab() {
-  const { data, loading, error } = useScorecard();
+  const { data, loading, error, reload } = useScorecard();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -90,7 +91,7 @@ function FunnelTab() {
       <>
         <PageHeader title="Funnel" />
         <PageBody>
-          <EmptyState title="Could not load the funnel" description={error ?? 'Unknown error'} />
+          <FetchError title="Could not load the funnel" error={error ?? 'Unknown error'} onRetry={reload} />
         </PageBody>
       </>
     );

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { apiErrorResponse } from '@/lib/dbTimeout';
 import { getGhlConfig } from '@/lib/ghl/config';
 import { getMetaConfig } from '@/lib/meta/config';
 import { getStripeConfig } from '@/lib/stripe/config';
@@ -106,6 +107,6 @@ export async function GET() {
       reconcile: reconcile ? { at: reconcile.at, ok: reconcile.ok, mismatches: reconcile.mismatches.length, stagesChecked: reconcile.stagesChecked } : null,
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to read sync status', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to read sync status');
   }
 }

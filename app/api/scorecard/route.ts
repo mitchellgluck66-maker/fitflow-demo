@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { getScorecard } from '@/lib/metrics/service';
 
 export const dynamic = 'force-dynamic';
@@ -11,16 +12,16 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
-    const result = await getScorecard({
+    const result = await dbTimeout(getScorecard({
       range: p.get('range'),
       start: p.get('start'),
       end: p.get('end'),
       compare: p.get('compare'),
       pipelineId: p.get('pipeline') ?? undefined,
-    });
+    }), 'scorecard');
     return NextResponse.json(result);
   } catch (error) {
     console.error('scorecard failed:', error);
-    return NextResponse.json({ error: 'Failed to compute scorecard', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to compute scorecard');
   }
 }

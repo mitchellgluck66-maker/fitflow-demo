@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { z } from 'zod';
 import { getTimezone, setSetting, SETTING_KEYS } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/currency — reporting currency, contract currency, stored USD→CAD rates and today's active rate. */
 export async function GET() {
   try {
-    const [ctx, tz] = await Promise.all([loadMoneyContext(), getTimezone()]);
+    const [ctx, tz] = await dbTimeout(Promise.all([loadMoneyContext(), getTimezone()]), 'currency settings');
     const today = todayInTimezone(tz);
     let usdCad: number | null = null;
     try {
@@ -27,7 +28,7 @@ export async function GET() {
       rates: ctx.rates.slice(-18).reverse(),
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to load currency settings', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to load currency settings');
   }
 }
 

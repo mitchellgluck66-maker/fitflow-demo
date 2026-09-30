@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dbTimeout, apiErrorResponse } from '@/lib/dbTimeout';
 import { getScorecard } from '@/lib/metrics/service';
 import { getNarrative } from '@/lib/anthropic/narrative';
 import { assembleScorecard, scorecardKindOf } from '@/lib/scorecard/assemble';
@@ -14,11 +15,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
-    const result = await getScorecard({ range: p.get('range') ?? 'last_week', start: p.get('start'), end: p.get('end'), compare: p.get('compare') ?? 'previous_period' });
+    const result = await dbTimeout(getScorecard({ range: p.get('range') ?? 'last_week', start: p.get('start'), end: p.get('end'), compare: p.get('compare') ?? 'previous_period' }), 'scorecard');
     const kind = scorecardKindOf(result);
     const narrative = kind === 'custom' ? null : await getNarrative(kind, result.range.start, result.range.end);
     return NextResponse.json({ result, view: assembleScorecard(result, narrative) });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to assemble the scorecard', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to assemble the scorecard');
   }
 }

@@ -5,6 +5,8 @@ import { Link2, UserX } from 'lucide-react';
 import { Badge, Button, Toast } from '@/components';
 import { formatCents } from '@/lib/metrics';
 import { parseCurrency } from '@/lib/money';
+import { fetchJson } from '@/lib/clientFetch';
+import { FetchError } from '@/components/FetchError';
 
 interface UnmatchedPayment {
   id: string;
@@ -45,12 +47,16 @@ export const UnmatchedPayments: React.FC = () => {
     setItems(Array.isArray(data.payments) ? data.payments : []);
   }, []);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    fetch('/api/payments?unmatched=1')
-      .then((r) => r.json())
-      .then((data) => setItems(Array.isArray(data.payments) ? data.payments : []))
-      .catch(() => {});
-  }, []);
+    fetchJson<{ payments?: unknown[] }>('/api/payments?unmatched=1')
+      .then((data) => {
+        setLoadError(null);
+        setItems(Array.isArray(data.payments) ? (data.payments as typeof items) : []);
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, [attempt]);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -91,6 +97,13 @@ export const UnmatchedPayments: React.FC = () => {
     }
   };
 
+  if (loadError && items.length === 0) {
+    return (
+      <div className="mb-4">
+        <FetchError compact title="Could not load the unmatched payments" error={loadError} onRetry={() => setAttempt((a) => a + 1)} />
+      </div>
+    );
+  }
   if (items.length === 0) return null;
 
   return (

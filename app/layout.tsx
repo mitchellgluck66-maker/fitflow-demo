@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { describeError } from '@/lib/dbTimeout';
 import './globals.css';
 import { ThemeProvider, themeInitScript } from '@/components/ThemeProvider';
 import { NavBar } from '@/components/NavBar';
@@ -14,7 +15,8 @@ async function resolveTimezone(): Promise<{ timezone: string | null; error: stri
   try {
     return { timezone: await getTimezone(), error: null };
   } catch (err) {
-    return { timezone: null, error: err instanceof Error ? err.message : String(err) };
+    // The driver's cause, never the query text (lib/dbTimeout#describeError).
+    return { timezone: null, error: `Business timezone could not be read — ${describeError(err)}` };
   }
 }
 

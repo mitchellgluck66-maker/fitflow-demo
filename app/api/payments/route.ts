@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiErrorResponse } from '@/lib/dbTimeout';
 import { and, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import { db, payments } from '@/db';
 import { manualMatch } from '@/lib/stripe/matching';
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
       payments: rows.map((r) => ({ ...r, on: (r.paidAt ?? r.failedAt)?.toISOString() ?? null, paidAt: undefined, failedAt: undefined })),
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to load payments', detail: String(error) }, { status: 500 });
+    return apiErrorResponse(error, 'Failed to load payments');
   }
 }
 

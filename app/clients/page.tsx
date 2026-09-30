@@ -9,6 +9,8 @@ import { SortableHeader } from '@/components/SortableHeader';
 import { useTableState } from '@/components/useTableState';
 import { SkeletonTable } from '@/components/Skeleton';
 import type { ClientListResult } from '@/lib/queries/clients';
+import { fetchJson } from '@/lib/clientFetch';
+import { FetchError } from '@/components/FetchError';
 
 const PAGE = 50;
 const FACETS = ['stage', 'source', 'status', 'appt', 'attribution', 'from', 'to'];
@@ -34,6 +36,7 @@ function ClientsIndex() {
   const { state } = t;
   const [data, setData] = useState<ClientListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   // Loading is derived: the key of the last fulfilled request vs the current one.
   const [fetchedKey, setFetchedKey] = useState<string | null>(null);
 
@@ -59,12 +62,7 @@ function ClientsIndex() {
     }
     query.set('limit', String(PAGE));
     query.set('offset', String((state.page - 1) * PAGE));
-    fetch(`/api/clients?${query.toString()}`)
-      .then(async (r) => {
-        const body = await r.json();
-        if (!r.ok) throw new Error(body.detail ?? body.error ?? 'Request failed');
-        return body as ClientListResult;
-      })
+    fetchJson<ClientListResult>(`/api/clients?${query.toString()}`)
       .then((d) => {
         if (cancelled) return;
         setData(d);
@@ -79,7 +77,7 @@ function ClientsIndex() {
     return () => {
       cancelled = true;
     };
-  }, [state, from, to, requestKey]);
+  }, [state, from, to, requestKey, attempt]);
 
   const total = data?.total ?? 0;
   const pages = Math.max(Math.ceil(total / PAGE), 1);
@@ -133,9 +131,7 @@ function ClientsIndex() {
             <SkeletonTable rows={8} cols={6} />
           </Card>
         ) : error ? (
-          <Card>
-            <EmptyState title="Could not load clients" description={error} />
-          </Card>
+          <FetchError title="Could not load clients" error={error} onRetry={() => { setFetchedKey(null); setAttempt((a) => a + 1); }} />
         ) : !data || data.rows.length === 0 ? (
           <Card>
             {hasFilters ? (
