@@ -1,0 +1,2628 @@
+{
+  "start": "2026-09-20",
+  "end": "2026-09-26",
+  "ranAt": "2026-09-30T19:00:09.759Z",
+  "notVerified": [
+    "GHL forms: GHL 401 GET /forms/: {\"statusCode\":401,\"message\":\"The token is not authorized for this scope.\"}"
+  ],
+  "timezone": "America/Edmonton",
+  "forms": {
+    "error": "GHL 401 GET /forms/: {\"statusCode\":401,\"message\":\"The token is not authorized for this scope.\"}"
+  },
+  "opportunities": {
+    "walked": 9295,
+    "requests": 93,
+    "created": [
+      {
+        "id": "FLglwcz7f3y0h2cFikcN",
+        "contactId": "n0B8V5qJB6YwxPQ9B8qL",
+        "contactName": "Dzovag Minassian",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-27T03:55:25.610Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-27T03:57:54.464Z"
+      },
+      {
+        "id": "cvN9H0NDCyBTLEJpcfuS",
+        "contactId": "kyWGTuLg2ocNtWLWjnAa",
+        "contactName": "Annie Kurian",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-27T03:24:58.496Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-27T03:24:58.496Z"
+      },
+      {
+        "id": "9YgsDI37xyJXtwBPMTfj",
+        "contactId": "nisQNGxBr6KeZ9zx9bkS",
+        "contactName": "Shirley Anne Thomson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-27T02:54:13.440Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-27T02:54:13.440Z"
+      },
+      {
+        "id": "rBoU2yidmv580q4eT0Vr",
+        "contactId": "rS91q3U8JnWuNVvltqEL",
+        "contactName": "Lynn Murphy",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-27T02:30:46.344Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-27T02:30:46.344Z"
+      },
+      {
+        "id": "4tg47cvQ5LDRjvwFBppj",
+        "contactId": "XY0FxvvAYeXR9CctSh5H",
+        "contactName": "Morgan Wimberley",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "Facebook",
+        "createdAt": "2026-09-27T00:32:03.182Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-27T00:32:03.182Z"
+      },
+      {
+        "id": "GH3WQ4Xn2UMXBLF0Pl4B",
+        "contactId": "wGabStZEE74C9oJxPAa3",
+        "contactName": "Lori Reed",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-27T00:13:59.062Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-29T22:19:20.921Z"
+      },
+      {
+        "id": "D2GRWp7nJ2LInxObg46O",
+        "contactId": "9Io8GogbNH860tCpiwEj",
+        "contactName": "amy cole",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T23:54:48.086Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T23:54:48.086Z"
+      },
+      {
+        "id": "a1OHE56PiRTGfVU8BwkU",
+        "contactId": "sIZS070bZ375ApuDqusc",
+        "contactName": "Allison Haynes",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T20:25:07.059Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T20:26:15.137Z"
+      },
+      {
+        "id": "ML4RHi1KmUDZGzJb3Gei",
+        "contactId": "sDvg990XyYZavcfTApUL",
+        "contactName": "Sharon Hird",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T19:50:13.297Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T19:50:13.298Z"
+      },
+      {
+        "id": "dR32IPi6ElRC52YORUyp",
+        "contactId": "STs6tRvSGDYZFqP9YJLJ",
+        "contactName": "Manaal Ameen",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T18:39:20.096Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T18:39:20.096Z"
+      },
+      {
+        "id": "zCeZJ6gxuCyr2akbKLXi",
+        "contactId": "liGbBILAiife81sTNjGY",
+        "contactName": "Joanne White",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T17:40:37.277Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T17:40:37.277Z"
+      },
+      {
+        "id": "nmX0v59bp4MDy9n05iTd",
+        "contactId": "sSiQsGJlFpbytaT0FrDb",
+        "contactName": "Gae Rodke",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T17:34:34.353Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T17:34:34.353Z"
+      },
+      {
+        "id": "kRwqSKBTukSQbYOOLbxr",
+        "contactId": "iMDJV9U0OExYrt3ekFyK",
+        "contactName": "Tracy Moore",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T13:23:54.903Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T13:23:54.903Z"
+      },
+      {
+        "id": "NHfS5s1Ub8E1JoMrD7hg",
+        "contactId": "ZgPwdRfI8krYiLxGj7Zk",
+        "contactName": "Teri Miner",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-26T12:23:29.484Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T12:24:56.683Z"
+      },
+      {
+        "id": "4Tvc5h0jT6wUaQ7yY1IE",
+        "contactId": "PZumLgrG1N3I7MpDDnGW",
+        "contactName": "Sara Rasmussen",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-26T11:10:48.816Z",
+        "localDate": "2026-09-26",
+        "lastStageChangeAt": "2026-09-26T17:57:35.594Z"
+      },
+      {
+        "id": "9meO84DbFnP3QB4vR6qK",
+        "contactId": "M8gAcB5nMCEuCYlnYKAT",
+        "contactName": "Catherine Turcot",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "longevity & running",
+        "createdAt": "2026-09-25T23:04:38.079Z",
+        "localDate": "2026-09-25",
+        "lastStageChangeAt": "2026-09-25T23:04:38.079Z"
+      },
+      {
+        "id": "3eEDVbyC1abkB0CWUAX9",
+        "contactId": "IrSdXFuBNSYYFGjBlcwX",
+        "contactName": "Alanna Roberts",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "FORM",
+        "createdAt": "2026-09-25T15:30:01.789Z",
+        "localDate": "2026-09-25",
+        "lastStageChangeAt": "2026-09-28T22:12:45.831Z"
+      },
+      {
+        "id": "zIaBvcxELDL4HwA7fvzi",
+        "contactId": "IwbKvx6pfRxyamffRjNd",
+        "contactName": "Simin K",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "Fit Physician Application",
+        "createdAt": "2026-09-25T12:37:34.775Z",
+        "localDate": "2026-09-25",
+        "lastStageChangeAt": "2026-09-25T12:37:34.775Z"
+      },
+      {
+        "id": "57TmPOk2GS8KySgNUgUX",
+        "contactId": "nuBvTeb3VOzbjlJB6vd8",
+        "contactName": "Jenny Ogilvie",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-25T00:41:15.710Z",
+        "localDate": "2026-09-24",
+        "lastStageChangeAt": "2026-09-25T00:41:15.710Z"
+      },
+      {
+        "id": "Cn7YJD25ygkHoLu0XXBl",
+        "contactId": "5Um4kA1q77dzpPFhynsi",
+        "contactName": "Marion Raflores",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-24T20:06:19.138Z",
+        "localDate": "2026-09-24",
+        "lastStageChangeAt": "2026-09-26T16:55:00.921Z"
+      },
+      {
+        "id": "OGRDl0yMWsD3z6ksM56Y",
+        "contactId": "K2KoMEmfQL0QsrJtQLXQ",
+        "contactName": "Molly O’Connor",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "fit physician quiz",
+        "createdAt": "2026-09-24T18:27:12.293Z",
+        "localDate": "2026-09-24",
+        "lastStageChangeAt": "2026-09-24T18:27:12.293Z"
+      },
+      {
+        "id": "pdMGIkZpJCrb8xpHNSEG",
+        "contactId": "ZWnY1JhvVnnovdQZEz6y",
+        "contactName": "Seema Menon",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-24T14:38:54.782Z",
+        "localDate": "2026-09-24",
+        "lastStageChangeAt": "2026-09-26T14:07:33.109Z"
+      },
+      {
+        "id": "FYAQQWnJCVQeLP4vt9s0",
+        "contactId": "OlCCEomREc79ov1nVS4y",
+        "contactName": "Roseanna Parkhurst-Gatewood",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-24T01:58:40.877Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-24T01:58:40.877Z"
+      },
+      {
+        "id": "kwlZuqGYhX0Cs2R9n47n",
+        "contactId": "P3HjFM26VWjKfr23F5Al",
+        "contactName": "Paula Edelson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "FORM",
+        "createdAt": "2026-09-24T00:42:53.519Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-30T16:39:32.224Z"
+      },
+      {
+        "id": "gA6AVCzm3a6gkE2Pncnx",
+        "contactId": "wzIn8apbsx2DeoFICM6C",
+        "contactName": "Alexandra Bunting",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "60110d4d-f7b0-4e63-a10b-b84c6813ed8b",
+        "stage": "Consult No Show",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-24T00:07:58.524Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-28T23:01:50.002Z"
+      },
+      {
+        "id": "XAgZO8clFFHvt4k38deq",
+        "contactId": "XTWAspJXjvDmgplUjG3Q",
+        "contactName": "Elizabeth Dickens",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-23T23:28:04.895Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-29T21:32:41.618Z"
+      },
+      {
+        "id": "i7Z388GAAqrot4Mfp576",
+        "contactId": "EM4eZV7k5lnK9aRi0Vmh",
+        "contactName": "Jen Clow",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "Back To School 2026 Scholarship",
+        "createdAt": "2026-09-23T22:32:52.861Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-23T22:32:52.861Z"
+      },
+      {
+        "id": "0tqZxVGWfPURLxCCF6OD",
+        "contactId": "CoNHjrIESRyzXqidKXya",
+        "contactName": "Lindsay Ritsma",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "longevity & running",
+        "createdAt": "2026-09-23T22:31:05.973Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-23T22:31:05.973Z"
+      },
+      {
+        "id": "d7NvacTMOUEtkE2e1Ish",
+        "contactId": "mPJdZgP6ZGUJZJO59mFj",
+        "contactName": "Kelly Peesker",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-23T22:22:19.957Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-23T22:22:19.957Z"
+      },
+      {
+        "id": "HNKo2Ncbw9Bi1Aw6Hmc1",
+        "contactId": "oZJYXqYtGE6AtfU9Yrpw",
+        "contactName": "Sangeeta Garg",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-23T17:37:10.678Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-23T17:37:10.678Z"
+      },
+      {
+        "id": "p6HQ9i1mHQqacznvVvCp",
+        "contactId": "Wi7v0HOk7HTOELwWBPXu",
+        "contactName": "Josel doyle",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-23T15:41:58.054Z",
+        "localDate": "2026-09-23",
+        "lastStageChangeAt": "2026-09-23T15:41:58.054Z"
+      },
+      {
+        "id": "WmKBaoMvhfBkQM2F2Wcq",
+        "contactId": "Pz1IY2aej2G0jN0qBKKJ",
+        "contactName": "DeeDee Price",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-23T02:52:38.070Z",
+        "localDate": "2026-09-22",
+        "lastStageChangeAt": "2026-09-23T02:52:38.070Z"
+      },
+      {
+        "id": "SRmzj3C5Amqlk50MyDtA",
+        "contactId": "w1z8ZDf1Jr4aTMEDM57C",
+        "contactName": "Josephine Perez",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-22T22:05:55.725Z",
+        "localDate": "2026-09-22",
+        "lastStageChangeAt": "2026-09-22T22:05:55.725Z"
+      },
+      {
+        "id": "ITrf2J6clgGi6LfeGnCE",
+        "contactId": "1txbllN7JuHLINg5xRvN",
+        "contactName": "Janelle Hupp",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-22T20:07:08.621Z",
+        "localDate": "2026-09-22",
+        "lastStageChangeAt": "2026-09-22T20:07:08.621Z"
+      },
+      {
+        "id": "7g3KUJEK22t3WdL8liqh",
+        "contactId": "FZuORTzluMUSqFUUvdCu",
+        "contactName": "Mireille Desrosiers",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "fit physician roadmap workshop",
+        "createdAt": "2026-09-22T14:30:59.687Z",
+        "localDate": "2026-09-22",
+        "lastStageChangeAt": "2026-09-22T14:30:59.688Z"
+      },
+      {
+        "id": "gTvvkXncajgJ8PP6vQ9j",
+        "contactId": "zr7XkLW7SoEqUz6A0IVG",
+        "contactName": "Magalie DUBE",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-22T05:31:28.969Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-24T23:12:46.418Z"
+      },
+      {
+        "id": "O36fak2qL7h8wvTVv6T6",
+        "contactId": "JnYWFLd2F61LNJGItyh7",
+        "contactName": "mili kakadiya",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T23:26:16.745Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T23:26:16.745Z"
+      },
+      {
+        "id": "nRFtUV5Max48hs4AwAvj",
+        "contactId": "S6GuMfXZFbTZi5poF9DO",
+        "contactName": "R Thomas",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T22:25:16.047Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T22:25:16.047Z"
+      },
+      {
+        "id": "CQuMwipGtZm832DYUhpx",
+        "contactId": "tCyVMDbf13hIySzKvMNB",
+        "contactName": "Jennifer Daniels",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T19:36:48.147Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T19:40:19.073Z"
+      },
+      {
+        "id": "uUsp6G409l0eLBnlhBSx",
+        "contactId": "ZV95SAQQLr8Deu5jRTta",
+        "contactName": "Lisa Brinn",
+        "pipelineId": "BT9S7NyOTmHH3TPQuiqe",
+        "pipeline": "{ Off }  Sales Funnel (+ Case Study)",
+        "stageId": "07f5949b-7e68-4a13-8b74-aa8387c11eed",
+        "stage": "Applied - No Call Within 30 Days ",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T16:49:24.004Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T16:49:24.004Z"
+      },
+      {
+        "id": "jYTRjnB8AeRhGC1aoEjO",
+        "contactId": "xK2Nypu2Sd9tYaSvDOMv",
+        "contactName": "Suzan Abdel Salam",
+        "pipelineId": "BT9S7NyOTmHH3TPQuiqe",
+        "pipeline": "{ Off }  Sales Funnel (+ Case Study)",
+        "stageId": "07f5949b-7e68-4a13-8b74-aa8387c11eed",
+        "stage": "Applied - No Call Within 30 Days ",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T16:48:38.868Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T16:48:38.868Z"
+      },
+      {
+        "id": "QA6GY5LV7HBAbH3qrGgD",
+        "contactId": "qrT1nVUUbplZsg4fENZu",
+        "contactName": "Karan VOLLMANN",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "Facebook",
+        "createdAt": "2026-09-21T14:16:54.696Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T14:16:54.697Z"
+      },
+      {
+        "id": "7QPMHM5ufuQg1SrXzYJV",
+        "contactId": "6rZznMCKmvpXJOJt1Crg",
+        "contactName": "Monica Chaddock",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T13:34:19.491Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T13:34:19.491Z"
+      },
+      {
+        "id": "E6VmYdwpDTSAwvumpSWo",
+        "contactId": "M4VofnMZPKwFqnPJefRe",
+        "contactName": "Michelle Farrell",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T11:21:24.151Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T11:21:24.151Z"
+      },
+      {
+        "id": "lKJYAAWndXQb8GRSqfPa",
+        "contactId": "O6Z0sgKcg3ZFony6hAWx",
+        "contactName": "Greta Guyer",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T11:05:11.024Z",
+        "localDate": "2026-09-21",
+        "lastStageChangeAt": "2026-09-21T11:05:11.024Z"
+      },
+      {
+        "id": "pdhyI1h7DEb0rIASmaLa",
+        "contactId": "2eiYAuQcB9WDOneKQ80N",
+        "contactName": "Renee Riggs",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-21T01:06:20.192Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-21T01:10:37.326Z"
+      },
+      {
+        "id": "0tQc0Vy07OBXNLGFKXbZ",
+        "contactId": "aeFIcUcGIoR2ePJvSD9n",
+        "contactName": "Doaa El Rouby",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T21:29:11.377Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T21:29:11.377Z"
+      },
+      {
+        "id": "NNvemoSuI55ZYLaiy3OE",
+        "contactId": "PZHrSmoELRhMR9kkYBHQ",
+        "contactName": "Sreyoshi Alam",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "e1b9fbb8-bd30-4b28-9545-27ea5d565bb8",
+        "stage": "Pre-Roadmap Booked",
+        "status": "open",
+        "source": "FORM",
+        "createdAt": "2026-09-20T20:42:10.762Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-26T18:36:47.191Z"
+      },
+      {
+        "id": "OzYOdtXKqjL2UkJgny8M",
+        "contactId": "3zqE1kjLcicpUYKPS3Ug",
+        "contactName": "Nicole Coluccio",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "ca875b02-5ba6-4ad4-88e4-f8c208a5dfb9",
+        "stage": "Consult Booked",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T17:09:09.226Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T17:10:34.970Z"
+      },
+      {
+        "id": "ydNGksDMApwYhwv1Ztoi",
+        "contactId": "gYUlX0r7z44XDTHHmQcl",
+        "contactName": "Sarah Farquharson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T15:18:17.896Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T15:18:17.896Z"
+      },
+      {
+        "id": "HYVp5StLhTSWSgMfuBiX",
+        "contactId": "rGvzHO1NUURBAmuu2UO1",
+        "contactName": "Mydhili Moorthie",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T14:32:23.774Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T14:32:23.774Z"
+      },
+      {
+        "id": "9JLAET5tRbRJeESI4mV8",
+        "contactId": "upFvTJdE1KNOJuF6P5bI",
+        "contactName": "Heidi Thorson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "8459eee7-f1d4-4b67-b843-e37202cfc0e8",
+        "stage": "Enrolled",
+        "status": "won",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T13:14:32.595Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-29T16:25:33.482Z"
+      },
+      {
+        "id": "gK9UhP06VOg4Z7VtZgAL",
+        "contactId": "bB8WF2gxHhM15OH8O3Hc",
+        "contactName": "Diana Diaz",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c",
+        "pipeline": "[new] Application Pipeline",
+        "stageId": "76ebd422-6b82-4090-a57b-4195666eea96",
+        "stage": "Applied",
+        "status": "open",
+        "source": "New Application 7.10",
+        "createdAt": "2026-09-20T12:24:25.113Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T12:24:25.113Z"
+      },
+      {
+        "id": "6zffskBSjyOUk5eFbrth",
+        "contactId": "eJUTIca982RY9QNzjE0w",
+        "contactName": "Erin FitzPatrick",
+        "pipelineId": "6SxhDtMSUKJ8yPjKNw9K",
+        "pipeline": "Marketing/Sales Pipeline",
+        "stageId": "bf91c7ab-e413-4291-8c7b-a1cca025bb61",
+        "stage": "New Lead",
+        "status": "open",
+        "source": "Fit Physician Application (B)",
+        "createdAt": "2026-09-20T11:49:36.901Z",
+        "localDate": "2026-09-20",
+        "lastStageChangeAt": "2026-09-20T11:49:36.901Z"
+      }
+    ],
+    "pipelines": [
+      {
+        "id": "UR5P3vNTm9VPuYZFrb6c",
+        "name": "[new] Application Pipeline"
+      },
+      {
+        "id": "iVSuwq3RZxFHEgTOPun1",
+        "name": "Miranda Pipeline (July)"
+      },
+      {
+        "id": "anUKNnsUQsJSVksbkHiR",
+        "name": "[Application] Pipeline"
+      },
+      {
+        "id": "GZJsg2q3mWbcji2QmhYV",
+        "name": "[Blueprint] Pipeline"
+      },
+      {
+        "id": "IDYSSMIf6097roYG3xmJ",
+        "name": "[Past] Reengagement Campaign"
+      },
+      {
+        "id": "bcExtdLlu8jaH2alVhlS",
+        "name": "[Quiz] Pipeline"
+      },
+      {
+        "id": "tZ168U18z8xLU0wMOKj3",
+        "name": "[Workshop] Pipeline"
+      },
+      {
+        "id": "BT9S7NyOTmHH3TPQuiqe",
+        "name": "{ Off }  Sales Funnel (+ Case Study)"
+      },
+      {
+        "id": "Dzvh2SqrG1jFeuxKaamg",
+        "name": "{ Off }  The Fit Physician (Roadmap Call)"
+      },
+      {
+        "id": "9GbS2W3iqdv6Zp8T9CEL",
+        "name": "{ Off } Current Fit Physician Clients"
+      },
+      {
+        "id": "vPZeZGKuLhEaMxNxBIqR",
+        "name": "{ Off } January Workshop"
+      },
+      {
+        "id": "feqYH8XkJr47Am2ATWwm",
+        "name": "{ Off } Love it or Leave it"
+      },
+      {
+        "id": "1YRNyk3SHLcj4Wp6M7v1",
+        "name": "{ Off } Quiz Lead Funnel"
+      },
+      {
+        "id": "C29fBbCgmCXkybxCDft1",
+        "name": "Active Opportunities"
+      },
+      {
+        "id": "6SxhDtMSUKJ8yPjKNw9K",
+        "name": "Marketing/Sales Pipeline"
+      }
+    ]
+  },
+  "fitflow": {
+    "range": {
+      "start": "2026-09-20",
+      "end": "2026-09-26",
+      "preset": "last_week",
+      "presetLabel": "Last week",
+      "resolvedLabel": "Sep 20–26"
+    },
+    "applied": 52,
+    "followed": [
+      {
+        "id": "UR5P3vNTm9VPuYZFrb6c",
+        "name": "[new] Application Pipeline"
+      },
+      {
+        "id": "iVSuwq3RZxFHEgTOPun1",
+        "name": "Miranda Pipeline (July)"
+      }
+    ],
+    "rows": [
+      {
+        "id": "c5c21692-9c7a-4c08-be4c-55edee180247",
+        "ghlContactId": "EM4eZV7k5lnK9aRi0Vmh",
+        "opp": "i7Z388GAAqrot4Mfp576",
+        "utm": null,
+        "first": "Jen",
+        "last": "Clow",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "4fc48d4e-b81c-4bb3-8dbe-8d9557e39199",
+        "ghlContactId": "O6Z0sgKcg3ZFony6hAWx",
+        "opp": "lKJYAAWndXQb8GRSqfPa",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Greta",
+        "last": "Guyer",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "e57d31fb-7b70-4ab4-bf0a-b2390c7d5647",
+        "ghlContactId": "mPJdZgP6ZGUJZJO59mFj",
+        "opp": "d7NvacTMOUEtkE2e1Ish",
+        "utm": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "first": "Kelly",
+        "last": "Peesker",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "693b359f-5c9b-4516-80c5-a2138ecb0a00",
+        "ghlContactId": "Wi7v0HOk7HTOELwWBPXu",
+        "opp": "p6HQ9i1mHQqacznvVvCp",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Josel",
+        "last": "doyle",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "908889d8-61f9-46a6-9bfb-84bdba3933f1",
+        "ghlContactId": "qrT1nVUUbplZsg4fENZu",
+        "opp": "QA6GY5LV7HBAbH3qrGgD",
+        "utm": null,
+        "first": "Karan",
+        "last": "VOLLMANN",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "bfaf37d6-b3aa-49d4-b169-258e94e6d947",
+        "ghlContactId": "M4VofnMZPKwFqnPJefRe",
+        "opp": "E6VmYdwpDTSAwvumpSWo",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Michelle",
+        "last": "Farrell",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "28fe7473-a486-4fbe-95e1-b8c8ffed940e",
+        "ghlContactId": "3VOnChxU8MOApHuDHB6r",
+        "opp": "FRsEkB076T77DfaHmGPz",
+        "utm": null,
+        "first": "Nuala",
+        "last": "Broadhead",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "84bce7f2-07d3-4eec-a884-7ae2d8458d49",
+        "ghlContactId": "P3HjFM26VWjKfr23F5Al",
+        "opp": "kwlZuqGYhX0Cs2R9n47n",
+        "utm": null,
+        "first": "Paula",
+        "last": "Edelson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "e7204eb8-e01f-4021-853a-bbf3316f7c2f",
+        "ghlContactId": "kyWGTuLg2ocNtWLWjnAa",
+        "opp": "cvN9H0NDCyBTLEJpcfuS",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Annie",
+        "last": "Kurian",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "c92c6e8f-9f5c-4692-8e01-7b26721b7158",
+        "ghlContactId": "nisQNGxBr6KeZ9zx9bkS",
+        "opp": "9YgsDI37xyJXtwBPMTfj",
+        "utm": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "first": "Shirley Anne",
+        "last": "Thomson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "121bb0cb-82e6-4a2a-a1e0-a5effabb6043",
+        "ghlContactId": "XY0FxvvAYeXR9CctSh5H",
+        "opp": "4tg47cvQ5LDRjvwFBppj",
+        "utm": null,
+        "first": "Morgan",
+        "last": "Wimberley",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "19b4eb10-f1d0-4ffd-92ba-a671dc7f07d8",
+        "ghlContactId": "9Io8GogbNH860tCpiwEj",
+        "opp": "D2GRWp7nJ2LInxObg46O",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "amy",
+        "last": "cole",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "21f81312-b4b1-4329-8634-fd0a36a6148d",
+        "ghlContactId": "sIZS070bZ375ApuDqusc",
+        "opp": "a1OHE56PiRTGfVU8BwkU",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Allison",
+        "last": "Haynes",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "e3cbd2ca-bd55-42f4-bde1-cd40c24413e6",
+        "ghlContactId": "sSiQsGJlFpbytaT0FrDb",
+        "opp": "nmX0v59bp4MDy9n05iTd",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Gae",
+        "last": "Rodke",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "efedd7ae-b035-4bc7-9bd5-8330c05e5e1a",
+        "ghlContactId": "ZgPwdRfI8krYiLxGj7Zk",
+        "opp": "NHfS5s1Ub8E1JoMrD7hg",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Teri",
+        "last": "Miner",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "ea0d9b54-90a5-4aca-9235-73ea2b79f720",
+        "ghlContactId": "PZumLgrG1N3I7MpDDnGW",
+        "opp": "4Tvc5h0jT6wUaQ7yY1IE",
+        "utm": null,
+        "first": "Sara",
+        "last": "Rasmussen",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "9506b06a-ae18-4dd9-a710-dc254b205689",
+        "ghlContactId": "IrSdXFuBNSYYFGjBlcwX",
+        "opp": "3eEDVbyC1abkB0CWUAX9",
+        "utm": null,
+        "first": "Alanna",
+        "last": "Roberts",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "ce9a94ef-1107-445c-b897-4a3e788b9efc",
+        "ghlContactId": "M8gAcB5nMCEuCYlnYKAT",
+        "opp": "9meO84DbFnP3QB4vR6qK",
+        "utm": null,
+        "first": "Catherine",
+        "last": "Turcot",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "ec3b2b53-09f2-43a7-925a-000ed261ac3e",
+        "ghlContactId": "IwbKvx6pfRxyamffRjNd",
+        "opp": "zIaBvcxELDL4HwA7fvzi",
+        "utm": null,
+        "first": "Simin",
+        "last": "K",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "e6a1b8bb-484b-49f7-a616-3e3e7cb01f4e",
+        "ghlContactId": "5Um4kA1q77dzpPFhynsi",
+        "opp": "Cn7YJD25ygkHoLu0XXBl",
+        "utm": null,
+        "first": "Marion",
+        "last": "Raflores",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "db26414a-d76a-42ce-a402-5babb2b43ac9",
+        "ghlContactId": "wzIn8apbsx2DeoFICM6C",
+        "opp": "gA6AVCzm3a6gkE2Pncnx",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Alexandra",
+        "last": "Bunting",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "e9f23f43-9e0a-48be-bd10-0e547e4eb2ef",
+        "ghlContactId": "K2KoMEmfQL0QsrJtQLXQ",
+        "opp": "OGRDl0yMWsD3z6ksM56Y",
+        "utm": "TH | TOF Quiz",
+        "first": "Molly",
+        "last": "O’Connor",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "2211bc8b-801e-4aca-b7ff-870ace834e2d",
+        "ghlContactId": "XTWAspJXjvDmgplUjG3Q",
+        "opp": "XAgZO8clFFHvt4k38deq",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Elizabeth",
+        "last": "Dickens",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "09eed26c-3a55-46ce-8492-d0a48434732c",
+        "ghlContactId": "CoNHjrIESRyzXqidKXya",
+        "opp": "0tqZxVGWfPURLxCCF6OD",
+        "utm": null,
+        "first": "Lindsay",
+        "last": "Ritsma",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "0c1aa936-ec2b-468c-b594-e575cef28a2d",
+        "ghlContactId": "w1z8ZDf1Jr4aTMEDM57C",
+        "opp": "SRmzj3C5Amqlk50MyDtA",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Josephine",
+        "last": "Perez",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "cfa7b03e-16b7-4f6d-a927-1ccf9503921b",
+        "ghlContactId": "1txbllN7JuHLINg5xRvN",
+        "opp": "ITrf2J6clgGi6LfeGnCE",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Janelle",
+        "last": "Hupp",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "cb032cd6-cb01-4686-a1dd-d521f3a5486f",
+        "ghlContactId": "zr7XkLW7SoEqUz6A0IVG",
+        "opp": "gTvvkXncajgJ8PP6vQ9j",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Magalie",
+        "last": "DUBE",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "045ef07e-4b11-44ae-ae33-1bc710283da8",
+        "ghlContactId": "tCyVMDbf13hIySzKvMNB",
+        "opp": "CQuMwipGtZm832DYUhpx",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Jennifer",
+        "last": "Daniels",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "fd6af635-3cde-4086-9815-0adb21458bd6",
+        "ghlContactId": "FZuORTzluMUSqFUUvdCu",
+        "opp": "7g3KUJEK22t3WdL8liqh",
+        "utm": null,
+        "first": "Mireille",
+        "last": "Desrosiers",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "9498d428-0497-49b5-97f9-bf03d9afbbb3",
+        "ghlContactId": "JnYWFLd2F61LNJGItyh7",
+        "opp": "O36fak2qL7h8wvTVv6T6",
+        "utm": "Profile",
+        "first": "mili",
+        "last": "kakadiya",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "6580b47e-f288-468f-ac4f-60009703633c",
+        "ghlContactId": "S6GuMfXZFbTZi5poF9DO",
+        "opp": "nRFtUV5Max48hs4AwAvj",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "R",
+        "last": "Thomas",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "727348df-755e-4e7b-8151-80bd185a6e6d",
+        "ghlContactId": "6rZznMCKmvpXJOJt1Crg",
+        "opp": "7QPMHM5ufuQg1SrXzYJV",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Monica",
+        "last": "Chaddock",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "eac889ad-1e73-4ea2-b176-24b5ea42b1db",
+        "ghlContactId": "aeFIcUcGIoR2ePJvSD9n",
+        "opp": "0tQc0Vy07OBXNLGFKXbZ",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Doaa",
+        "last": "El Rouby",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "191c54ac-1550-446e-bebb-f55c96a9e02f",
+        "ghlContactId": "rGvzHO1NUURBAmuu2UO1",
+        "opp": "HYVp5StLhTSWSgMfuBiX",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Mydhili",
+        "last": "Moorthie",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "58bfac0a-2925-4cc8-870e-6f6953b8a613",
+        "ghlContactId": "upFvTJdE1KNOJuF6P5bI",
+        "opp": "9JLAET5tRbRJeESI4mV8",
+        "utm": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "first": "Heidi",
+        "last": "Thorson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "cb6ee338-991c-4d20-af18-13e037b1cf4d",
+        "ghlContactId": "gYUlX0r7z44XDTHHmQcl",
+        "opp": "ydNGksDMApwYhwv1Ztoi",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Sarah",
+        "last": "Farquharson",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "1c3a083d-e17f-4b8d-bca9-0c87d4bc356b",
+        "ghlContactId": "n0B8V5qJB6YwxPQ9B8qL",
+        "opp": "FLglwcz7f3y0h2cFikcN",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Dzovag",
+        "last": "Minassian",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "b5155ae2-1c84-47b4-8f10-bd80861ba0a1",
+        "ghlContactId": "sDvg990XyYZavcfTApUL",
+        "opp": "ML4RHi1KmUDZGzJb3Gei",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Sharon",
+        "last": "Hird",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "dd04e5f6-5c80-4a26-84ed-ee525467f8b9",
+        "ghlContactId": "rS91q3U8JnWuNVvltqEL",
+        "opp": "rBoU2yidmv580q4eT0Vr",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Lynn",
+        "last": "Murphy",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "01467963-da8c-4272-8c1a-c5c3cb44e9c3",
+        "ghlContactId": "wGabStZEE74C9oJxPAa3",
+        "opp": "GH3WQ4Xn2UMXBLF0Pl4B",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Lori",
+        "last": "Reed",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "9e60d1d7-9767-4a40-826e-18eb0d58eda3",
+        "ghlContactId": "STs6tRvSGDYZFqP9YJLJ",
+        "opp": "dR32IPi6ElRC52YORUyp",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Manaal",
+        "last": "Ameen",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "8d6236b3-b0ca-4110-aa2c-4122a22a3385",
+        "ghlContactId": "liGbBILAiife81sTNjGY",
+        "opp": "zCeZJ6gxuCyr2akbKLXi",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Joanne",
+        "last": "White",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "50d91cb9-a908-4dc9-9610-28fe8c9b9b00",
+        "ghlContactId": "iMDJV9U0OExYrt3ekFyK",
+        "opp": "kRwqSKBTukSQbYOOLbxr",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Tracy",
+        "last": "Moore",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "c905f1e3-c1b1-44e7-9c16-803558d05f82",
+        "ghlContactId": "OlCCEomREc79ov1nVS4y",
+        "opp": "FYAQQWnJCVQeLP4vt9s0",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Roseanna",
+        "last": "Parkhurst-Gatewood",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "ebaabb91-cd13-4be2-aaea-e81d1c222366",
+        "ghlContactId": "nuBvTeb3VOzbjlJB6vd8",
+        "opp": "57TmPOk2GS8KySgNUgUX",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Jenny",
+        "last": "Ogilvie",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "b2625194-eff1-4d37-acf7-5bc36b169f47",
+        "ghlContactId": "ZWnY1JhvVnnovdQZEz6y",
+        "opp": "pdMGIkZpJCrb8xpHNSEG",
+        "utm": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "first": "Seema",
+        "last": "Menon",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "713bde4e-e4eb-4383-8ece-4f8e4f0299e9",
+        "ghlContactId": "oZJYXqYtGE6AtfU9Yrpw",
+        "opp": "HNKo2Ncbw9Bi1Aw6Hmc1",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Sangeeta",
+        "last": "Garg",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "421e80b1-60a5-4223-9176-1a9ce48b3201",
+        "ghlContactId": "Pz1IY2aej2G0jN0qBKKJ",
+        "opp": "WmKBaoMvhfBkQM2F2Wcq",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "DeeDee",
+        "last": "Price",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "b0359bff-c489-445e-861c-a1db775d7c9e",
+        "ghlContactId": "2eiYAuQcB9WDOneKQ80N",
+        "opp": "pdhyI1h7DEb0rIASmaLa",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Renee",
+        "last": "Riggs",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "1cee1c6e-5347-4934-8092-889dd3584b19",
+        "ghlContactId": "3zqE1kjLcicpUYKPS3Ug",
+        "opp": "OzYOdtXKqjL2UkJgny8M",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Nicole",
+        "last": "Coluccio",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "9e857e9f-4871-4dd3-8466-bbb34f3b6858",
+        "ghlContactId": "PZHrSmoELRhMR9kkYBHQ",
+        "opp": "NNvemoSuI55ZYLaiy3OE",
+        "utm": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "first": "Sreyoshi",
+        "last": "Alam",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      },
+      {
+        "id": "1675b2e1-a3d8-4bed-9fdc-c46f350aba6d",
+        "ghlContactId": "bB8WF2gxHhM15OH8O3Hc",
+        "opp": "gK9UhP06VOg4Z7VtZgAL",
+        "utm": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "first": "Diana",
+        "last": "Diaz",
+        "pipelineId": "UR5P3vNTm9VPuYZFrb6c"
+      }
+    ],
+    "health": {
+      "applicantsWithoutDate": [
+        {
+          "contactId": "7305f404-7628-4308-9f9e-926d7e4a6cf7",
+          "name": "Jacob"
+        }
+      ],
+      "appliedFromMove": 1
+    }
+  },
+  "mirrorHas": 51,
+  "people": [
+    {
+      "contactId": "n0B8V5qJB6YwxPQ9B8qL",
+      "name": "Dzovag Minassian",
+      "contactCreated": "2026-09-27T03:52:47.734Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-27T03:55:25.610Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "kyWGTuLg2ocNtWLWjnAa",
+      "name": "Annie Kurian",
+      "contactCreated": "2026-09-26T20:20:29.130Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-27T03:24:58.496Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "nisQNGxBr6KeZ9zx9bkS",
+      "name": "Shirley Anne Thomson",
+      "contactCreated": "2026-09-27T02:13:26.770Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-27T02:54:13.440Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "rS91q3U8JnWuNVvltqEL",
+      "name": "Lynn Murphy",
+      "contactCreated": "2026-09-27T02:27:41.754Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-27T02:30:46.344Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "XY0FxvvAYeXR9CctSh5H",
+      "name": "Morgan Wimberley",
+      "contactCreated": "2024-11-25T22:17:20.551Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "Facebook",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-27T00:32:03.182Z · src Facebook"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "wGabStZEE74C9oJxPAa3",
+      "name": "Lori Reed",
+      "contactCreated": "2026-09-27T00:05:44.105Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-27T00:13:59.062Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "9Io8GogbNH860tCpiwEj",
+      "name": "amy cole",
+      "contactCreated": "2026-09-26T23:52:33.655Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T23:54:48.086Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "sIZS070bZ375ApuDqusc",
+      "name": "Allison Haynes",
+      "contactCreated": "2026-09-26T20:22:44.470Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-26T20:25:07.059Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "sDvg990XyYZavcfTApUL",
+      "name": "Sharon Hird",
+      "contactCreated": "2026-09-26T19:47:25.842Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T19:50:13.297Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "STs6tRvSGDYZFqP9YJLJ",
+      "name": "Manaal Ameen",
+      "contactCreated": "2026-09-26T18:36:51.600Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T18:39:20.096Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "liGbBILAiife81sTNjGY",
+      "name": "Joanne White",
+      "contactCreated": "2026-09-26T17:38:38.996Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T17:40:37.277Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "sSiQsGJlFpbytaT0FrDb",
+      "name": "Gae Rodke",
+      "contactCreated": "2026-09-26T17:20:46.941Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T17:34:34.353Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "iMDJV9U0OExYrt3ekFyK",
+      "name": "Tracy Moore",
+      "contactCreated": "2026-09-26T13:21:36.287Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-26T13:23:54.903Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "ZgPwdRfI8krYiLxGj7Zk",
+      "name": "Teri Miner",
+      "contactCreated": "2026-09-26T12:17:52.324Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-26T12:23:29.484Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "PZumLgrG1N3I7MpDDnGW",
+      "name": "Sara Rasmussen",
+      "contactCreated": "2024-11-25T22:19:32.188Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "facebook form lead",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-26T11:10:48.816Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "M8gAcB5nMCEuCYlnYKAT",
+      "name": "Catherine Turcot",
+      "contactCreated": "2024-11-25T22:19:13.627Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "longevity & running",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-25T23:04:38.079Z · src longevity & running"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "IrSdXFuBNSYYFGjBlcwX",
+      "name": "Alanna Roberts",
+      "contactCreated": "2024-11-25T22:19:15.767Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "Internal: Roadmap Building Session",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-25T15:30:01.789Z · src FORM"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "IwbKvx6pfRxyamffRjNd",
+      "name": "Simin K",
+      "contactCreated": "2026-09-25T12:36:29.063Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": null,
+      "contactSource": "Fit Physician Application ",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-25T12:37:34.775Z · src Fit Physician Application"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "nuBvTeb3VOzbjlJB6vd8",
+      "name": "Jenny Ogilvie",
+      "contactCreated": "2026-09-25T00:38:56.317Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-25T00:41:15.710Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "5Um4kA1q77dzpPFhynsi",
+      "name": "Marion Raflores",
+      "contactCreated": "2025-07-27T12:18:45.247Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-24T20:06:19.138Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "K2KoMEmfQL0QsrJtQLXQ",
+      "name": "Molly O’Connor",
+      "contactCreated": "2025-07-31T11:38:41.453Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": "TH | TOF Quiz",
+      "contactSource": "fit physician quiz",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-24T18:27:12.293Z · src fit physician quiz"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "ZWnY1JhvVnnovdQZEz6y",
+      "name": "Seema Menon",
+      "contactCreated": "2026-09-24T14:36:27.906Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-24T14:38:54.782Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "OlCCEomREc79ov1nVS4y",
+      "name": "Roseanna Parkhurst-Gatewood",
+      "contactCreated": "2026-09-24T01:56:29.838Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-24T01:58:40.877Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "P3HjFM26VWjKfr23F5Al",
+      "name": "Paula Edelson",
+      "contactCreated": "2025-10-12T04:03:41.653Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "15-Minute Fit Physician Consult",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-24T00:42:53.519Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "wzIn8apbsx2DeoFICM6C",
+      "name": "Alexandra Bunting",
+      "contactCreated": "2026-09-24T00:05:17.651Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult No Show (open) @ 2026-09-24T00:07:58.524Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult No Show [consult_noshow]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "XTWAspJXjvDmgplUjG3Q",
+      "name": "Elizabeth Dickens",
+      "contactCreated": "2026-09-23T23:21:25.500Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-23T23:28:04.895Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "EM4eZV7k5lnK9aRi0Vmh",
+      "name": "Jen Clow",
+      "contactCreated": "2024-11-25T22:19:07.586Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "Back To School 2026 Scholarship",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-23T22:32:52.861Z · src Back To School 2026 Scholarship"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "CoNHjrIESRyzXqidKXya",
+      "name": "Lindsay Ritsma",
+      "contactCreated": "2025-05-21T19:22:08.542Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "longevity & running",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-23T22:31:05.973Z · src longevity & running"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "mPJdZgP6ZGUJZJO59mFj",
+      "name": "Kelly Peesker",
+      "contactCreated": "2026-09-23T22:19:06.798Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-23T22:22:19.957Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "oZJYXqYtGE6AtfU9Yrpw",
+      "name": "Sangeeta Garg",
+      "contactCreated": "2026-09-23T17:34:09.902Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-23T17:37:10.678Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "Wi7v0HOk7HTOELwWBPXu",
+      "name": "Josel doyle",
+      "contactCreated": "2026-09-23T15:38:46.025Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-23T15:41:58.054Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "Pz1IY2aej2G0jN0qBKKJ",
+      "name": "DeeDee Price",
+      "contactCreated": "2026-09-23T02:49:39.369Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-23T02:52:38.070Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "w1z8ZDf1Jr4aTMEDM57C",
+      "name": "Josephine Perez",
+      "contactCreated": "2026-09-22T22:03:19.254Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-22T22:05:55.725Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "1txbllN7JuHLINg5xRvN",
+      "name": "Janelle Hupp",
+      "contactCreated": "2026-09-22T20:02:14.060Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-22T20:07:08.621Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "FZuORTzluMUSqFUUvdCu",
+      "name": "Mireille Desrosiers",
+      "contactCreated": "2024-11-25T22:19:08.157Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "fit physician roadmap workshop",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-22T14:30:59.687Z · src fit physician roadmap workshop"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "zr7XkLW7SoEqUz6A0IVG",
+      "name": "Magalie DUBE",
+      "contactCreated": "2026-09-22T05:22:52.133Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-22T05:31:28.969Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "JnYWFLd2F61LNJGItyh7",
+      "name": "mili kakadiya",
+      "contactCreated": "2026-09-21T23:24:31.327Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "Profile",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T23:26:16.745Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "S6GuMfXZFbTZi5poF9DO",
+      "name": "R Thomas",
+      "contactCreated": "2026-09-21T22:23:38.289Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T22:25:16.047Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "tCyVMDbf13hIySzKvMNB",
+      "name": "Jennifer Daniels",
+      "contactCreated": "2026-09-21T19:34:06.537Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-21T19:36:48.147Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "ZV95SAQQLr8Deu5jRTta",
+      "name": "Lisa Brinn",
+      "contactCreated": "2026-09-17T11:52:50.246Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "{ Off }  Sales Funnel (+ Case Study) / Applied - No Call Within 30 Days  (open) @ 2026-09-21T16:49:24.004Z · src New Application 7.10"
+      ],
+      "firstSeenStage": null,
+      "createdIntoLaterStage": null,
+      "countedByFitFlow": false,
+      "reason": "opportunity only in \"{ Off }  Sales Funnel (+ Case Study)\" (not followed)"
+    },
+    {
+      "contactId": "xK2Nypu2Sd9tYaSvDOMv",
+      "name": "Suzan Abdel Salam",
+      "contactCreated": "2024-11-25T22:19:31.140Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "{ Off }  Sales Funnel (+ Case Study) / Applied - No Call Within 30 Days  (open) @ 2026-09-21T16:48:38.868Z · src New Application 7.10"
+      ],
+      "firstSeenStage": null,
+      "createdIntoLaterStage": null,
+      "countedByFitFlow": false,
+      "reason": "opportunity only in \"{ Off }  Sales Funnel (+ Case Study)\" (not followed)"
+    },
+    {
+      "contactId": "qrT1nVUUbplZsg4fENZu",
+      "name": "Karan VOLLMANN",
+      "contactCreated": "2025-07-03T14:00:53.455Z",
+      "contactCreatedThisWeek": false,
+      "utmCampaign": null,
+      "contactSource": "Facebook",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T14:16:54.696Z · src Facebook"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "6rZznMCKmvpXJOJt1Crg",
+      "name": "Monica Chaddock",
+      "contactCreated": "2026-09-21T13:30:51.828Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T13:34:19.491Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "M4VofnMZPKwFqnPJefRe",
+      "name": "Michelle Farrell",
+      "contactCreated": "2026-09-21T11:18:55.680Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T11:21:24.151Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "O6Z0sgKcg3ZFony6hAWx",
+      "name": "Greta Guyer",
+      "contactCreated": "2026-09-21T10:55:58.831Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-21T11:05:11.024Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "2eiYAuQcB9WDOneKQ80N",
+      "name": "Renee Riggs",
+      "contactCreated": "2026-09-21T01:03:33.577Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-21T01:06:20.192Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "aeFIcUcGIoR2ePJvSD9n",
+      "name": "Doaa El Rouby",
+      "contactCreated": "2026-09-20T21:24:36.384Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-20T21:29:11.377Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "PZHrSmoELRhMR9kkYBHQ",
+      "name": "Sreyoshi Alam",
+      "contactCreated": "2026-09-20T20:39:36.389Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Pre-Roadmap Booked (open) @ 2026-09-20T20:42:10.762Z · src FORM"
+      ],
+      "firstSeenStage": "Pre-Roadmap Booked [roadmap_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "3zqE1kjLcicpUYKPS3Ug",
+      "name": "Nicole Coluccio",
+      "contactCreated": "2026-09-20T17:06:50.329Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Consult Booked (open) @ 2026-09-20T17:09:09.226Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Consult Booked [consult_booked]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "gYUlX0r7z44XDTHHmQcl",
+      "name": "Sarah Farquharson",
+      "contactCreated": "2026-09-20T15:15:38.805Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-20T15:18:17.896Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "rGvzHO1NUURBAmuu2UO1",
+      "name": "Mydhili Moorthie",
+      "contactCreated": "2026-09-20T14:28:22.357Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-20T14:32:23.774Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "upFvTJdE1KNOJuF6P5bI",
+      "name": "Heidi Thorson",
+      "contactCreated": "2026-09-20T13:10:04.550Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Enrolled (won) @ 2026-09-20T13:14:32.595Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Enrolled [enrolled]",
+      "createdIntoLaterStage": true,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "bB8WF2gxHhM15OH8O3Hc",
+      "name": "Diana Diaz",
+      "contactCreated": "2026-09-20T12:22:24.913Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+      "contactSource": "New Application 7.10",
+      "forms": [],
+      "opportunities": [
+        "[new] Application Pipeline / Applied (open) @ 2026-09-20T12:24:25.113Z · src New Application 7.10"
+      ],
+      "firstSeenStage": "Applied [applied]",
+      "createdIntoLaterStage": false,
+      "countedByFitFlow": true,
+      "reason": "counted"
+    },
+    {
+      "contactId": "eJUTIca982RY9QNzjE0w",
+      "name": "Erin FitzPatrick",
+      "contactCreated": "2026-09-20T11:48:30.152Z",
+      "contactCreatedThisWeek": true,
+      "utmCampaign": null,
+      "contactSource": "Fit Physician Application (B)",
+      "forms": [],
+      "opportunities": [
+        "Marketing/Sales Pipeline / New Lead (open) @ 2026-09-20T11:49:36.901Z · src Fit Physician Application (B)"
+      ],
+      "firstSeenStage": null,
+      "createdIntoLaterStage": null,
+      "countedByFitFlow": false,
+      "reason": "opportunity only in \"Marketing/Sales Pipeline\" (not followed)"
+    }
+  ],
+  "meta": {
+    "conversion:7d_click+1d_view": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": 32,
+          "view1d": 2,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": 38,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": 10,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      }
+    ],
+    "conversion:7d_click": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": 32,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": 38,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": 10,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      }
+    ],
+    "conversion:1d_click": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 32
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 38
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 10
+        },
+        "unique": null
+      }
+    ],
+    "impression:7d_click+1d_view": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": 32,
+          "view1d": 2,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": 38,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": 10,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      }
+    ],
+    "impression:7d_click": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": 32,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": 38,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": 10,
+          "view1d": null,
+          "click1d": null
+        },
+        "unique": null
+      }
+    ],
+    "impression:1d_click": [
+      {
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "id": "120248535546190176",
+        "submitApplication": {
+          "value": 34,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 32
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "id": "120249779507310176",
+        "submitApplication": {
+          "value": 38,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 38
+        },
+        "unique": null
+      },
+      {
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "id": "120249791309260176",
+        "submitApplication": {
+          "value": 10,
+          "click7d": null,
+          "view1d": null,
+          "click1d": 10
+        },
+        "unique": null
+      }
+    ],
+    "daily:conversion": [
+      {
+        "date": "2026-09-20",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-20",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-20",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 4
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 8
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 4
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 8
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 14
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 12
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      }
+    ],
+    "daily:impression": [
+      {
+        "date": "2026-09-20",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-20",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-20",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 4
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 8
+      },
+      {
+        "date": "2026-09-21",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 4
+      },
+      {
+        "date": "2026-09-22",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 8
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-23",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 6
+      },
+      {
+        "date": "2026-09-24",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-25",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 0
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(July 16) New VSL Landing Page Campaign/ Doctor Job/ USCAD",
+        "submitApplication": 14
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(Sept 7) VSL Scaling Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 12
+      },
+      {
+        "date": "2026-09-26",
+        "campaign": "(Sept 7) VSL Testing Campaign (Doctor Job/ USCAD)",
+        "submitApplication": 2
+      }
+    ]
+  }
+}
