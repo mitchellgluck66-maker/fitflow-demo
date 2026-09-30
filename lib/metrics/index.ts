@@ -76,6 +76,23 @@ export interface ContactRow {
   applicationSignal?: 'form' | 'none';
   applicationSignalReason?: string | null;
   /**
+   * The facts behind `applicationSignal`, emitted for the Applied reconciliation ledger (lib/reconcile/applied.ts,
+   * 2026-09-30) so the ledger classes the SAME facts the engine used — never re-derived. Set by the loader;
+   * fixtures may omit them. Local calendar dates.
+   */
+  ghlContactId?: string | null;
+  ghlOpportunityId?: string | null;
+  pipelineId?: string | null;
+  contactCreatedOn?: string | null;
+  /** The held opportunity's own creation date (before any moved-in re-dating). */
+  opportunityCreatedOn?: string | null;
+  /** First observed stage role of the held opportunity; null when no transition was observed. */
+  firstStageRole?: string | null;
+  /** Entry into the followed pipeline when the opportunity was first seen elsewhere (the date Applied uses). */
+  movedInOn?: string | null;
+  /** contacts.ghl_created_at equals the opportunity's creation to the second — the contact fetch may have failed and the date was filled from the opportunity. */
+  contactCreatedEqualsOpportunity?: boolean;
+  /**
    * paid | organic | null (not yet classified). Paid CAC and ROAS use ONLY
    * contacts classed `paid`; organic/direct must never leak into them.
    */
@@ -1524,7 +1541,7 @@ export interface CampaignRow {
   roas: number | null;
 }
 
-function normalizeCampaign(name: string | null | undefined): string {
+export function normalizeCampaign(name: string | null | undefined): string {
   return (name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 

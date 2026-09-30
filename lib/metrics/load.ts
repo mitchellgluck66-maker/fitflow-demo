@@ -81,6 +81,7 @@ export async function loadMetricsInput(
   const contactRows = await db
     .select({
       id: contacts.id,
+      ghlContactId: contacts.ghlContactId,
       firstName: contacts.firstName,
       lastName: contacts.lastName,
       email: contacts.email,
@@ -387,8 +388,11 @@ export async function loadMetricsInput(
         movedIn: Boolean(c.ghlOpportunityId && movedIn.has(c.ghlOpportunityId)),
         origin: c.origin,
       });
+      const oppCreatedAt = c.ghlOpportunityId ? (oppCreated.get(c.ghlOpportunityId) ?? null) : null;
+      const movedAt = c.ghlOpportunityId ? (movedIn.get(c.ghlOpportunityId) ?? null) : null;
       return {
         id: c.id,
+        ghlContactId: c.ghlContactId,
         name: `${c.firstName} ${c.lastName}`.trim() || c.email || "Unknown",
         email: c.email,
         source: c.source,
@@ -398,6 +402,13 @@ export async function loadMetricsInput(
         appliedOn: on,
         applicationSignal: sig.signal,
         applicationSignalReason: sig.reason,
+        ghlOpportunityId: c.ghlOpportunityId,
+        pipelineId: c.pipelineId,
+        contactCreatedOn: c.ghlCreatedAt ? localDate(c.ghlCreatedAt, tz) : null,
+        opportunityCreatedOn: oppCreatedAt ? localDate(oppCreatedAt, tz) : c.opportunityCreatedAt ? localDate(c.opportunityCreatedAt, tz) : null,
+        firstStageRole: c.ghlOpportunityId ? (firstRole.get(c.ghlOpportunityId) ?? null) : null,
+        movedInOn: movedAt ? localDate(movedAt, tz) : null,
+        contactCreatedEqualsOpportunity: Boolean(c.ghlCreatedAt && oppCreatedAt && Math.abs(c.ghlCreatedAt.getTime() - oppCreatedAt.getTime()) < 1000),
         monetaryValueCents: c.monetaryValueCents ?? 0,
         origin: c.origin,
         campaign: c.campaign,
