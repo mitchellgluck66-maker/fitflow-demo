@@ -137,8 +137,8 @@ describe('scorecard carries both modes with their own chips', () => {
     const withBaseline = computeScorecard(INPUT, W2, null, W1);
     // W2 cohort applied→consult = 1/1; W1 cohort baseline = 3/3 → good
     expect(withBaseline.cohort.conversions[0]).toMatchObject({ current: 1, tone: 'good' });
-    // W2 in period applied→consult = 2 booked (slow, stall, w2 booked in W2 → 3) ÷ 1 applied … baseline period W1 = 1/3
-    expect(withBaseline.conversions[0].current).toBe(3);
+    // W2 in period applied→consult = 3 booked (slow, stall, w2 booked in W2) ÷ 1 applied — capped at 100% and flagged (P1 #3)
+    expect(withBaseline.conversions[0]).toMatchObject({ current: 1, capped: true });
   });
 
   it('per-source breakdown in cohort mode', () => {
@@ -166,5 +166,76 @@ describe('scorecard carries both modes with their own chips', () => {
       [1, 0],
       [0, 1],
     ]);
+  });
+});
+
+// Audit P1 #3 (2026-09-30): conversions can never exceed 100%.
+describe('P1 #3: cohort stages are cumulative; withheld stages are skipped by the chain; period ratios are capped', () => {
+  const SKIP = { start: '2026-09-20', end: '2026-09-26' };
+  // The audit's real shape: people skip stages in GHL and attendance is not recorded (0 showed, 2 no-show, many undecided).
+  const skippers: MetricsInput = {
+    contacts: [
+      c('j1', 'Facebook', '2026-09-21', 'enrolled'), // applied → roadmap booked → enrolled, no consult ever recorded
+      c('j2', 'Facebook', '2026-09-21', 'enrolled'), // applied → consult booked → enrolled, no roadmap ever recorded
+      c('j3', 'Google', '2026-09-22', 'consult_booked'),
+      c('j4', 'Google', '2026-09-22', 'applied'),
+    ],
+    transitions: [
+      t('j1', null, 'applied', '2026-09-21'),
+      t('j1', 'applied', 'roadmap_booked', '2026-09-23'),
+      t('j1', 'roadmap_booked', 'enrolled', '2026-09-25'),
+      t('j2', null, 'applied', '2026-09-21'),
+      t('j2', 'applied', 'consult_booked', '2026-09-22'),
+      t('j2', 'consult_booked', 'enrolled', '2026-09-26'),
+      t('j3', null, 'applied', '2026-09-22'),
+      t('j3', 'applied', 'consult_booked', '2026-09-24'),
+      t('j4', null, 'applied', '2026-09-22'),
+      // enrollments in the week from people who applied earlier — in-period events, not the same people
+      t('early1', 'roadmap_booked', 'enrolled', '2026-09-24'),
+      t('early2', 'roadmap_booked', 'enrolled', '2026-09-24'),
+      t('early3', 'roadmap_booked', 'enrolled', '2026-09-25'),
+    ],
+    appointments: [
+      a('j2', 'Consult', null, '2026-09-23'),
+      a('j3', 'Consult', 'no_show', '2026-09-25'),
+      a('early1', 'Consult', 'no_show', '2026-09-22'),
+      ...Array.from({ length: 30 }, (_, i) => a(`u${i}`, 'Consult', null, '2026-09-24')),
+      ...Array.from({ length: 12 }, (_, i) => a(`r${i}`, 'Roadmap', null, '2026-09-24')),
+    ],
+    spend: [],
+    payments: [],
+    asOfMs: noon('2026-09-30'),
+  };
+  const st = (f: ReturnType<typeof computeFunnel>, k: string) => f.stages.find((s) => s.key === k)!;
+
+  it('cohort: each stage counts "reached this stage or any later one", so every stage ⊆ the previous and no ratio exceeds 100%', () => {
+    const f = computeFunnel(skippers, SKIP, 'cohort');
+    expect(counts(f)).toEqual({ applied: 4, consult_booked: 3, consult_showed: 2, roadmap_booked: 2, roadmap_showed: 2, enrolled: 2 });
+    expect(st(f, 'consult_booked').contactIds.sort()).toEqual(['j1', 'j2', 'j3']); // j1 skipped the consult but reached later stages
+    for (const s of f.stages) expect(s.conversionFromPrevious === null || s.conversionFromPrevious <= 1, s.key).toBe(true);
+    for (const s of f.stages) expect(s.capped, s.key).toBe(false);
+    expect(st(f, 'enrolled').shareOfApplied).toBe(0.5);
+  });
+
+  it('withheld "showed" stages are skipped by the chain: the chip spans the gap and the withheld stage has no ratio', () => {
+    const f = computeFunnel(skippers, SKIP, 'period');
+    expect(st(f, 'consult_showed').withheld).toMatch(/attendance recorded for/);
+    expect(st(f, 'roadmap_showed').withheld).toMatch(/attendance recorded for/);
+    expect(st(f, 'consult_showed').conversionFromPrevious).toBeNull();
+    expect(st(f, 'consult_showed').conversionFrom).toBeNull();
+    expect(st(f, 'roadmap_booked').conversionFrom).toBe('consult_booked'); // spans consult showed
+    expect(st(f, 'enrolled').conversionFrom).toBe('roadmap_booked'); // spans roadmap showed
+    const sc = computeScorecard(skippers, SKIP, null, null);
+    expect(sc.conversions.map((x) => `${x.from}→${x.to}`)).toEqual(['applied→consult_booked', 'consult_booked→roadmap_booked', 'roadmap_booked→enrolled']);
+  });
+
+  it('in period, 5 enrolled after 1 roadmap booked is capped at 100% and flagged — never 500%', () => {
+    const f = computeFunnel(skippers, SKIP, 'period');
+    expect(st(f, 'enrolled').count).toBe(5);
+    expect(st(f, 'roadmap_booked').count).toBe(1);
+    expect(st(f, 'enrolled')).toMatchObject({ conversionFromPrevious: 1, capped: true });
+    const sc = computeScorecard(skippers, SKIP, null, null);
+    expect(sc.conversions.find((x) => x.to === 'enrolled')).toMatchObject({ current: 1, capped: true });
+    expect(sc.cohort.conversions.every((x) => (x.current ?? 0) <= 1 && !x.capped)).toBe(true);
   });
 });

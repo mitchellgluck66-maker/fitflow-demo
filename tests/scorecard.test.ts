@@ -122,7 +122,7 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
 
   it('funnel / show / source tables and the CAC line are the email’s tables', () => {
     expect(view.funnelRows[0]).toEqual(['Applied', '3', '100%', '—', '$333.33 CAD']);
-    expect(view.funnelRows[5]).toEqual(['Enrolled', '2', '67%', '200%', '$500 CAD']);
+    expect(view.funnelRows[5]).toEqual(['Enrolled', '2', '67%', '100%', '$500 CAD']); // 2 ÷ 1 in period: capped at 100% (P1 #3)
     expect(view.showRows).toEqual([
       ['Consult', '2', '1', '0', '67%'],
       ['Roadmap', '1', '0', '0', '100%'],

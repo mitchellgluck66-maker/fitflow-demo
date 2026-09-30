@@ -117,9 +117,13 @@ describe('computeFunnel', () => {
     expect(f.spendCents).toBe(120_000);
     expect(stage('consult_booked').conversionFromPrevious).toBeCloseTo(0.6);
     expect(stage('consult_showed').conversionFromPrevious).toBeCloseTo(1 / 3);
-    expect(stage('roadmap_booked').conversionFromPrevious).toBe(2); // 2 ÷ 1, can exceed 100%
+    // 2 ÷ 1 in period mode: capped at 100% and flagged (audit P1 #3) — the same people are not being compared
+    expect(stage('roadmap_booked').conversionFromPrevious).toBe(1);
+    expect(stage('roadmap_booked').capped).toBe(true);
+    expect(stage('consult_booked').capped).toBe(false);
     expect(stage('enrolled').shareOfApplied).toBeCloseTo(0.4);
     expect(f.stages.map((s) => s.dropOff)).toEqual([0, 2, 2, 0, 1, 0]);
+    expect(f.stages.map((s) => s.conversionFrom)).toEqual([null, 'applied', 'consult_booked', 'consult_showed', 'roadmap_booked', 'roadmap_showed']);
     expect(f.stages.map((s) => s.costPerCents)).toEqual([24_000, 40_000, 120_000, 60_000, 120_000, 60_000]);
   });
 

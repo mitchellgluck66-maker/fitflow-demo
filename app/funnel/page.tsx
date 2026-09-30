@@ -16,8 +16,12 @@ import { DataHealthNotice, inputWarnings } from '@/components/DataHealth';
 import { ROLE_LABELS } from '@/lib/ghl/roles';
 import { FUNNEL_MODE_LABELS, type FunnelMode } from '@/lib/metrics';
 
+/** A weekly conversion, capped at 100% (audit P1 #3): in-period weeks count events, not the same people, so 5 enrolled after 1 booking is "100%, capped", never 500%. */
 function pct(n: number, d: number): number | null {
-  return d > 0 ? Math.round((n / d) * 100) : null;
+  return d > 0 ? Math.min(100, Math.round((n / d) * 100)) : null;
+}
+function capped(n: number, d: number): boolean {
+  return d > 0 && n > d;
 }
 
 function FunnelTab() {
@@ -51,11 +55,13 @@ function FunnelTab() {
         label: p.label,
         value: pct(p[num], p[den]),
         prev: cmp?.[i] ? pct(cmp[i][num], cmp[i][den]) : null,
+        capped: capped(p[num], p[den]) || (cmp?.[i] ? capped(cmp[i][num], cmp[i][den]) : false),
       }));
+    const withNote = (title: string, rows: ReturnType<typeof series>) => ({ title, rows, cappedWeeks: rows.filter((r) => r.capped).length });
     return [
-      { title: 'Applied → Consult booked', rows: series('consultsBooked', 'applied') },
-      { title: 'Consult booked → Enrolled', rows: series('enrolled', 'consultsBooked') },
-      { title: 'Applied → Enrolled', rows: series('enrolled', 'applied') },
+      withNote('Applied → Consult booked', series('consultsBooked', 'applied')),
+      withNote('Consult booked → Enrolled', series('enrolled', 'consultsBooked')),
+      withNote('Applied → Enrolled', series('enrolled', 'applied')),
     ];
   })();
 
@@ -211,8 +217,13 @@ function FunnelTab() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {multiples.map((m) => (
               <Card key={m.title} padding="md">
-                <div className="text-[12.5px] font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+                <div className="text-[12.5px] font-medium mb-2 flex items-baseline justify-between gap-2" style={{ color: 'var(--text-primary)' }}>
                   {m.title}
+                  {m.cappedWeeks > 0 && (
+                    <span className="text-[10.5px] font-normal" style={{ color: 'var(--text-quaternary)' }} title="In-period weeks count events, not the same people: a week with more enrollments than bookings shows 100%, capped.">
+                      capped at 100% in {m.cappedWeeks} week{m.cappedWeeks === 1 ? '' : 's'}
+                    </span>
+                  )}
                 </div>
                 <ResponsiveContainer width="100%" height={120}>
                   <LineChart data={m.rows} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>

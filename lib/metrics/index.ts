@@ -20,8 +20,13 @@
  *                    stage was previous_lead (re-engaged old leads) are
  *                    excluded from every stage above
  *   cohort mode      the cohort is everyone who applied in range; each later
- *                    stage counts cohort members who EVER reached it (no time
- *                    cutoff). In-period mode is the default everywhere else.
+ *                    stage counts cohort members who EVER reached it OR ANY
+ *                    LATER STAGE (people skip stages in GHL), so every stage is
+ *                    a subset of the one before and no conversion exceeds
+ *                    100%. In-period mode counts events in range; its ratios
+ *                    are capped at 100% and flagged `capped`. A "showed" stage
+ *                    whose attendance is not recorded is withheld and skipped
+ *                    by the conversion chain (`conversionFrom` spans the gap).
  *   awaiting rebook  (daily to-do) everyone currently in consult_rescheduled /
  *                    roadmap_rescheduled, every day until they leave the role
  *   show rate        showed ÷ (showed + no-show), per appointment type
@@ -306,9 +311,20 @@ export interface FunnelStage {
   contactIds: string[];
   /** count ÷ applied count (0..1), null when applied is 0. */
   shareOfApplied: number | null;
-  /** count ÷ previous stage count (0..1), null when previous is 0. */
+  /**
+   * count ÷ the count of the previous stage IN THE CONVERSION CHAIN (0..1), null when that is 0 or this stage is
+   * withheld. A stage whose attendance is not recorded is skipped by the chain (audit P1 #3, 2026-09-30), so the
+   * chip after it spans the gap: `conversionFrom` names the stage it is measured against.
+   */
   conversionFromPrevious: number | null;
-  /** previous.count − count (never negative). */
+  conversionFrom: FunnelStageKey | null;
+  /**
+   * In-period mode counts events in the dates, not the same people, so more can reach a later stage than the
+   * earlier one; the ratio is then capped at 100% and this is true. Cohort mode counts "reached this stage or any
+   * later one", so it can never exceed 100% and this is always false.
+   */
+  capped: boolean;
+  /** chain-previous.count − count (never negative). */
   dropOff: number;
   /** spend ÷ count in cents, null when count is 0 or no spend. */
   costPerCents: number | null;
@@ -320,7 +336,7 @@ export type FunnelMode = 'period' | 'cohort';
 
 export const FUNNEL_MODE_LABELS: Record<FunnelMode, { label: string; description: string }> = {
   period: { label: 'In period', description: 'Each stage counts the people who reached it during the selected dates, whoever they are.' },
-  cohort: { label: 'By cohort', description: 'Everyone who APPLIED in the selected dates, and how many of them have reached each later stage since — no time cutoff.' },
+  cohort: { label: 'By cohort', description: 'Everyone who APPLIED in the selected dates, and how many of them have since reached each stage or any later one — no time cutoff, so no step can exceed 100%.' },
 };
 
 export interface Funnel {
@@ -408,7 +424,10 @@ export function cohortMembership(input: MetricsInput, range: Range): Record<Funn
       .filter((a) => a.contactId && cohort.has(a.contactId) && a.type === type && a.outcome === 'showed')
       .map((a) => a.contactId as string);
 
-  return {
+  // Audit P1 #3 (2026-09-30): people skip stages in GHL (a roadmap booked with no consult, an enrollment with no
+  // recorded roadmap), so a cohort stage counts everyone who reached THIS stage OR ANY LATER ONE. Every stage is
+  // then a subset of the one before it and a cohort conversion can never exceed 100%.
+  const raw: Record<FunnelStageKey, string[]> = {
     applied: Array.from(cohort),
     consult_booked: uniq(everEntered('consult_booked')),
     consult_showed: uniq(everShowed('Consult')),
@@ -416,6 +435,10 @@ export function cohortMembership(input: MetricsInput, range: Range): Record<Funn
     roadmap_showed: uniq([...everShowed('Roadmap'), ...everEntered('roadmap_showed')]),
     enrolled: uniq(everEntered('enrolled')),
   };
+  const keys = FUNNEL_STAGES.map((d) => d.key);
+  const out = { ...raw };
+  for (let i = keys.length - 2; i >= 1; i -= 1) out[keys[i]] = uniq([...raw[keys[i]], ...out[keys[i + 1]]]);
+  return out;
 }
 
 export function membershipFor(input: MetricsInput, range: Range, mode: FunnelMode): Record<FunnelStageKey, string[]> {
@@ -552,30 +575,46 @@ export function computeFunnel(raw: MetricsInput, range: Range, mode: FunnelMode 
   const spendCents = computeSpend(input.spend, range, input.money);
   const appliedCount = members.applied.length;
 
+  // F2: a "showed" stage comes from appointment outcomes — withheld (not a fabricated 0) when attendance is not
+  // recorded for the range. Roadmap showed also has a stage role; it is withheld only when nobody entered that role.
+  const showRates = computeShowRates(raw, range);
+  const consultShow = showRates.find((r) => r.type === 'Consult');
+  const roadmapShow = showRates.find((r) => r.type === 'Roadmap');
+  const roadmapRoleEntries = mode === 'cohort'
+    ? input.transitions.some((t) => t.toRole === 'roadmap_showed' && members.applied.includes(t.contactId))
+    : input.transitions.some((t) => t.toRole === 'roadmap_showed' && inRange(t.on, range));
+  const withheldOf = (key: FunnelStageKey): string | null => {
+    if (key === 'consult_showed') return consultShow?.withheld ?? null;
+    if (key === 'roadmap_showed') return roadmapShow?.withheld && !roadmapRoleEntries ? roadmapShow.withheld : null;
+    return null;
+  };
+
+  // Audit P1 #3 (2026-09-30): a withheld stage is skipped by the conversion chain — the next chip spans the gap.
+  // In-period mode counts events, so a later stage can outnumber an earlier one; the ratio is capped at 100% and
+  // flagged. Cohort mode counts "reached this stage or later" and needs no cap.
   const stages: FunnelStage[] = [];
-  for (const [i, def] of FUNNEL_STAGES.entries()) {
+  let chainPrev: FunnelStage | null = null;
+  for (const def of FUNNEL_STAGES) {
     const ids = members[def.key];
     const count = ids.length;
-    const prev = i === 0 ? null : stages[i - 1];
-    stages.push({
+    const withheld = withheldOf(def.key);
+    const rawRatio = !withheld && chainPrev ? (chainPrev.count > 0 ? count / chainPrev.count : null) : null;
+    const capped = rawRatio !== null && rawRatio > 1;
+    const stage: FunnelStage = {
       key: def.key,
       label: def.label,
       count,
       contactIds: ids,
-      shareOfApplied: appliedCount > 0 ? count / appliedCount : null,
-      conversionFromPrevious: prev ? (prev.count > 0 ? count / prev.count : null) : null,
-      dropOff: prev ? Math.max(0, prev.count - count) : 0,
-      costPerCents: count > 0 && spendCents > 0 ? Math.round(spendCents / count) : null,
-    });
-  }
-
-  // F2: "Consult showed" comes only from appointment outcomes — withheld (not a fabricated 0) when attendance is
-  // not recorded for the range's consults.
-  const consultShow = computeShowRates(raw, range).find((r) => r.type === 'Consult');
-  const showedStage = stages.find((st) => st.key === 'consult_showed');
-  if (showedStage && consultShow?.withheld) {
-    showedStage.withheld = consultShow.withheld;
-    showedStage.costPerCents = null;
+      shareOfApplied: appliedCount > 0 ? Math.min(1, count / appliedCount) : null,
+      conversionFromPrevious: rawRatio === null ? null : Math.min(1, rawRatio),
+      conversionFrom: !withheld && chainPrev ? chainPrev.key : null,
+      capped,
+      dropOff: !withheld && chainPrev ? Math.max(0, chainPrev.count - count) : 0,
+      costPerCents: !withheld && count > 0 && spendCents > 0 ? Math.round(spendCents / count) : null,
+      withheld,
+    };
+    stages.push(stage);
+    if (!withheld) chainPrev = stage;
   }
 
   // Cohort mode: cohort members who were parked as previous leads after applying.
@@ -1259,7 +1298,7 @@ export interface Scorecard {
     applied: Delta;
   };
   /** Stage→stage conversion deltas vs the comparison period (in-period mode). */
-  conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone }>;
+  conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped: boolean; tone: ChipTone }>;
   sources: SourceBreakdown[];
   /**
    * The same funnel in cohort (journey) mode: the people who applied in
@@ -1269,7 +1308,7 @@ export interface Scorecard {
   cohort: {
     funnel: Funnel;
     previousFunnel: Funnel | null;
-    conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone }>;
+    conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped: boolean; tone: ChipTone }>;
     sources: SourceBreakdown[];
   };
   timeInStage: TimeInStage[];
@@ -1296,13 +1335,16 @@ export function computeScorecard(
 
   const count = (f: Funnel | null, key: FunnelStageKey) => (f ? f.stages.find((s) => s.key === key)!.count : null);
 
+  // One chip per stage in the conversion chain (a withheld stage has none; the chip after it spans the gap).
   const chips = (f: Funnel, prevF: Funnel | null, baseF: Funnel | null) =>
-    f.stages.slice(1).map((s, i) => {
-      const from = f.stages[i].key;
-      const prev = prevF?.stages[i + 1].conversionFromPrevious ?? null;
-      const base = baseF?.stages[i + 1].conversionFromPrevious ?? prev;
-      return { from, to: s.key, current: s.conversionFromPrevious, previous: prev, tone: conversionTone(s.conversionFromPrevious, base) };
-    });
+    f.stages
+      .filter((s) => s.conversionFrom !== null)
+      .map((s) => {
+        const at = (g: Funnel | null) => g?.stages.find((x) => x.key === s.key) ?? null;
+        const prev = at(prevF)?.conversionFromPrevious ?? null;
+        const base = at(baseF)?.conversionFromPrevious ?? prev;
+        return { from: s.conversionFrom!, to: s.key, current: s.conversionFromPrevious, previous: prev, capped: s.capped, tone: conversionTone(s.conversionFromPrevious, base) };
+      });
   const conversions = chips(funnel, previousFunnel, baselineFunnel);
 
   const cohortFunnel = computeFunnel(input, range, 'cohort');

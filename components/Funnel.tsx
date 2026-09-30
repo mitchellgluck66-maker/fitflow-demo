@@ -8,7 +8,7 @@ import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
 import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
 
-export type FunnelConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone };
+export type FunnelConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped?: boolean; tone: ChipTone };
 
 /**
  * The funnel — horizontal proportional bars, never a tapered cone.
@@ -64,11 +64,12 @@ export const Funnel: React.FC<{
   return (
     <div className="space-y-0.5">
       {stages.map((s, i) => {
-        const prev = i > 0 ? stages[i - 1] : null;
+        // P1 #3: the chain skips withheld stages — the chip before a stage measures it against `conversionFrom`.
+        const conv = conversions.find((x) => x.to === s.key) ?? null;
+        const prev = conv ? (stages.find((x) => x.key === conv.from) ?? null) : null;
         const solidPct = s.withheld ? 0 : (s.count / max) * 100; // F2: withheld = not recorded, never a 0 bar
         const ghostPct = prev ? (Math.max(0, prev.count - s.count) / max) * 100 : 0;
         const short = FUNNEL_STAGES[i].shortLabel;
-        const conv = i > 0 ? conversions[i - 1] : null;
         const isEnrolled = s.key === 'enrolled';
         const barHeight = rowHeight ?? (compact ? 22 : 30);
 
@@ -82,9 +83,12 @@ export const Funnel: React.FC<{
                   style={toneStyle(conv.tone)}
                   title={`${formatPct(conv.current)} of ${prev!.label.toLowerCase()} ${cohort ? 'have since reached' : 'reached'} ${s.label.toLowerCase()} (${modeLabel}) · vs trailing 8-week avg (${baselineLabel}, same mode)${
                     conv.previous !== null ? ` · comparison period ${formatPct(conv.previous)}` : ''
+                  }${conv.capped ? ` · capped: ${s.count} reached ${s.label.toLowerCase()} in the period but only ${prev!.count} ${prev!.label.toLowerCase()} — in-period counts events, not the same people` : ''}${
+                    prev!.key !== stages[i - 1]?.key ? ` · measured from ${prev!.label.toLowerCase()} because ${stages[i - 1]?.label.toLowerCase()} is not recorded` : ''
                   }`}
                 >
                   {formatPct(conv.current)} → {short === 'client' ? 'enrolled' : s.label.toLowerCase()}
+                  {conv.capped && <span style={{ opacity: 0.75 }}>· capped</span>}
                   <span style={{ opacity: 0.75 }}>· {s.dropOff} {cohort ? 'not yet' : 'dropped'}</span>
                 </span>
                 <MaturingBadge maturity={maturity} compact />
@@ -103,7 +107,7 @@ export const Funnel: React.FC<{
                   <MaturingBadge maturity={maturity} show={isMaturingStage(s.key, maturity)} compact />
                 </div>
                 <div className="text-[11.5px] tabular mt-0.5" style={{ color: s.withheld ? 'var(--warning)' : 'var(--text-tertiary)' }} title={s.withheld ?? undefined}>
-                  {s.withheld ? 'not recorded' : <>{s.count} · {formatPct(s.shareOfApplied)}</>}
+                  {s.withheld ? 'not recorded · skipped in the conversion chain' : <>{s.count} · {formatPct(s.shareOfApplied)}</>}
                   {!s.withheld && s.costPerCents !== null && (
                     <>
                       {' '}

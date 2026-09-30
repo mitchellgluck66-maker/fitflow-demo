@@ -14,7 +14,7 @@ import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
  * summary, not the chart: the proportional bars, drop-off and people drawer
  * live on /funnel, which this whole strip links to.
  */
-export type StripConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; tone: ChipTone };
+export type StripConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped?: boolean; tone: ChipTone };
 
 export const FunnelStrip: React.FC<{
   /** Either mode — the strip labels itself from `funnel.mode`. */
@@ -70,7 +70,9 @@ export const FunnelStrip: React.FC<{
 
       <div className="flex items-stretch gap-1 overflow-x-auto">
         {stages.map((s, i) => {
-          const conv = i > 0 ? conversions[i - 1] : null;
+          // P1 #3: a withheld stage has no chip; the next chip is measured from `conv.from` (spans the gap).
+          const conv = conversions.find((x) => x.to === s.key) ?? null;
+          const from = conv ? stages.find((x) => x.key === conv.from) : null;
           const isEnrolled = s.key === 'enrolled';
           return (
             <React.Fragment key={s.key}>
@@ -79,10 +81,11 @@ export const FunnelStrip: React.FC<{
                   <span
                     className="inline-flex items-center gap-0.5 h-[20px] px-1.5 rounded-[5px] text-[11px] font-medium tabular"
                     style={chip(conv.tone)}
-                    title={`${formatPct(conv.current)} of ${stages[i - 1].label.toLowerCase()} reached ${s.label.toLowerCase()}`}
+                    title={`${formatPct(conv.current)} of ${(from ?? stages[i - 1]).label.toLowerCase()} reached ${s.label.toLowerCase()}${conv.capped ? ' · capped at 100%: in-period counts events, not the same people' : ''}${from && from.key !== stages[i - 1].key ? ` · measured from ${from.label.toLowerCase()}: ${stages[i - 1].label.toLowerCase()} is not recorded` : ''}`}
                   >
                     <ChevronRight size={10} strokeWidth={2.4} style={{ opacity: 0.7 }} />
                     {formatPct(conv.current)}
+                    {conv.capped && <span style={{ opacity: 0.7 }}>·cap</span>}
                   </span>
                   <MaturingBadge maturity={maturity} compact className="ml-1" />
                 </div>
