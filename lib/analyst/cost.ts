@@ -104,3 +104,60 @@ export function formatTokens(t: UsageTotals): string {
   const cached = t.cacheReadTokens > 0 ? ` (${k(t.cacheReadTokens)} cached)` : '';
   return `${k(inTotal)} in${cached} · ${k(t.outputTokens)} out`;
 }
+
+// ---------------------------------------------------------------------------
+// Estimate before a run, caps, in-loop pause (plan item 7)
+// ---------------------------------------------------------------------------
+
+export type RunKind = 'ask' | 'explain' | 'report';
+
+/** Per-kind allowances for the estimate: rounds of tool use, tokens a tool round adds, output tokens. */
+export const RUN_ALLOWANCE: Record<RunKind, { rounds: number; toolTokensPerRound: number; outputTokens: number }> = {
+  ask: { rounds: 4, toolTokensPerRound: 5_000, outputTokens: 3_000 },
+  explain: { rounds: 2, toolTokensPerRound: 4_000, outputTokens: 2_000 },
+  report: { rounds: 10, toolTokensPerRound: 8_000, outputTokens: 12_000 },
+};
+
+export interface RunEstimate {
+  usd: number;
+  /** "~4 rounds · 26K prompt (cached after round 1) · 3K out" */
+  detail: string;
+  promptTokens: number;
+  rounds: number;
+}
+
+/**
+ * The prefix (system + tools + history) is written to the cache on round 1 and read on every later round;
+ * tool results accumulate as uncached input; the answer is output. A conservative estimate for the cap.
+ */
+export function estimateRunUsd(model: string, promptTokens: number, kind: RunKind): RunEstimate {
+  const p = ANALYST_PRICES[model];
+  if (!p) throw new UnknownModelPriceError(model);
+  const a = RUN_ALLOWANCE[kind];
+  let usd = (promptTokens * p.cacheWrite5mPerMTok) / 1e6;
+  for (let round = 2; round <= a.rounds; round++) usd += (promptTokens * p.cacheReadPerMTok + (round - 1) * a.toolTokensPerRound * p.inputPerMTok) / 1e6;
+  usd += (a.outputTokens * p.outputPerMTok) / 1e6;
+  const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
+  return { usd: Math.round(usd * 100) / 100, detail: `~${a.rounds} rounds · ${k(promptTokens)} prompt (cached after round 1) · ${k(a.outputTokens)} out`, promptTokens, rounds: a.rounds };
+}
+
+export interface CapDecision {
+  allowed: boolean;
+  needsConfirmation: boolean;
+  reason: string | null;
+}
+
+/** Before a run: over the per-run cap or the monthly budget → nothing is spent until the owner confirms this amount. */
+export function capDecision(p: { estimateUsd: number; capRunUsd: number; spentMonthUsd: number; capMonthUsd: number; confirmedUsd?: number | null }): CapDecision {
+  if (p.confirmedUsd !== null && p.confirmedUsd !== undefined && p.estimateUsd <= p.confirmedUsd + 1e-9) return { allowed: true, needsConfirmation: false, reason: null };
+  if (p.estimateUsd > p.capRunUsd) return { allowed: false, needsConfirmation: true, reason: `This run is estimated at ${formatUsd(p.estimateUsd)}, above your ${formatUsd(p.capRunUsd)} per-run cap` };
+  if (p.spentMonthUsd + p.estimateUsd > p.capMonthUsd) return { allowed: false, needsConfirmation: true, reason: `This run (${formatUsd(p.estimateUsd)}) would take this month to ${formatUsd(p.spentMonthUsd + p.estimateUsd)}, above your ${formatUsd(p.capMonthUsd)} monthly budget` };
+  return { allowed: true, needsConfirmation: false, reason: null };
+}
+
+/** Between rounds: spent so far plus one more round above what was allowed → pause for confirmation. */
+export function shouldPause(p: { spentUsd: number; nextRoundUsd: number; allowedUsd: number }): { pause: boolean; reason: string | null } {
+  const projected = p.spentUsd + p.nextRoundUsd;
+  if (projected > p.allowedUsd + 1e-9) return { pause: true, reason: `Spent ${formatUsd(p.spentUsd)} so far; the next round would take this run to about ${formatUsd(projected)}, above the ${formatUsd(p.allowedUsd)} allowed` };
+  return { pause: false, reason: null };
+}
