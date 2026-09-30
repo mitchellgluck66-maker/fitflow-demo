@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -34,6 +34,12 @@ const LINKS = [
 
 export const NavBar: React.FC = () => {
   const pathname = usePathname();
+  // P2 #10: every tab read "FitFlow — Sales Onboarding". Pages are client components, so the title follows the route here.
+  useEffect(() => {
+    const link = LINKS.find((l) => (l.exact ? pathname === l.href : pathname.startsWith(l.href)));
+    const label = link?.label ?? (pathname.startsWith('/clients/') ? 'Client' : pathname === '/login' ? 'Sign in' : null);
+    document.title = label ? `${label} · FitFlow` : 'FitFlow';
+  }, [pathname]);
   const router = useRouter();
   const [signingOut, setSigningOut] = React.useState(false);
 

@@ -91,3 +91,18 @@ describe('dbTimeout: a query that never answers becomes a 504, not a 300 s hang'
     vi.doUnmock('@/lib/queries/clients');
   });
 });
+
+// Audit P2 #10 (2026-09-30): stale copy. Digests send on the first hourly run at/after 6am local (lib/email/cron), not "7am".
+describe('P2 #10: the UI copy matches the send window', () => {
+  it('no page says "7am", "Phase C", "once Anthropic is connected" or "Sales Onboarding"', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.tsx') ? [path.join(dir, e.name)] : []));
+    const offenders: string[] = [];
+    for (const f of [...walk('app'), ...walk('components')]) {
+      const src = fs.readFileSync(f, 'utf8').replace(/\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+      for (const bad of ['7am', 'Phase C', 'once Anthropic is connected', 'Sales Onboarding']) if (src.includes(bad)) offenders.push(`${f}: ${bad}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+});

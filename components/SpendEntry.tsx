@@ -30,7 +30,7 @@ const PLATFORMS = [
 /** Every amount is shown in the currency its row was stored in — Meta bills CAD, a manual entry is whatever was chosen (P1 #8). */
 const money = (cents: number, currency: string) => formatMoney(Math.round(cents / 100) * 100, currency as Currency);
 
-/** Manual weekly ad-spend entry. Bridges CAC until Meta/Google APIs land in Phase C. */
+/** Manual weekly ad-spend entry: the fallback for weeks the ad platforms have not reported (API rows always win for their dates). */
 export const SpendEntry: React.FC = () => {
   const [weeks, setWeeks] = useState<SpendWeek[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,7 +165,7 @@ export const SpendEntry: React.FC = () => {
   return (
     <div>
       <p className="text-[12.5px] mb-4" style={{ color: 'var(--text-tertiary)' }}>
-        Weekly spend ÷ new enrollments = cost per client, until Meta/Google connect in Phase C.
+        A fallback for weeks the ad platforms have not reported. Meta and Google API rows always take precedence for their dates; a manual week is spread over its 7 days and used only where no API row exists.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_0.8fr_1.4fr_auto] gap-2 items-end mb-4">

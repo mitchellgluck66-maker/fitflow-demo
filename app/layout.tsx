@@ -21,9 +21,9 @@ async function resolveTimezone(): Promise<{ timezone: string | null; error: stri
 }
 
 export const metadata: Metadata = {
-  title: 'FitFlow — Sales Onboarding',
+  title: { default: 'FitFlow', template: '%s · FitFlow' },
   description:
-    'Attendance tracking and pipeline management for fitness coaching onboarding.',
+    'Growth intelligence for The Fit Physician: funnel, ad spend, CAC and cash, read-only from GoHighLevel, Meta and Stripe.',
   icons: { icon: '/icon.png', apple: '/apple-icon.png' },
 };
 

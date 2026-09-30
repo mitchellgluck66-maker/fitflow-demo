@@ -306,7 +306,7 @@ function ScorecardPage() {
             </p>
           ) : (
             <p className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
-              The Monday / 1st-of-month dispatch writes one paragraph per period into ai_reports once Anthropic is connected. Until then the numbers above are the scorecard.
+              No narrative stored for this period yet. The Monday run (weekly) and the 1st-of-the-month run (monthly) write one paragraph per period from this same scorecard; it appears here after that run.
             </p>
           )}
         </Card>

@@ -22,9 +22,9 @@ import {
 type Kind = 'daily_todo' | 'weekly' | 'monthly';
 
 const KINDS: Array<{ kind: Kind; label: string; schedule: string }> = [
-  { kind: 'daily_todo', label: 'Daily to-do', schedule: 'Every day · 7am' },
-  { kind: 'weekly', label: 'Weekly scorecard', schedule: 'Mondays · 7am' },
-  { kind: 'monthly', label: 'Monthly scorecard', schedule: '1st of the month · 7am' },
+  { kind: 'daily_todo', label: 'Daily to-do', schedule: 'Every day · first run after 6am' },
+  { kind: 'weekly', label: 'Weekly scorecard', schedule: 'Mondays · first run after 6am' },
+  { kind: 'monthly', label: 'Monthly scorecard', schedule: '1st of the month · first run after 6am' },
 ];
 
 interface DigestRow {
@@ -249,21 +249,21 @@ export default function ReportsPage() {
               value={recipients.todo}
               onChange={(e) => setRecipients((r) => ({ ...r, todo: e.target.value }))}
               placeholder="miranda@…, jake@…"
-              hint="Every day at 7am (business timezone)."
+              hint="Every day, on the first hourly run after 6am (business timezone) — usually by 6:40."
             />
             <Input
               label="Weekly scorecard → Jake"
               value={recipients.weekly}
               onChange={(e) => setRecipients((r) => ({ ...r, weekly: e.target.value }))}
               placeholder="jake@…"
-              hint="Mondays at 7am, covering the Sun–Sat week just ended."
+              hint="Mondays, on the first hourly run after 6am, covering the Sun–Sat week just ended."
             />
             <Input
               label="Monthly scorecard"
               value={recipients.monthly}
               onChange={(e) => setRecipients((r) => ({ ...r, monthly: e.target.value }))}
               placeholder="jake@…"
-              hint="1st of the month at 7am, covering the previous month."
+              hint="1st of the month, on the first hourly run after 6am, covering the previous month."
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
@@ -350,7 +350,7 @@ export default function ReportsPage() {
             <EmptyState
               icon={<Mail size={18} />}
               title="No digests yet"
-              description="The first one appears after the 7am cron runs, or when you press Send now above."
+              description="The first one appears after the first scheduled run past 6am, or when you press Send now above."
             />
           ) : (
             <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
