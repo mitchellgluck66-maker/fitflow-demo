@@ -8,6 +8,7 @@ import { runMetaSync } from '@/lib/meta/ingest';
 import { runMetaTokenCheck } from '@/lib/meta/token';
 import { runScheduledStripeSync } from '@/lib/stripe/ingest';
 import { runStripeCompleteness } from '@/lib/stripe/completeness';
+import { runFxSync } from '@/lib/fx/boc';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
@@ -94,6 +95,8 @@ export async function GET(request: NextRequest) {
     // F12: the per-day completeness sweep since backfill_from — refills any day that differs (Sep 2–11 included).
     { name: 'stripe_completeness', ownsRun: true, timeoutMs: 90_000, run: () => runStripeCompleteness({ trigger: 'cron', budgetMs: 75_000 }) },
     { name: 'meta', ownsRun: true, timeoutMs: 60_000, run: () => runMetaSync({ mode: 'delta', trigger: 'cron' }) },
+    // Bank of Canada USD→CAD: backfills every missing business day since the earliest money row, then daily.
+    { name: 'fx', ownsRun: true, timeoutMs: 20_000, run: () => runFxSync({ trigger: 'cron' }) },
     // H2: one debug_token GET — when does the stored Meta token expire? (7-day warning incident)
     { name: 'meta_token', timeoutMs: 10_000, run: () => runMetaTokenCheck() },
     { name: 'google', ownsRun: true, run: () => runGoogleAdsSync({ mode: 'delta', trigger: 'cron' }) },

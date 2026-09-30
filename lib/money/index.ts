@@ -42,7 +42,7 @@ export interface FxRate {
   from: Currency;
   to: Currency;
   rate: number;
-  /** seed | manual */
+  /** boc | manual | seed */
   source?: string;
 }
 
@@ -161,11 +161,33 @@ export interface FxNote {
   /** The non-reporting currency and what one unit of it converts to today. */
   from: Currency;
   rate: number | null;
-  /** "displayed in CAD · USD converted at 1.36" — the footer / Revenue note. */
+  /** "displayed in CAD · USD converted at 1.3934 (Bank of Canada, Sep 29)" — the footer / Revenue note. */
   text: string;
+  /** boc | manual | seed — where today's rate came from. */
+  source?: string | null;
+  /** The date of the stored rate row used today. */
+  rateDate?: string | null;
 }
 
 /** The active-rate note for `today` in the context's reporting currency. */
+/** The stored USD↔CAD row effective on `date` (the one rateFor uses), or null. */
+export function effectiveRateRow(rates: FxRate[], date: string): FxRate | null {
+  let best: FxRate | null = null;
+  let earliest: FxRate | null = null;
+  for (const r of rates) {
+    if (!(r.rate > 0) || !((r.from === 'USD' && r.to === 'CAD') || (r.from === 'CAD' && r.to === 'USD'))) continue;
+    if (!earliest || r.date < earliest.date) earliest = r;
+    if (r.date <= date && (!best || r.date > best.date)) best = r;
+  }
+  return best ?? earliest;
+}
+
+const SOURCE_LABEL: Record<string, string> = { boc: 'Bank of Canada', manual: 'manual rate', seed: 'placeholder' };
+
+/**
+ * The footer line — names the rate AND where it came from and its date (2026-09-30):
+ * "displayed in CAD · USD converted at 1.3934 (Bank of Canada, Sep 29)".
+ */
 export function fxNote(ctx: MoneyContext, today: string): FxNote {
   const from = otherCurrency(ctx.reporting);
   let rate: number | null = null;
@@ -174,8 +196,12 @@ export function fxNote(ctx: MoneyContext, today: string): FxNote {
   } catch {
     rate = null;
   }
-  const text = rate === null ? `displayed in ${ctx.reporting} · no ${from} rate stored` : `displayed in ${ctx.reporting} · ${from} converted at ${formatRate(rate)}`;
-  return { reporting: ctx.reporting, from, rate, text };
+  const row = rate === null ? null : effectiveRateRow(ctx.rates, today);
+  const when = row ? new Date(`${row.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : null;
+  // A row without a source is not guessed at ("manual"?) — only its date is named.
+  const origin = row ? ` (${row.source ? `${SOURCE_LABEL[row.source] ?? row.source}, ` : ''}${when})` : '';
+  const text = rate === null ? `displayed in ${ctx.reporting} · no ${from} rate stored` : `displayed in ${ctx.reporting} · ${from} converted at ${formatRate(rate)}${origin}`;
+  return { reporting: ctx.reporting, from, rate, text, source: row?.source ?? null, rateDate: row?.date ?? null };
 }
 
 // ---------------------------------------------------------------------------

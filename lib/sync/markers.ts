@@ -15,7 +15,8 @@ export type MarkerFamily =
   | 'ghl.mirrors'
   | 'meta.spend'
   | 'stripe.payments'
-  | 'stripe.completeness';
+  | 'stripe.completeness'
+  | 'fx.rates';
 
 export interface Marker {
   family: MarkerFamily;

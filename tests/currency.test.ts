@@ -127,8 +127,8 @@ describe('lib/money: rates, conversion, the tally guard', () => {
   it('formats every amount with its code, and names the active rate', () => {
     expect(formatMoney(160_500, 'CAD')).toBe('$1,605 CAD');
     expect(formatMoney(160_550, 'USD')).toBe('$1,605.50 USD');
-    expect(fxNote(CAD, '2026-08-15').text).toBe('displayed in CAD · USD converted at 1.36');
-    expect(fxNote(USD, '2026-08-15').text).toBe('displayed in USD · CAD converted at 0.7353');
+    expect(fxNote(CAD, '2026-08-15').text).toBe('displayed in CAD · USD converted at 1.36 (Aug 1)');
+    expect(fxNote(USD, '2026-08-15').text).toBe('displayed in USD · CAD converted at 0.7353 (Aug 1)');
     expect(fxNote({ ...CAD, rates: [] }, '2026-08-15').text).toBe('displayed in CAD · no USD rate stored');
   });
 });
@@ -253,7 +253,7 @@ describe('scorecard assembly labels every money value with the active currency',
     expect(v.sections.money.find((s) => s.key === 'initial_cash')!.value).toBe('$6,400 CAD');
     expect(v.sections.money.find((s) => s.key === 'paid_cac')!.value).toBe('$680 CAD');
     expect(v.sections.ads.find((s) => s.key === 'spend')!.value).toBe('$1,360 CAD');
-    expect(v.notes.map((n) => n.text)).toContain('Money displayed in CAD · USD converted at 1.36.');
+    expect(v.notes.map((n) => n.text)).toContain('Money displayed in CAD · USD converted at 1.36 (Aug 1).');
   });
 
   it('USD mode — same fixture, no CAD value leaks through', () => {
@@ -262,7 +262,7 @@ describe('scorecard assembly labels every money value with the active currency',
     expect(v.sections.money.find((s) => s.key === 'initial_cash')!.value).toBe('$4,705.88 USD');
     expect(v.sections.money.find((s) => s.key === 'paid_cac')!.value).toBe('$500 USD');
     expect(v.sections.ads.find((s) => s.key === 'spend')!.value).toBe('$1,000 USD');
-    expect(v.notes.map((n) => n.text)).toContain('Money displayed in USD · CAD converted at 0.7353.');
+    expect(v.notes.map((n) => n.text)).toContain('Money displayed in USD · CAD converted at 0.7353 (Aug 1).');
     const everyMoney = [...v.sections.money, ...v.sections.ads].filter((s) => s.deltaKind === 'cents' && s.value !== '—');
     expect(everyMoney.every((s) => s.value.endsWith(' USD'))).toBe(true);
   });
