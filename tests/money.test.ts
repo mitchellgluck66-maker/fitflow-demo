@@ -235,7 +235,7 @@ describe('revenue summary', () => {
     expect(r.refundedCents).toBe(99_900);
     expect(r.refundCount).toBe(1);
     expect(r.payments.map((p) => p.id)).toEqual(['pay3', 'pay4', 'pay1', 'pay2']);
-    expect(r.unmatchedCount).toBe(0); // the refunded one is not 'succeeded'
+    expect(r.unmatchedCount).toBe(1); // P1 #6: same definition as Setup's list — a kept OR refunded charge with no contact; refund rows never count
   });
 
   it('attaches contact name, source and Sun–Sat cohort week to matched payments', () => {

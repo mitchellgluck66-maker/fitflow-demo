@@ -1774,7 +1774,9 @@ export function computeRevenueSummary(raw: MetricsInput, range: Range): RevenueS
     refundedCents: base.refundedCents,
     refundCount: inR.filter((p) => p.refundedCents > 0).length,
     payments: list,
-    unmatchedCount: inR.filter((p) => !p.contactId && p.status === 'succeeded').length,
+    // P1 #6: the same definition as Setup → Sync health's list: kept charges with no contact. Refund rows follow
+    // their parent and are never "unmatched payments"; a manual "no match" is a decision, not a gap.
+    unmatchedCount: inR.filter((p) => !p.contactId && p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded') && p.matchSource !== 'manual').length,
     excluded: { count: excludedCount, byReason },
     notYetClassifiedCount,
     grossCents: sumCents(grossRows.map((p) => ({ cents: p.amountCents, currency: p.currency })), ccy),

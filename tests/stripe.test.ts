@@ -12,6 +12,7 @@ import { STRIPE_KEYS } from '@/lib/stripe/config';
 import { verifyStripeSignature, signStripePayload } from '@/lib/stripe/webhook';
 import { runStripeSync, monthlyAmountCents } from '@/lib/stripe/ingest';
 import { manualMatch } from '@/lib/stripe/matching';
+import { loadMetricsInput } from '@/lib/metrics/load';
 import { POST as webhookPost } from '@/app/api/stripe/webhook/route';
 
 const SECRET = 'whsec_test_secret';
@@ -169,8 +170,11 @@ describe('runStripeSync', () => {
     expect(by('ch_failed').failedAt).not.toBeNull();
     expect(by('ch_refunded')).toMatchObject({ kind: 'invoice', status: 'refunded', refundedCents: 99_900 });
     expect(by('sub_1')).toMatchObject({ kind: 'subscription', status: 'active', amountCents: 100, intervalMonths: 12, contactId: janeId, matchSource: 'auto' });
-    expect(by('re_1')).toMatchObject({ kind: 'refund', amountCents: 99_900 });
+    // P1 #6: the refund inherits its parent charge's customer (and contact, when the parent has one).
+    expect(by('re_1')).toMatchObject({ kind: 'refund', amountCents: 99_900, email: 'refund@example.com', emailNormalized: 'refund@example.com' });
+    expect(by('re_1').contactId).toBe(by('ch_refunded').contactId);
   });
+
 
   it('re-running is idempotent and keeps a manual match', async () => {
     const before = (await db.select().from(payments)).length;
@@ -194,6 +198,27 @@ describe('runStripeSync', () => {
     await manualMatch(ok.id, null);
     await runStripeSync({ mode: 'reconcile', trigger: 'cron' });
     expect((await db.select().from(payments).where(eq(payments.stripeId, 'ch_ok')))[0]).toMatchObject({ contactId: null, matchSource: 'manual' });
+  });
+  it('P1 #6: a refund whose parent is matched carries the parent\'s contact and name, and is never an "unmatched payment"', async () => {
+    const { inheritRefundParents } = await import('@/lib/stripe/matching');
+    const { computeRevenueSummary } = await import('@/lib/metrics');
+    // The parent gets matched (a contact with its email appears), then the repair runs: the refund follows.
+    const [rp] = await db.insert(contacts).values({ ghlContactId: 'refund-person', firstName: 'Refund', lastName: 'Person', email: 'refund@example.com', emailNormalized: 'refund@example.com', source: 'ghl', origin: 'ghl', syncedAt: new Date(), backfilled: false } as never).returning({ id: contacts.id });
+    const { runPaymentMatching } = await import('@/lib/stripe/matching');
+    await runPaymentMatching();
+    const [refund] = await db.select().from(payments).where(eq(payments.stripeId, 're_1'));
+    const [parent] = await db.select().from(payments).where(eq(payments.stripeId, 'ch_refunded'));
+    expect(parent.contactId).not.toBeNull(); // matched by email (rp, or an earlier fixture contact with the same email)
+    expect(refund).toMatchObject({ contactId: parent.contactId, matchSource: 'parent' });
+    void rp;
+    expect((await inheritRefundParents()).updated).toBe(0); // idempotent
+    // The Revenue tab's unmatched count uses the same definition as the Setup list: kept charges with no contact.
+    const wide = { start: '2025-01-01', end: '2026-12-31' };
+    const input = await loadMetricsInput({ ...wide, timezone: 'America/Edmonton' });
+    const summary = computeRevenueSummary(input, wide);
+    const unmatchedCharges = (await db.select().from(payments)).filter((p) => p.origin === 'stripe' && !p.contactId && p.kind !== 'refund' && ['succeeded', 'refunded'].includes(p.status) && p.matchSource !== 'manual');
+    expect(summary.unmatchedCount).toBe(unmatchedCharges.length);
+    expect(summary.payments.find((p) => p.stripeId === 're_1')?.contactId).toBe(parent.contactId); // the name of a non-pipeline contact is P1 #7
   });
 });
 

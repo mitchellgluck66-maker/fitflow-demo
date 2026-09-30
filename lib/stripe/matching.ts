@@ -3,11 +3,43 @@
  * Manual matches (match_source='manual') are never overwritten by the sync.
  */
 
-import { and, asc, eq, isNotNull, ne, or, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, ne, or, isNull, sql } from 'drizzle-orm';
 import { db, payments, contacts } from '@/db';
 import { matchPayments } from '../metrics';
 
+/**
+ * Audit P1 #6 (2026-09-30): a refund row is written from Stripe's refund object, which carries no customer, so
+ * refunds showed "—" for the customer and were counted as unmatched payments. A refund belongs to the charge it
+ * reverses: it inherits the parent charge's customer, email, phone and contact (`match_source='parent'`).
+ * Idempotent and self-repairing — it runs before every matching pass, so existing rows are fixed by the next sync.
+ */
+export async function inheritRefundParents(): Promise<{ updated: number }> {
+  const rows = await db.execute(sql`
+    update ${payments} r
+    set contact_id = p.contact_id,
+        email = coalesce(r.email, p.email),
+        email_normalized = coalesce(r.email_normalized, p.email_normalized),
+        phone_normalized = coalesce(r.phone_normalized, p.phone_normalized),
+        customer_name = coalesce(r.customer_name, p.customer_name),
+        match_source = case when p.contact_id is not null then 'parent' else r.match_source end,
+        updated_at = now()
+    from ${payments} p
+    where r.kind = 'refund'
+      and r.metadata->>'charge' = p.stripe_id
+      and p.kind <> 'refund'
+      and coalesce(r.match_source, '') <> 'manual'
+      and (
+        (p.contact_id is not null and r.contact_id is distinct from p.contact_id)
+        or (r.customer_name is null and p.customer_name is not null)
+        or (r.email is null and p.email is not null)
+      )
+    returning r.id`);
+  const list = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as unknown[];
+  return { updated: list.length };
+}
+
 export async function runPaymentMatching(): Promise<{ matched: number; unmatched: number }> {
+  await inheritRefundParents();
   const candidates = await db
     .select({
       id: payments.id,
@@ -17,7 +49,8 @@ export async function runPaymentMatching(): Promise<{ matched: number; unmatched
       matchSource: payments.matchSource,
     })
     .from(payments)
-    .where(and(eq(payments.origin, 'stripe'), or(isNull(payments.matchSource), ne(payments.matchSource, 'manual'))));
+    // Refunds are not matched on their own: they follow their parent charge (inheritRefundParents above).
+    .where(and(eq(payments.origin, 'stripe'), ne(payments.kind, 'refund'), or(isNull(payments.matchSource), ne(payments.matchSource, 'manual'))));
 
   const people = await db
     .select({ id: contacts.id, emailNormalized: contacts.emailNormalized, phoneNormalized: contacts.phoneNormalized })
