@@ -890,6 +890,70 @@ ingestion so a stale or incomplete mirror cannot go unnoticed and repairs itself
 - **Deploy order:** `npm run db:migrate` (0015 adds a column, 0016 drops a default — both safe for the deployed
   code), THEN `git push`. The first runs repair: `utm_backfill` once, `fx` backfills BoC days.
 
+## FitFlow Analyst — Wave 1 (2026-09-30, `docs/plan-analyst-2026-09-30.md` + amendments)
+
+The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in `lib/analyst/`.
+
+- **One call path, its own client.** `lib/analyst/api.ts#buildTurnRequest` is the wire contract
+  (`tests/analyst-wire.test.ts`): `client.beta.messages.stream` on `claude-opus-5-5` (default) /
+  `claude-fable-5-1` (deep), adaptive thinking with `display: "updates"` and
+  `block_binding.prefix_mismatch_behavior: "drop_block"` (betas `thinking-display-updates-2026-08-18`,
+  `thinking-binding-controls-2026-08-01`), `tool_choice: auto` (a forced choice is a 400 on both
+  models), two system cache breakpoints (contract, brief; 5-minute TTL, nothing else), name-sorted
+  strict tools, the answer as `output_config.format` — or the strict `submit_answer` tool when the
+  probe shows format fails with tools (`settings.analyst_answer_mode`). On-demand compaction
+  (`compact-2026-09-04`, `compaction: {type: 'summarize'}`) shares system + tools and carries no
+  output format. `askClaude` / `MODEL_OPTIONS` are untouched for the small features.
+- **The prefix is frozen.** `prompts.ts#ANALYST_CONTRACT` + the brief are the prefix every thinking
+  block is bound to; page context, the data-health line, the explain formula and the preset go in the
+  user turn (`composeUserTurn`). Never put a date or a marker in system.
+- **A number is shown only with a ref.** Tools return `{ref, range, currency, fx, freshness, data}`;
+  a number is cited as `r3:data.kpis.enrollments.current`. `ledger.ts` enumerates every numeric leaf
+  of the stored tool results; `verify.ts` rejects a prose number without a declared ref, a declared
+  number that does not render its ref (count exact; cents as dollars / 2 dp / 1-dp k; ratio as % or ×),
+  a null ref, an unknown ref, a ref older than the newest sync marker. One repair turn, then flagged
+  numbers are shown marked. The brief is NOT citeable. `calculate` gives arithmetic a ref and refuses
+  to average ratios.
+- **Glossary** `lib/metrics/glossary.ts` is the single source of definitions (63 entries,
+  `worked(input, range)` = the tile's number); the engine header, ASK/INSIGHTS prompts and the
+  Analyst read it. `METRIC_DEFINITION_VERSION = 2026-09-30`.
+- **Brief** `brief.ts` (pure, engine only; weekly KPIs since first data, 8/12-week baselines saying
+  how many maturing weeks they include, conversions both modes, campaigns, revenue by month,
+  seasonality, decisions log, glossary, owner profile with gaps, ACTIVE notes; no build time → same
+  data = same hash). Stored in `analyst_briefs`; dispatch step `analyst_brief` once per local day;
+  rebuilt on every note / profile change; `npm run analyst:brief` by hand. No brief → the Analyst
+  refuses to start.
+- **Owner profile + notes** (`notes.ts`): `settings.analyst_owner_profile`; `analyst_notes` rows
+  `active` / `proposed` / `rejected` — a proposal never reaches a prompt until approved. Gaps:
+  "Withheld until filled: CAC payback, pace to target, funnel-leak $" (Setup, brief, `get_notes`).
+- **Tools** (`tools.ts`, 15, read-only, over the page functions): calculate, compare_periods,
+  get_campaigns, get_client, get_data_health, get_funnel, get_metric, get_notes, get_payments,
+  get_revenue, get_scorecard, get_stage_people, get_todo, get_trend, list_clients. Names only —
+  `scrubContact` drops every email/phone. Errors are error RESULTS. Freshness comes from
+  `lib/sync/sourceFreshness.ts` (the banner's reader, extracted).
+- **Loop** (`run.ts`, `store.ts`, `service.ts`): append-only log in `analyst_messages` (`api_json`
+  TEXT, an assistant row + its tool results in one transaction); refusal / max_tokens store nothing;
+  one transient retry from the log; Stop is explicit; past 240 s the turn emits `continue` and the
+  client calls `…/continue`; cost estimated from a real token count and capped ($3/run, $150/month
+  USD; `needs_confirmation`, re-checked between rounds); the data-health notice is the first event
+  and a spend action on stale data is repaired then stripped with the reason; amendment 1: a running
+  turn with no heartbeat for 5 min is swept to failed ("the function stopped mid-round and nothing
+  resumed it") + one `analyst_turn_failed` incident, on every read and in dispatch step
+  `analyst_sweep`. Routes: `POST /api/analyst/turns` (returns at once; runs under `after()`),
+  `GET …/turns/[id]/events?after=N` (SSE replay), `POST …/stop`, `POST …/continue`,
+  `GET /api/analyst/threads[/id]`, `/api/analyst/{brief,notes,profile,settings,verify}`.
+- **Setup → Analyst** card: models, effort, answer mode, caps, brief + Rebuild, Verify (a real
+  streamed tool turn — "Connected · verified with a streamed tool call · <model> · …" or
+  "Verification failed: <exact reason>"), owner profile with the gaps checklist, notes.
+- **Live proof** (Mitchell runs; nothing here is verified until they pass):
+  `npm run smoke:analyst -- --probe` (every API assumption on both models, ~$0.30 USD; prints the
+  answer-mode verdict per model) and `npm run smoke:analyst` (one question + a 3-turn follow-up on
+  the in-memory store, ~$1 USD). Both need `CREDENTIALS_KEY` in `.env.local` to read the stored key.
+- **Deploy order:** `npm run db:migrate` (0017: five `analyst_*` tables, RLS on, additive) THEN push.
+  The first dispatch builds the brief; or `npm run analyst:brief`.
+- Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
+  Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
