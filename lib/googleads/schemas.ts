@@ -9,7 +9,7 @@ export const GoogleTokenResponseSchema = z.object({
 export const GoogleAdsRowSchema = z.object({
   segments: z.object({ date: z.string().min(1) }).optional(),
   campaign: z.object({ id: z.union([z.string(), z.number()]).optional(), name: z.string().optional(), resourceName: z.string().optional() }).optional(),
-  customer: z.object({ id: z.union([z.string(), z.number()]).optional() }).optional(),
+  customer: z.object({ id: z.union([z.string(), z.number()]).optional(), currencyCode: z.string().optional() }).optional(),
   metrics: z
     .object({
       costMicros: z.union([z.string(), z.number()]).optional(),

@@ -111,3 +111,11 @@ export async function testConnection(): Promise<{ ok: boolean; configured: boole
   if (!res.ok) return { ok: false, configured: true, pending: false, message: res.error ?? 'Connection failed' };
   return { ok: true, configured: true, pending: false, message: 'Connected to Google Ads.', customerId: String(res.data?.[0]?.customer?.id ?? cfg.customerId) };
 }
+
+/** The Google Ads account's currency (customer.currency_code) — every cost_micros is in it (2026-09-30). */
+export async function fetchCustomerCurrency(config?: GoogleAdsConfig): Promise<{ currency: string | null; error?: string }> {
+  const res = await gaql('SELECT customer.currency_code FROM customer LIMIT 1', config);
+  if (!res.ok) return { currency: null, error: res.error ?? 'Google Ads read failed' };
+  const code = res.data?.[0]?.customer?.currencyCode;
+  return { currency: code ? code.toUpperCase() : null };
+}

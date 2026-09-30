@@ -14,7 +14,7 @@ beforeAll(async () => {
 
 describe('manual weekly spend', () => {
   it('normalises any date to the Sunday of its Sun–Sat week', async () => {
-    const res = await post({ weekOf: '2026-08-18', platform: 'meta', amountDollars: 1234.56 }); // Tuesday
+    const res = await post({ weekOf: '2026-08-18', platform: 'meta', amountDollars: 1234.56, currency: 'CAD' }); // Tuesday
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.week.start).toBe('2026-08-16');
@@ -25,17 +25,17 @@ describe('manual weekly spend', () => {
   });
 
   it('upserting twice keeps one row with the latest amount', async () => {
-    await post({ weekOf: '2026-08-20', platform: 'meta', amountDollars: 2000 });
+    await post({ weekOf: '2026-08-20', platform: 'meta', amountDollars: 2000, currency: 'CAD' });
     const rows = await db.select().from(adSpend).where(eq(adSpend.externalId, 'manual:meta:2026-08-16'));
     expect(rows).toHaveLength(1);
     expect(rows[0].spendCents).toBe(200000);
   });
 
   it('amount 0 deletes the manual row; DELETE does too', async () => {
-    await post({ weekOf: '2026-08-16', platform: 'meta', amountDollars: 0 });
+    await post({ weekOf: '2026-08-16', platform: 'meta', amountDollars: 0, currency: 'CAD' });
     expect(await db.select().from(adSpend).where(eq(adSpend.externalId, 'manual:meta:2026-08-16'))).toHaveLength(0);
 
-    await post({ weekOf: '2026-08-16', platform: 'google', amountDollars: 10 });
+    await post({ weekOf: '2026-08-16', platform: 'google', amountDollars: 10, currency: 'CAD' });
     await DELETE(new NextRequest('http://x/api/spend?externalId=manual:google:2026-08-16', { method: 'DELETE' }));
     expect(await db.select().from(adSpend).where(eq(adSpend.externalId, 'manual:google:2026-08-16'))).toHaveLength(0);
   });
@@ -47,8 +47,8 @@ describe('manual weekly spend', () => {
     await db.insert(adSpend).values({
       platform: 'google', externalId: 'manual:google:2026-08-09', date: '2026-08-09', currency: 'CAD' as const, spendCents: 500, source: 'demo', origin: 'demo',
     });
-    await post({ weekOf: '2026-08-11', platform: 'meta', amountDollars: 1 });
-    await post({ weekOf: '2026-08-11', platform: 'google', amountDollars: 7 });
+    await post({ weekOf: '2026-08-11', platform: 'meta', amountDollars: 1, currency: 'CAD' });
+    await post({ weekOf: '2026-08-11', platform: 'google', amountDollars: 7, currency: 'CAD' });
     const api = await db.select().from(adSpend).where(eq(adSpend.externalId, 'meta:camp1:2026-08-10'));
     expect(api[0].spendCents).toBe(99900);
     const google = await db.select().from(adSpend).where(eq(adSpend.platform, 'google'));
@@ -73,8 +73,12 @@ describe('manual weekly spend', () => {
   });
 
   it('rejects bad input', async () => {
-    expect((await post({ weekOf: 'nope', platform: 'meta', amountDollars: 1 })).status).toBe(400);
-    expect((await post({ weekOf: '2026-08-16', platform: 'tiktok', amountDollars: 1 })).status).toBe(400);
-    expect((await post({ weekOf: '2026-08-16', platform: 'meta', amountDollars: -1 })).status).toBe(400);
+    expect((await post({ weekOf: 'nope', platform: 'meta', amountDollars: 1, currency: 'CAD' })).status).toBe(400);
+    expect((await post({ weekOf: '2026-08-16', platform: 'tiktok', amountDollars: 1, currency: 'CAD' })).status).toBe(400);
+    expect((await post({ weekOf: '2026-08-16', platform: 'meta', amountDollars: -1, currency: 'CAD' })).status).toBe(400);
+    // 2026-09-30: the currency is required — it was hard-coded USD.
+    const noCurrency = await post({ weekOf: '2026-08-16', platform: 'meta', amountDollars: 1 });
+    expect(noCurrency.status).toBe(400);
+    expect((await noCurrency.json()).error).toMatch(/currency is required: CAD or USD/);
   });
 });

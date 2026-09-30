@@ -35,6 +35,10 @@ export const SpendEntry: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [weekOf, setWeekOf] = useState('');
   const [platform, setPlatform] = useState('meta');
+  // The currency the amount is in — required, never assumed (2026-09-30). Preselected from the platform's account
+  // currency when a sync has reported it.
+  const [currency, setCurrency] = useState<'' | 'CAD' | 'USD'>('');
+  const [accountCurrency, setAccountCurrency] = useState<Record<string, string | null>>({});
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [editing, setEditing] = useState<{ start: string; platform: string; value: string } | null>(null);
@@ -45,6 +49,7 @@ export const SpendEntry: React.FC = () => {
       const res = await fetch('/api/spend?weeks=12');
       const data = await res.json();
       setWeeks(data.weeks ?? []);
+      setAccountCurrency(data.accountCurrency ?? {});
       setWeekOf((w) => w || data.currentWeekStart || '');
     } catch {
       setToast({ message: 'Could not load spend', type: 'error' });
@@ -60,12 +65,17 @@ export const SpendEntry: React.FC = () => {
   }, [load]);
 
   const save = async (wk: string, plat: string, amountDollars: number, note?: string) => {
+    const cur = currency || accountCurrency[plat] || '';
+    if (!cur) {
+      setToast({ message: 'Choose the currency first', detail: 'The amount must say which currency it is in (CAD or USD) — it is never assumed.', type: 'error' });
+      return false;
+    }
     setBusy(true);
     try {
       const res = await fetch('/api/spend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weekOf: wk, platform: plat, amountDollars, notes: note || undefined }),
+        body: JSON.stringify({ weekOf: wk, platform: plat, amountDollars, currency: cur, notes: note || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -156,14 +166,24 @@ export const SpendEntry: React.FC = () => {
         Weekly spend ÷ new enrollments = cost per client, until Meta/Google connect in Phase C.
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_1.4fr_auto] gap-2 items-end mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_0.8fr_1.4fr_auto] gap-2 items-end mb-4">
         <Input label="Week of" type="date" value={weekOf} onChange={(e) => setWeekOf(e.target.value)} hint="Any day — snaps to Sun–Sat" />
         <Select label="Source" value={platform} onChange={(e) => setPlatform(e.target.value)}>
           {PLATFORMS.map((p) => (
             <option key={p.value} value={p.value}>{p.label}</option>
           ))}
         </Select>
-        <Input label="Amount (USD)" type="number" min={0} step="0.01" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Input label="Amount" type="number" min={0} step="0.01" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Select
+          label="Currency"
+          value={currency || accountCurrency[platform] || ''}
+          onChange={(e) => setCurrency(e.target.value as '' | 'CAD' | 'USD')}
+          hint={!currency && accountCurrency[platform] ? `${platform === 'meta' ? 'Meta' : 'Google'} account currency` : 'Required'}
+        >
+          <option value="">Choose…</option>
+          <option value="CAD">CAD</option>
+          <option value="USD">USD</option>
+        </Select>
         <Input label="Notes" placeholder="optional" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <div className="pb-[22px] sm:pb-0">
           <Button variant="primary" icon={Save} loading={busy} onClick={submit}>

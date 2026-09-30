@@ -11,9 +11,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     let text = '';
+    let currency: string | null = request.nextUrl.searchParams.get('currency');
     const contentType = request.headers.get('content-type') ?? '';
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData();
+      const c = form.get('currency');
+      if (typeof c === 'string' && c) currency = c;
       const file = form.get('file');
       if (!file || typeof file === 'string') return NextResponse.json({ ok: false, error: 'Attach a .csv file as "file".' }, { status: 400 });
       text = await file.text();
@@ -23,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (!text.trim()) return NextResponse.json({ ok: false, error: 'Empty file.' }, { status: 400 });
     if (text.length > 5_000_000) return NextResponse.json({ ok: false, error: 'File too large (5 MB max).' }, { status: 413 });
 
-    const result = await importGoogleAdsCsv(text, { enteredBy: 'ads tab upload' });
+    const result = await importGoogleAdsCsv(text, { enteredBy: 'ads tab upload', currency });
     return NextResponse.json({
       ...result,
       message: result.ok

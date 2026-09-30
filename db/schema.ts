@@ -393,7 +393,7 @@ export const adSpend = pgTable(
     /** Business-local calendar date the spend applies to. */
     date: date('date').notNull(),
     spendCents: integer('spend_cents').notNull().default(0),
-    currency: text('currency').notNull().default('USD'),
+    currency: text('currency').notNull(), // no default (2026-09-30): every writer states the source's currency
     impressions: integer('impressions'),
     clicks: integer('clicks'),
     leads: integer('leads'),

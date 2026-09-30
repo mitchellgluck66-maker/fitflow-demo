@@ -17,6 +17,8 @@ export interface GoogleCsvRow {
   impressions: number;
   clicks: number;
   conversions: number;
+  /** The export's "Currency code" column, when present (upper-case). */
+  currency?: string | null;
 }
 
 export interface GoogleCsvParse {
@@ -73,6 +75,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   impressions: ['impr', 'impressions'],
   clicks: ['clicks'],
   conversions: ['conversions', 'conv', 'allconv'],
+  currency: ['currency', 'currencycode'],
 };
 
 function findColumns(header: string[]): Record<string, number> | null {
@@ -149,6 +152,7 @@ export function parseGoogleAdsCsv(text: string): GoogleCsvParse {
       impressions: Math.round(toNumber(cols.impressions !== undefined ? rec[cols.impressions] : undefined)),
       clicks: Math.round(toNumber(cols.clicks !== undefined ? rec[cols.clicks] : undefined)),
       conversions: toNumber(cols.conversions !== undefined ? rec[cols.conversions] : undefined),
+      currency: cols.currency !== undefined ? ((rec[cols.currency] ?? '').trim().toUpperCase() || null) : null,
     });
   }
   return { rows, skipped, warnings };

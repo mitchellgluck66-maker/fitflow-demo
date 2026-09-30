@@ -13,7 +13,7 @@ import { todayInTimezone, addDays } from '../dates';
 import { captureException } from '../sentry';
 import { sweepStaleRuns } from '../staleRuns';
 import { getGoogleAdsConfig } from './config';
-import { fetchSpendReport } from './client';
+import { fetchCustomerCurrency, fetchSpendReport } from './client';
 import { getGoogleAdsRequestCount } from './client';
 import { csvExternalId, parseGoogleAdsCsv, type GoogleCsvRow } from './csv';
 
@@ -76,6 +76,19 @@ export async function runGoogleAdsSync(options: { mode: 'delta' | 'backfill'; tr
     (options.mode === 'backfill' ? ((await getSetting(SETTING_KEYS.backfillFrom)) ?? BACKFILL_DEFAULTS.ghl) : addDays(today, -DELTA_LOOKBACK_DAYS));
 
   try {
+    // The account's currency first — never a USD default (2026-09-30, the F13 bug class). Unknown or not CAD/USD →
+    // the run FAILS and writes nothing.
+    const cur = await fetchCustomerCurrency(config);
+    const currency = cur.currency;
+    if (!currency || !SPEND_CURRENCIES.has(currency)) {
+      const error = cur.error
+        ? `Google Ads currency read failed: ${cur.error} — spend not stored`
+        : !currency
+          ? 'Google Ads did not return the account currency — spend not stored'
+          : `Google Ads account currency ${currency} is not supported (CAD / USD) — spend not stored`;
+      await db.insert(syncIncidents).values({ syncRunId: run.id, kind: 'google_currency', severity: 'critical', message: error });
+      return finish(false, since, error);
+    }
     const report = await fetchSpendReport(since, today, config);
     if (!report.ok || !report.data) {
       await db.insert(syncIncidents).values({ syncRunId: run.id, kind: 'error', severity: 'critical', message: `Google Ads read failed: ${report.error}` });
@@ -107,6 +120,7 @@ export async function runGoogleAdsSync(options: { mode: 'delta' | 'backfill'; tr
         leads: Math.round(Number(row.metrics?.conversions ?? 0)),
         origin: 'google',
         source: 'google',
+        currency,
         accountId: config.customerId,
         backfilled: options.mode === 'backfill',
         now: startedAt,
@@ -141,11 +155,16 @@ interface UpsertRow {
   leads: number;
   origin: 'google' | 'google_csv';
   source: string;
+  /** CAD | USD — from the account (API) or the export / upload form (CSV). Never defaulted. */
+  currency: string;
   accountId: string | null;
   backfilled: boolean;
   now: Date;
   enteredBy?: string;
 }
+
+/** Currencies the money engine sums — anything else fails closed. */
+const SPEND_CURRENCIES = new Set(['CAD', 'USD']);
 
 async function upsertGoogleRow(r: UpsertRow): Promise<void> {
   const values = {
@@ -157,7 +176,7 @@ async function upsertGoogleRow(r: UpsertRow): Promise<void> {
     campaignName: r.campaignName,
     date: r.date,
     spendCents: r.spendCents,
-    currency: 'USD',
+    currency: r.currency,
     impressions: r.impressions,
     clicks: r.clicks,
     leads: r.leads,
@@ -183,8 +202,18 @@ export interface CsvImportResult {
 }
 
 /** Import a Google Ads UI export. Idempotent: same file twice → same rows. */
-export async function importGoogleAdsCsv(text: string, options: { enteredBy?: string } = {}): Promise<CsvImportResult> {
+export async function importGoogleAdsCsv(text: string, options: { enteredBy?: string; currency?: string | null } = {}): Promise<CsvImportResult> {
   const parsed = parseGoogleAdsCsv(text);
+  // Currency: the export's own "Currency code" column, else the one chosen on upload; they must agree; never
+  // defaulted (2026-09-30). Unknown / unsupported → nothing is imported.
+  const chosen = options.currency ? options.currency.toUpperCase() : null;
+  const inFile = Array.from(new Set(parsed.rows.map((r) => r.currency).filter((c): c is string => Boolean(c))));
+  const fail = (msg: string): CsvImportResult => ({ ok: false, imported: 0, skipped: parsed.rows.length, spendCents: 0, days: 0, campaigns: 0, warnings: [msg], dateRange: null });
+  if (inFile.length > 1) return fail(`The export mixes currencies (${inFile.join(', ')}) — upload one account at a time.`);
+  const currency = inFile[0] ?? chosen;
+  if (!currency) return fail('Currency unknown: the export has no "Currency code" column — choose the account currency (CAD or USD) before uploading.');
+  if (!SPEND_CURRENCIES.has(currency)) return fail(`Currency ${currency} is not supported (CAD / USD).`);
+  if (chosen && inFile[0] && chosen !== inFile[0]) return fail(`The export says ${inFile[0]} but ${chosen} was chosen — nothing imported.`);
   const now = new Date();
   // Same campaign+date appearing twice in one file → sum (e.g. split by network).
   const merged = new Map<string, GoogleCsvRow>();
@@ -213,6 +242,7 @@ export async function importGoogleAdsCsv(text: string, options: { enteredBy?: st
       leads: Math.round(row.conversions),
       origin: 'google_csv',
       source: 'google_csv',
+      currency,
       accountId: null,
       backfilled: true,
       now,

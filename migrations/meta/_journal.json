@@ -113,6 +113,13 @@
       "when": 1790785025543,
       "tag": "0015_f3_utm_term",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790785960813,
+      "tag": "0016_currency_no_default",
+      "breakpoints": true
     }
   ]
 }

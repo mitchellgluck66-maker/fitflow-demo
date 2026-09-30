@@ -265,6 +265,7 @@ async function seed() {
         campaignName: platform === 'meta' ? 'Summer Shred (demo)' : 'Brand search (demo)',
         date,
         spendCents: Math.round((platform === 'meta' ? 1800 + random() * 900 : 400 + random() * 200) * 100),
+        currency: 'CAD', // explicit — ad_spend.currency has no default (2026-09-30)
         enteredBy: 'demo seed',
         ...prov,
       });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readMetaAccount } from '@/lib/meta/ingest';
 import { and, eq, gte, lte, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, adSpend } from '@/db';
@@ -81,7 +82,12 @@ export async function GET(request: NextRequest) {
       d.setUTCDate(d.getUTCDate() - 7 * i);
       weeks.push(await loadWeek(d.toISOString().slice(0, 10)));
     }
-    return NextResponse.json({ platforms: PLATFORMS, currentWeekStart: current, weeks });
+    // The currency each platform's account bills in, when a source has told us (Meta: the account read each sync;
+    // Google: its latest API row) — the form preselects it; the user can still change it. Never assumed.
+    const metaAccount = await readMetaAccount();
+    const [g] = await db.select({ currency: adSpend.currency }).from(adSpend).where(and(eq(adSpend.platform, 'google'), eq(adSpend.origin, 'google'))).orderBy(desc(adSpend.syncedAt)).limit(1);
+    const accountCurrency: Record<string, string | null> = { meta: metaAccount?.currency ?? null, google: g?.currency ?? null };
+    return NextResponse.json({ platforms: PLATFORMS, currentWeekStart: current, weeks, accountCurrency });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to load spend', detail: String(error) }, { status: 500 });
   }
@@ -91,6 +97,8 @@ const PostSchema = z.object({
   weekOf: z.string().refine(isValidDate, 'weekOf must be YYYY-MM-DD'),
   platform: z.enum(PLATFORMS),
   amountDollars: z.number().min(0).max(10_000_000),
+  /** The currency the amount was entered in — required, never defaulted (2026-09-30; was hard-coded USD). */
+  currency: z.enum(['CAD', 'USD'], { message: 'currency is required: CAD or USD (the currency the ad account bills in)' }),
   notes: z.string().max(500).optional(),
 });
 
@@ -105,7 +113,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 });
     }
-    const { weekOf, platform, amountDollars, notes } = parsed.data;
+    const { weekOf, platform, amountDollars, currency, notes } = parsed.data;
     const start = weekStart(weekOf);
     const end = weekEnd(start);
     const externalId = manualId(platform, start);
@@ -127,7 +135,7 @@ export async function POST(request: NextRequest) {
           externalId,
           date: start,
           spendCents,
-          currency: 'USD',
+          currency,
           enteredBy: 'setup',
           notes: notes ?? null,
           source: 'manual',
@@ -138,7 +146,7 @@ export async function POST(request: NextRequest) {
         })
         .onConflictDoUpdate({
           target: adSpend.externalId,
-          set: { spendCents, notes: notes ?? null, enteredBy: 'setup', syncedAt: now, updatedAt: now },
+          set: { spendCents, currency, notes: notes ?? null, enteredBy: 'setup', syncedAt: now, updatedAt: now },
           setWhere: eq(adSpend.origin, 'manual'),
         });
     }

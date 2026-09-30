@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
-import { db, adSpend } from '@/db';
+import { db, adSpend, syncIncidents } from '@/db';
 import { parseGoogleAdsCsv, csvExternalId } from '@/lib/googleads/csv';
 import { runGoogleAdsSync, importGoogleAdsCsv } from '@/lib/googleads/ingest';
 import { POST as csvPost } from '@/app/api/googleads/csv/route';
@@ -20,9 +20,9 @@ describe('parseGoogleAdsCsv', () => {
   it('parses the UI export: BOM, preamble, quoted commas, currency, totals', () => {
     const r = parseGoogleAdsCsv(EXPORT);
     expect(r.rows).toEqual([
-      { date: '2026-08-03', campaignId: '123', campaignName: 'Brand, Search', spendCents: 123_456, impressions: 12_345, clicks: 456, conversions: 3 },
-      { date: '2026-08-03', campaignId: '456', campaignName: 'Retarget', spendCents: 9_910, impressions: 300, clicks: 10, conversions: 0 },
-      { date: '2026-08-04', campaignId: '123', campaignName: 'Brand, Search', spendCents: 100_000, impressions: 10_000, clicks: 400, conversions: 2.5 },
+      { date: '2026-08-03', campaignId: '123', campaignName: 'Brand, Search', spendCents: 123_456, impressions: 12_345, clicks: 456, conversions: 3, currency: null },
+      { date: '2026-08-03', campaignId: '456', campaignName: 'Retarget', spendCents: 9_910, impressions: 300, clicks: 10, conversions: 0, currency: null },
+      { date: '2026-08-04', campaignId: '123', campaignName: 'Brand, Search', spendCents: 100_000, impressions: 10_000, clicks: 400, conversions: 2.5, currency: null },
     ]);
     expect(r.skipped).toBe(1); // Total row
     expect(r.warnings[0]).toMatch(/2 preamble/);
@@ -31,7 +31,7 @@ describe('parseGoogleAdsCsv', () => {
 
   it('accepts a header variant with Date / Impressions and US dates, no campaign id', () => {
     const r = parseGoogleAdsCsv('Date,Campaign,Impressions,Clicks,Cost\n8/5/2026,Summer,100,5,"$12.34"\n');
-    expect(r.rows).toEqual([{ date: '2026-08-05', campaignId: null, campaignName: 'Summer', spendCents: 1_234, impressions: 100, clicks: 5, conversions: 0 }]);
+    expect(r.rows).toEqual([{ date: '2026-08-05', campaignId: null, campaignName: 'Summer', spendCents: 1_234, impressions: 100, clicks: 5, conversions: 0, currency: null }]);
     expect(csvExternalId(r.rows[0])).toBe('google_csv:summer:2026-08-05');
   });
 
@@ -51,22 +51,34 @@ describe('import + sync', () => {
   afterAll(() => vi.unstubAllGlobals());
 
   it('CSV import is idempotent and rows carry origin google_csv', async () => {
-    const first = await importGoogleAdsCsv(EXPORT);
+    const first = await importGoogleAdsCsv(EXPORT, { currency: 'CAD' });
     expect(first).toMatchObject({ ok: true, imported: 3, spendCents: 233_366, days: 2, campaigns: 2, dateRange: { start: '2026-08-03', end: '2026-08-04' } });
-    const again = await importGoogleAdsCsv(EXPORT);
+    const again = await importGoogleAdsCsv(EXPORT, { currency: 'CAD' });
     expect(again.imported).toBe(3);
     const rows = await db.select().from(adSpend).where(eq(adSpend.origin, 'google_csv'));
     expect(rows).toHaveLength(3);
-    expect(rows.every((r) => r.platform === 'google' && r.level === 'campaign' && r.source === 'google_csv')).toBe(true);
+    expect(rows.every((r) => r.platform === 'google' && r.level === 'campaign' && r.source === 'google_csv' && r.currency === 'CAD')).toBe(true);
+  });
+
+  // 2026-09-30 (the F13 bug class): the CSV writer hard-coded USD. The currency comes from the export or the upload.
+  it('CSV currency: the export\'s column wins, an unknown currency imports NOTHING, a contradiction imports nothing', async () => {
+    const withColumn = 'Day,Campaign,Cost,Currency code\n2026-08-10,Brand,$5.00,USD\n';
+    expect(await importGoogleAdsCsv(withColumn)).toMatchObject({ ok: true, imported: 1 });
+    expect((await db.select().from(adSpend).where(eq(adSpend.externalId, 'google_csv:brand:2026-08-10')))[0].currency).toBe('USD');
+    const none = await importGoogleAdsCsv('Day,Campaign,Cost\n2026-08-11,Brand,$5.00\n');
+    expect(none).toMatchObject({ ok: false, imported: 0 });
+    expect(none.warnings[0]).toMatch(/^Currency unknown: the export has no "Currency code" column/);
+    expect((await importGoogleAdsCsv(withColumn, { currency: 'CAD' })).warnings[0]).toBe('The export says USD but CAD was chosen — nothing imported.');
+    expect((await importGoogleAdsCsv('Day,Campaign,Cost\n2026-08-12,Brand,5\n', { currency: 'EUR' })).warnings[0]).toBe('Currency EUR is not supported (CAD / USD).');
   });
 
   it('the upload route accepts a raw csv body', async () => {
-    const req = new NextRequest('http://localhost/api/googleads/csv', { method: 'POST', body: EXPORT, headers: { 'content-type': 'text/csv' } });
+    const req = new NextRequest('http://localhost/api/googleads/csv?currency=CAD', { method: 'POST', body: EXPORT, headers: { 'content-type': 'text/csv' } });
     const res = await csvPost(req);
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(data.imported).toBe(3);
-    expect((await db.select().from(adSpend).where(eq(adSpend.origin, 'google_csv'))).length).toBe(3);
+    expect((await db.select().from(adSpend).where(eq(adSpend.origin, 'google_csv'))).filter((r) => r.currency === 'CAD').length).toBe(3);
   });
 
   it('unconfigured sync returns notConfigured without touching the network', async () => {
@@ -74,5 +86,34 @@ describe('import + sync', () => {
     const r = await runGoogleAdsSync({ mode: 'delta', trigger: 'cli' });
     expect(r).toMatchObject({ ok: false, notConfigured: true, runId: null });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-30 (the F13 bug class): the API writer hard-coded USD. customer.currency_code decides; absent → fail closed.
+  it('API sync: the account currency labels every row; a missing currency FAILS the run, writes nothing, opens google_currency', async () => {
+    const env = { GOOGLE_ADS_DEVELOPER_TOKEN: 'dev', GOOGLE_ADS_CLIENT_ID: 'cid', GOOGLE_ADS_CLIENT_SECRET: 'sec', GOOGLE_ADS_REFRESH_TOKEN: 'ref', GOOGLE_ADS_CUSTOMER_ID: '111-222-3333' };
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    let currencyCode: string | undefined = 'CAD';
+    fetchSpy.mockReset();
+    fetchSpy.mockImplementation(async (url: string, init: { body?: string }) => {
+      if (String(url).includes('oauth2')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }), { status: 200 });
+      const q = JSON.parse(init.body ?? '{}').query as string;
+      if (q.includes('customer.currency_code')) return new Response(JSON.stringify([{ results: [{ customer: currencyCode ? { currencyCode } : {} }] }]), { status: 200 });
+      return new Response(JSON.stringify([{ results: [{ segments: { date: '2026-09-28' }, campaign: { id: '9', name: 'Search' }, metrics: { costMicros: '5000000', impressions: '10', clicks: '1', conversions: 0 } }] }]), { status: 200 });
+    });
+    try {
+      const ok = await runGoogleAdsSync({ mode: 'delta', trigger: 'cli', since: '2026-09-28' });
+      expect(ok.ok).toBe(true);
+      expect((await db.select().from(adSpend).where(eq(adSpend.externalId, 'google:9:2026-09-28')))[0]).toMatchObject({ currency: 'CAD', spendCents: 500 });
+
+      currencyCode = undefined;
+      await db.delete(adSpend).where(eq(adSpend.externalId, 'google:9:2026-09-28'));
+      const r = await runGoogleAdsSync({ mode: 'delta', trigger: 'cli', since: '2026-09-28' });
+      expect(r).toMatchObject({ ok: false, error: 'Google Ads did not return the account currency — spend not stored' });
+      expect(await db.select().from(adSpend).where(eq(adSpend.externalId, 'google:9:2026-09-28'))).toHaveLength(0);
+      const inc = await db.select().from(syncIncidents).where(eq(syncIncidents.kind, 'google_currency'));
+      expect(inc.at(-1)).toMatchObject({ severity: 'critical' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

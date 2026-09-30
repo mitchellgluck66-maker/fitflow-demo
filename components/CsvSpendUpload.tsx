@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { Upload, FileSpreadsheet } from 'lucide-react';
-import { Card, CardHeader, Button, Toast } from '@/components';
+import { Card, CardHeader, Button, Toast, Select } from '@/components';
 
 /**
  * Google Ads CSV fallback: until OAuth is granted, the UI export covers
@@ -12,6 +12,8 @@ import { Card, CardHeader, Button, Toast } from '@/components';
 export const CsvSpendUpload: React.FC<{ onImported?: () => void }> = ({ onImported }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // The account's currency — used only when the export has no "Currency code" column; never assumed (2026-09-30).
+  const [currency, setCurrency] = useState<'' | 'CAD' | 'USD'>('');
   const [last, setLast] = useState<{ imported: number; dateRange: { start: string; end: string } | null; warnings: string[] } | null>(null);
   const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -20,6 +22,7 @@ export const CsvSpendUpload: React.FC<{ onImported?: () => void }> = ({ onImport
     try {
       const form = new FormData();
       form.append('file', file);
+      if (currency) form.append('currency', currency);
       const res = await fetch('/api/googleads/csv', { method: 'POST', body: form });
       const data = await res.json();
       setLast(data.ok ? { imported: data.imported, dateRange: data.dateRange, warnings: data.warnings ?? [] } : null);
@@ -46,8 +49,16 @@ export const CsvSpendUpload: React.FC<{ onImported?: () => void }> = ({ onImport
       />
       <p className="text-[12.5px] mb-3" style={{ color: 'var(--text-tertiary)' }}>
         Rows are keyed by campaign + day, so re-uploading an overlapping export is safe. Imported days replace the manual weekly fallback for Google.
+        The currency comes from the export&apos;s &ldquo;Currency code&rdquo; column; without one, choose the account currency — nothing is imported otherwise.
       </p>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="w-[140px]">
+          <Select label="Account currency" value={currency} onChange={(e) => setCurrency(e.target.value as '' | 'CAD' | 'USD')}>
+            <option value="">From the file</option>
+            <option value="CAD">CAD</option>
+            <option value="USD">USD</option>
+          </Select>
+        </div>
         <input
           ref={inputRef}
           type="file"
