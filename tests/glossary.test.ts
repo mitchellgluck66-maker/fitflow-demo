@@ -90,6 +90,10 @@ describe('coverage', () => {
     expect(glossaryText(['enrollments'])).not.toContain('History-dependent');
     expect(glossaryText(['nope'])).toBe('');
   });
+  it('the Applied entry names the review and where the ledger lives', () => {
+    expect(glossaryEntry('applied')!.definition).toContain('docs/deferred.md #1');
+    expect(glossaryEntry('applied')!.definition).toContain('Setup → Reconciliation');
+  });
   it('maturing flags follow lib/metrics/maturity.ts', () => {
     expect(['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap', 'consult_booked', 'roadmap_booked'].every((k) => glossaryEntry(k)!.maturing)).toBe(true);
     expect(['enrollments', 'initial_cash', 'paid_cac', 'blended_cac', 'roas', 'ltv_cac', 'spend', 'consult_show_rate'].some((k) => glossaryEntry(k)!.maturing)).toBe(false);

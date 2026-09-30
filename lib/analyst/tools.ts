@@ -12,8 +12,12 @@
  * leaves a tool (`scrubContact`; tests/analyst-tools.test.ts proves it).
  */
 
-import { eq, inArray } from 'drizzle-orm';
-import { db, contacts, stages } from '@/db';
+import { and, eq, gte, inArray, lte } from 'drizzle-orm';
+import { db, contacts, stages, appliedLedger } from '@/db';
+import { readAppliedSummary, summarizeWeek, type LedgerRowInput } from '../reconcile/appliedLedger';
+import { readRatioSummary } from '../reconcile/appliedRatio';
+import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
+import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
 import { computeRevenueSummary, computeSourceBreakdown, formatCents, formatPct, FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, type Currency, type FunnelStageKey } from '../metrics';
@@ -549,13 +553,34 @@ const getClientTool = tool(
 const getDataHealthTool = tool(
   {
     name: 'get_data_health',
-    description: 'What to caveat before advising: source freshness (stale sources by name), the scheduler, the last reconciliation, the maturing-data rule for this period, the Applied caveat with names, applicants without a date, unattributed enrollments / cash, unclassified cash, unmatched payments, clients without a contract value, withheld show rates, and the owner-profile gaps. Call it before any recommendation.',
+    description: 'What to caveat before advising: source freshness (stale sources by name), the scheduler, the last reconciliation, the maturing-data rule for this period, the Applied caveat with names, the daily Applied ledger (both definitions — the candidate is deferred #1 and NOT in use — and the Meta-to-FitFlow application ratio per campaign), applicants without a date, unattributed enrollments / cash, unclassified cash, unmatched payments, clients without a contract value, withheld show rates, and the owner-profile gaps. Call it before any recommendation.',
     input_schema: { type: 'object', properties: { range: RANGE_SCHEMA }, required: ['range'], additionalProperties: false },
   },
   async (input, ctx) => {
-    const [res, status, profile] = await Promise.all([getScorecard({ ...rangeParams(input.range as RangeInput), compare: 'previous_period' }), readSyncStatus(), getOwnerProfile()]);
+    const [res, status, profile, ledgerSummary, ratioSummary] = await Promise.all([getScorecard({ ...rangeParams(input.range as RangeInput), compare: 'previous_period' }), readSyncStatus(), getOwnerProfile(), readAppliedSummary(), readRatioSummary()]);
     const sc = res.scorecard;
     const gaps = profileGaps(profile);
+    // The daily Applied ledger for the requested range (docs/plan-reconciliation-2026-09-30.md) — both definitions, names only.
+    const ledgerRows = await db.select().from(appliedLedger).where(and(gte(appliedLedger.ledgerOn, res.range.start), lte(appliedLedger.ledgerOn, res.range.end)));
+    const week = summarizeWeek(ledgerRows as unknown as LedgerRowInput[], { start: res.range.start, end: res.range.end, label: res.range.resolvedLabel });
+    const appliedLedgerBlock = ledgerSummary
+      ? {
+          range: rangeOut(res.range),
+          current: week.current,
+          currentLabel: CURRENT_LABEL,
+          candidate: week.candidate,
+          candidateLabel: CANDIDATE_LABEL,
+          byClass: Object.fromEntries((Object.keys(week.byClass) as ApplicationClass[]).map((k) => [k, { label: CLASS_LABELS[k], count: week.byClass[k].count }])),
+          otherPipelines: ledgerRows.filter((r) => r.class === 'X').map((r) => ({ name: r.name, pipeline: r.pipelineName })),
+          unresolved: week.unresolved,
+          ledgerComputedAt: ledgerSummary.ranAt,
+          mirrorAsOf: ledgerSummary.mirrorAsOf,
+          ratio: ratioSummary ? { through: ratioSummary.through, metaDayTz: ratioSummary.metaDayTz, campaigns: ratioSummary.campaigns.map((c) => ({ campaign: c.campaignName, state: c.state, rolling7: c.rolling7, baseline: c.baseline, meta7: c.meta7, fitflow7: c.fitflow7, text: c.text })), unmatchedUtmRows: ratioSummary.unmatchedUtmRows } : null,
+          definitionUnderReview: true,
+          deferred: 'docs/deferred.md #1',
+          note: 'Counts on the dashboard use the current definition. The candidate is what deferred #1 would count and is NOT in use — never present it as the number.',
+        }
+      : { notRunYet: true, note: 'The daily Applied ledger has not run yet (Setup → Reconciliation → Reconcile now).', definitionUnderReview: true, deferred: 'docs/deferred.md #1' };
     return {
       range: rangeOut(res.range),
       currency: res.money.currency,
@@ -582,6 +607,7 @@ const getDataHealthTool = tool(
         ownerProfileGaps: gaps,
         withheld: withheldLine(gaps),
         spendAdviceAllowed: !ctx.freshness.stale,
+        appliedLedger: appliedLedgerBlock,
       },
     };
   },

@@ -954,6 +954,47 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
 
+## Applied reconciliation — daily (2026-09-30, `docs/plan-reconciliation-2026-09-30.md`)
+
+The Applied definition is deferred (`docs/deferred.md` #1). Until the decision, every day reconciles
+Applied under BOTH definitions from the mirror, definition-agnostic, and reports under the current one.
+
+- **Ledger** `applied_ledger` (migration 0018, RLS): one row per opportunity since `backfill_from`,
+  recomputed IN FULL daily by dispatch step `applied_ledger` (after ghl; `lib/reconcile/appliedLedger.ts`;
+  marker `applied.ledger`; summary `settings.applied_reconcile_summary`). Facts + class + reason:
+  A1 new form applicant · A2 returning at Applied · U form applicant, first stage unknown · A3
+  pre-existing form contact entered later · C manual entry into a later stage · D non-form at Applied ·
+  M moved in · P parked · S second opportunity · X form applicant in an unfollowed pipeline · XN
+  non-form there · unresolved (contact not mirrored yet; verdicts NULL). `lib/reconcile/applied.ts`
+  classifies; an unknown role throws.
+- **Verdicts** live ONLY in `lib/reconcile/definitions.ts`: `verdict_current` is COPIED from the engine
+  (`membershipFor().applied` — never re-implemented; `tests/reconcile-ledger.test.ts` and the verify
+  harness "Applied ledger · current = engine applied" guard the copy); `verdict_candidate` = deferred #1
+  (A1 + A2 + U + X, once per person per day) and is labelled **"candidate — deferred #1, not in use"**
+  everywhere (card, API, `get_data_health`). A DECISION flips the registry and `lib/metrics/load.ts`; the
+  ledger rows do not change. `ledger_version` = `METRIC_DEFINITION_VERSION`. Sample rows are excluded.
+- **Ratio monitor** `applied_ratio_daily` (campaign × Meta ACCOUNT day, tz on the row): dispatch step
+  `applied_ratio` (after the ledger; `lib/reconcile/appliedRatio.ts`; marker `applied.ratio`; summary
+  `settings.applied_ratio_summary`) reads Meta "Website Submit Applications" per campaign per day
+  (`lib/meta/client.ts#fetchCampaignSubmits`: `level=campaign`, `fields=conversions`, explicit
+  `action_report_time=conversion` + windows `7d_click,1d_view` — the `submit_application_website`
+  action, NOT the `actions` map) for 36 days in ≤7-day chunks. `meta_submits` is NULL when never fetched
+  (a failed chunk never overwrites — coalesce); 0 only when the day's request succeeded. FitFlow's side
+  is the ledger's counted rows by normalised utm_campaign. `lib/reconcile/ratioDrift.ts` (pure): rolling 7
+  ÷ trailing 28 → incomplete · learning · broken_meta · broken_fitflow · insufficient · drift_up /
+  drift_down (1.6× / 0.6×, two consecutive days) · stable; hysteresis 1.3× / 0.77×. ONE
+  `applied_ratio_drift` warning incident per campaign, refreshed, resolved with `details.resolvedBy`.
+  The doc's baseline is ~2× (deferred #4 pixel double-fire); a change in it is the signal.
+- **Setup → Reconciliation** (`components/setup/ReconciliationCard.tsx`, `GET/POST /api/reconciliation`):
+  one Sun–Sat week (◀ ▶, never past the last complete week), the class table with both columns, people
+  one click away (names only), the ratio table with a state badge per campaign and the "Meta days are
+  America/Los_Angeles; FitFlow days are America/Edmonton" line, Reconcile now, stale/failed states,
+  unresolved always shown. `get_data_health.appliedLedger` carries the same for the Analyst.
+- **Live proof:** `npm run smoke:reconcile` (read-only: the last 7 account days per campaign through the
+  real Meta path + the ledger's last week + the ratio states); `npm run verify` "Applied ledger" checks.
+- **Deploy order:** `npm run db:migrate` (0018, additive) → push. The first dispatch computes everything;
+  nothing manual. Unfollowed-pipeline rows lag until the weekly `ghl.mirrors` pass — the card says so.
+
 ## Working agreements
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,

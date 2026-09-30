@@ -207,7 +207,7 @@ const moneyEntries: GlossaryEntry[] = [
 
 const STAGE_DEFINITIONS: Record<FunnelStageKey, { definition: string; differsFrom: string }> = {
   applied: {
-    definition: 'People whose application (an opportunity created in the followed GoHighLevel pipeline) is dated in the period. Dated by the opportunity, never by the contact\'s creation date. The definition is under review: the caveat says how many counted applications have no application-form record and how many form applicants sit in other pipelines.',
+    definition: 'People whose application (an opportunity created in the followed GoHighLevel pipeline) is dated in the period. Dated by the opportunity, never by the contact\'s creation date. The definition is under review (docs/deferred.md #1): the caveat says how many counted applications have no application-form record and how many form applicants sit in other pipelines, and Setup → Reconciliation shows every counted person by class under both the current and the candidate definition, with Meta\'s application count per campaign against FitFlow\'s.',
     differsFrom: 'Platform leads are what Meta reports; tracked applied is the subset whose utm_campaign matches a campaign.',
   },
   consult_booked: {

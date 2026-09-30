@@ -136,6 +136,9 @@ describe('parity with the page functions on the demo database', () => {
     expect(health.appliedCaveat.definitionUnderReview).toBe(true);
     expect(health.freshness).toEqual(freshness);
     expect(health.spendAdviceAllowed).toBe(true);
+    // The daily Applied ledger has not run on this database: the tool says so instead of a clean 0.
+    const healthLedger = (health as unknown as { appliedLedger: { notRunYet?: boolean; definitionUnderReview: boolean; deferred: string } }).appliedLedger;
+    expect(healthLedger).toMatchObject({ notRunYet: true, definitionUnderReview: true, deferred: 'docs/deferred.md #1' });
   });
 
   it('no tool result contains an email address or a phone number', async () => {
