@@ -30,6 +30,8 @@ beforeAll(async () => {
     contact('no-date', 'o-missing', '2026-08-15T18:00:00Z'),                      // opportunity row never stored
     contact('moved', 'o-moved', '2026-01-01T18:00:00Z'),                          // application moved in from "Old"
     contact('demo', null, '2026-08-05T18:00:00Z', { origin: 'demo' }),            // fabricated sample row
+    // Audit P1 #2: a contact with no opportunity in ANY pipeline (created by the appointments sync) is not an applicant
+    contact('walk-in', null, '2026-08-12T18:00:00Z', { pipelineId: null, stageId: null }),
   ]);
   await db.insert(ghlOpportunities).values([
     { id: 'o-new', ghlContactId: 'new-aug', pipelineId: 'pf', stageId: 's-app', status: 'open', ghlCreatedAt: d('2026-08-10T18:00:00Z'), ...prov },
@@ -53,6 +55,9 @@ describe('applied = the application (opportunity created in the followed pipelin
     expect(on['moved']).toBe('2026-09-05'); // entry into the followed pipeline, flagged
     expect(on['demo']).toBe('2026-08-05');
     expect(input.health).toMatchObject({ appliedFromMove: 1, applicantsWithoutDate: [{ name: 'no-date' }] });
+    // P1 #2: the no-pipeline contact is outside the funnel scope and NOT in the banner (it is not a followed-pipeline contact)
+    expect(input.contacts.some((c) => c.name === 'walk-in')).toBe(false);
+    expect(input.health!.applicantsWithoutDate.map((a) => a.name)).toEqual(['no-date']);
     const aug = computeFunnel(input, AUG).stages.find((s) => s.key === 'applied')!.count;
     const sep = computeFunnel(input, SEP).stages.find((s) => s.key === 'applied')!.count;
     expect(aug).toBe(3); // new-aug, returning, demo — no-date is not guessed in

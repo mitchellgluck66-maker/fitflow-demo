@@ -77,7 +77,8 @@ export function inputWarnings(h: InputHealth | undefined | null): React.ReactNod
             </Link>
           </React.Fragment>
         ))}
-        {h.applicantsWithoutDate.length > 5 && ` and ${h.applicantsWithoutDate.length - 5} more`}. The next sync re-reads their opportunity.
+        {h.applicantsWithoutDate.length > 5 && ` and ${h.applicantsWithoutDate.length - 5} more`}. FitFlow has no opportunity record for them in the followed pipeline yet; the next
+        sync re-reads {h.applicantsWithoutDate.length === 1 ? 'it' : 'them'}.
       </span>,
     );
   }

@@ -6,7 +6,7 @@
  * functions in ./index.ts.
  */
 
-import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { toStage, fromStage, toStageJoin, fromStageJoin, resolvedToRole, resolvedFromRole } from './transitionRoles';
 import { db, contacts, stages, pipelines, stageTransitions, appointments, adSpend, payments, ghlOpportunities } from '@/db';
 import { localDate, rangeToInstants } from '../dates';
@@ -45,8 +45,10 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     );
   const pipelineIds = tracked.map((p) => p.id);
 
-  // Contacts: every contact in a tracked pipeline (or with no pipeline yet —
-  // a brand-new applicant may not have an opportunity for a few minutes).
+  // Contacts: every contact in a followed pipeline. A contact with no opportunity in ANY pipeline is not an
+  // applicant (audit P1 #2, 2026-09-30: 123 such rows came from the appointments sync — check-ins and
+  // calls — and a sync can never give them an application). Since F14 dates "applied" by the opportunity,
+  // a contact without one has nothing to count anyway; it stays reachable on /clients and in payments.
   const contactRows = await db
     .select({
       id: contacts.id,
@@ -69,11 +71,7 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
     })
     .from(contacts)
     .leftJoin(stages, eq(contacts.stageId, stages.id))
-    .where(
-      pipelineIds.length
-        ? or(inArray(contacts.pipelineId, pipelineIds), isNull(contacts.pipelineId))
-        : isNull(contacts.pipelineId),
-    );
+    .where(pipelineIds.length ? inArray(contacts.pipelineId, pipelineIds) : sql`false`);
   const contactIds = contactRows.map((c) => c.id);
 
   // F14 (2026-09-30): "applied" = the APPLICATION — the followed-pipeline opportunity's createdAt (GHL counted 186
