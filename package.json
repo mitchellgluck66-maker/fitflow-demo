@@ -17,6 +17,7 @@
     "backfill": "tsx scripts/backfill.ts",
     "verify:readonly": "bash scripts/verify-readonly.sh",
     "smoke:anthropic": "tsx scripts/smoke-anthropic.ts",
+    "smoke:analyst": "tsx scripts/smoke-analyst.ts",
     "reconcile:ghl": "tsx scripts/reconcile-ghl.ts",
     "smoke:fx": "tsx scripts/smoke-fx.ts",
     "verify": "tsx scripts/verify.ts",
@@ -33,7 +34,7 @@
     "credentials:encrypt": "tsx scripts/encrypt-credentials.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.121.0",
+    "@anthropic-ai/sdk": "^0.130.0",
     "@electric-sql/pglite": "^0.5.7",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.0",
