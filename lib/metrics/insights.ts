@@ -27,7 +27,8 @@ export interface InsightInput {
     previousConversion: number | null;
     toneVsBaseline: string;
   }>;
-  showRates: Array<{ type: string; showed: number; noShow: number; rate: number | null }>;
+  /** F2: rate is NULL when attendance is not recorded (coverage < 90%) — `withheld` says why. Never report 0%. */
+  showRates: Array<{ type: string; showed: number; noShow: number; undecided: number; coverage: number | null; rate: number | null; withheld: string | null }>;
   money: {
     /** Every *Cents value in this block (and across the snapshot) is in this reporting currency. */
     currency: Currency;
@@ -105,7 +106,7 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
     comparison: comparison.range ? { label: comparison.range.resolvedLabel, start: comparison.range.start, end: comparison.range.end } : null,
     baseline: { ...baseline, note: 'trailing 8 complete Sun–Sat weeks; toneVsBaseline compares each conversion against it' },
     funnel,
-    showRates: scorecard.showRates.map((s) => ({ type: s.type, showed: s.showed, noShow: s.noShow, rate: round(s.rate) })),
+    showRates: scorecard.showRates.map((s) => ({ type: s.type, showed: s.showed, noShow: s.noShow, undecided: s.undecided, coverage: round(s.coverage), rate: round(s.rate), withheld: s.withheld })),
     money: {
       currency: scorecard.currency,
       fxNote: result.money.fx.text,

@@ -10,6 +10,7 @@ import { db, aiReports, pipelines, stages } from '@/db';
 import { setSetting } from '@/lib/settings';
 import { ANTHROPIC_KEYS } from '@/lib/anthropic/config';
 import { buildInsightInput, hashInsightInput, validateInsights } from '@/lib/metrics/insights';
+import { buildAskContext } from '@/lib/metrics/ask';
 import { computeScorecard, computeRevenueSummary, computeAdsKpis, type MetricsInput } from '@/lib/metrics';
 import type { ScorecardResult } from '@/lib/metrics/service';
 import { computeMaturity } from '@/lib/metrics/maturity';
@@ -78,7 +79,17 @@ describe('buildInsightInput (pure)', () => {
     expect(enrolled).toMatchObject({ count: 1, previousCount: 2, changePct: -0.5 });
     expect(input.period).toMatchObject({ label: 'Aug 16–22', preset: 'last_week' });
     expect(input.comparison?.label).toBe('Aug 9–15');
-    expect(input.showRates).toEqual([{ type: 'Consult', showed: 1, noShow: 1, rate: 0.5 }]);
+    expect(input.showRates).toEqual([{ type: 'Consult', showed: 1, noShow: 1, undecided: 0, coverage: 1, rate: 0.5, withheld: null }]);
+  });
+
+  // F2 (2026-09-30): the AI must never say "show rate 0%" again — its inputs carry NULL + the reason.
+  it('show rate withheld (the Sep 20–26 shape: 0 showed, 2 no-show, 62 undecided): insights + Ask inputs carry null + the reason', () => {
+    const r = fakeResult();
+    const withheld = { type: 'Consult', showed: 0, noShow: 2, cancelled: 0, undecided: 62, past: 64, coverage: 2 / 64, rate: null, withheld: 'attendance recorded for 3% of consults (2 of 64) — show rate needs 90%' };
+    const result = { ...r, scorecard: { ...r.scorecard, showRates: [withheld] } };
+    expect(buildInsightInput(result).showRates).toEqual([{ type: 'Consult', showed: 0, noShow: 2, undecided: 62, coverage: 0.031, rate: null, withheld: withheld.withheld }]);
+    const ask = buildAskContext(result);
+    expect(ask.dataHealth).toContain('Consult show rate unavailable: attendance recorded for 3% of consults (2 of 64) — show rate needs 90%. Do not state a consult show rate or any "0%" for it.');
   });
 
   it('respects awaitingStripe and carries CAC', () => {

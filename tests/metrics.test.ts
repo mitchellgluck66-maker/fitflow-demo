@@ -184,10 +184,40 @@ describe('spend, CAC and revenue', () => {
 
 describe('show rates', () => {
   it('per appointment type: showed ÷ (showed + no-show); cancelled excluded', () => {
+    // Every past appointment in the fixture has an outcome → coverage 100% → the rate is shown.
     expect(computeShowRates(FIXTURE, R)).toEqual([
-      { type: 'Consult', showed: 1, noShow: 1, cancelled: 1, rate: 0.5 },
-      { type: 'Roadmap', showed: 1, noShow: 1, cancelled: 0, rate: 0.5 },
+      { type: 'Consult', showed: 1, noShow: 1, cancelled: 1, undecided: 0, past: 3, coverage: 1, rate: 0.5, withheld: null },
+      { type: 'Roadmap', showed: 1, noShow: 1, cancelled: 0, undecided: 0, past: 2, coverage: 1, rate: 0.5, withheld: null },
     ]);
+  });
+
+  // F2 (2026-09-30): the real Sep 20–26 shape — 0 showed, 2 no-shows, 62 past consults with no outcome. The old
+  // rule printed 0%; a rate is shown only when ≥ 90% of past appointments of the type have an outcome.
+  const WEEK = { start: '2026-09-20', end: '2026-09-26' };
+  const appt = (i: number, outcome: string | null, on = '2026-09-22') => ({ contactId: `c${i}`, type: 'Consult', outcome, on, atMs: Date.parse(`${on}T18:00:00Z`) });
+  const shape = (undecided: number): MetricsInput => ({
+    ...FIXTURE,
+    appointments: [appt(1, 'no_show'), appt(2, 'no_show'), ...Array.from({ length: undecided }, (_, i) => appt(100 + i, null))],
+  });
+
+  it('Sep 20–26: 0 showed + 2 no-shows + 62 undecided → coverage 3% → rate NULL with the reason, never 0%', () => {
+    const [consult] = computeShowRates(shape(62), WEEK);
+    expect(consult).toMatchObject({ showed: 0, noShow: 2, undecided: 62, past: 64, rate: null });
+    expect(consult.coverage).toBeCloseTo(2 / 64);
+    expect(consult.withheld).toBe('attendance recorded for 3% of consults (2 of 64) — show rate needs 90%');
+  });
+
+  it('the funnel withholds "Consult showed" and the per-source consult show rate with the same reason', () => {
+    const f = computeFunnel(shape(62), WEEK);
+    expect(f.stages.find((s) => s.key === 'consult_showed')?.withheld).toBe('attendance recorded for 3% of consults (2 of 64) — show rate needs 90%');
+    expect(computeSourceBreakdown(shape(62), WEEK).every((s) => s.consultShowRate === null)).toBe(true);
+  });
+
+  it('exactly at 90% coverage the rate is shown; future appointments are not "past"', () => {
+    const covered: MetricsInput = { ...FIXTURE, appointments: [...Array.from({ length: 9 }, (_, i) => appt(i, i < 6 ? 'showed' : 'no_show')), appt(50, null)] };
+    expect(computeShowRates(covered, WEEK)[0]).toMatchObject({ coverage: 0.9, rate: 6 / 9, withheld: null });
+    const withFuture: MetricsInput = { ...covered, appointments: [...covered.appointments, appt(60, null, '2026-09-26')], asOfMs: Date.parse('2026-09-24T00:00:00Z') };
+    expect(computeShowRates(withFuture, WEEK)[0]).toMatchObject({ past: 10, coverage: 0.9, withheld: null });
   });
 });
 

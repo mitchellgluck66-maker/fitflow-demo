@@ -181,14 +181,14 @@ function FunnelTab() {
                   size={72}
                   stroke={7}
                   label="Consult"
-                  sublabel={consult ? `${consult.showed} showed · ${consult.noShow} no-show${consult.cancelled ? ` · ${consult.cancelled} cancelled` : ''}` : 'no consults'}
+                  sublabel={consult ? (consult.withheld ? `Not shown — ${consult.withheld}` : `${consult.showed} showed · ${consult.noShow} no-show${consult.cancelled ? ` · ${consult.cancelled} cancelled` : ''}`) : 'no consults'}
                 />
                 <RadialRing
                   value={roadmap?.rate ?? null}
                   size={72}
                   stroke={7}
                   label="Roadmap"
-                  sublabel={roadmap ? `${roadmap.showed} showed · ${roadmap.noShow} no-show${roadmap.cancelled ? ` · ${roadmap.cancelled} cancelled` : ''}` : 'no roadmaps'}
+                  sublabel={roadmap ? (roadmap.withheld ? `Not shown — ${roadmap.withheld}` : `${roadmap.showed} showed · ${roadmap.noShow} no-show${roadmap.cancelled ? ` · ${roadmap.cancelled} cancelled` : ''}`) : 'no roadmaps'}
                 />
               </div>
             )}

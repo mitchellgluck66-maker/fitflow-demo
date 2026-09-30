@@ -214,6 +214,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${money$(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
   if (rev.unclassifiedCount > 0) notes.push({ text: `${rev.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, tone: 'warn' });
   if (m.unattributedInitialCount > 0) notes.push({ text: `${money$(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
+  for (const r of scorecard.showRates) if (r.withheld) notes.push({ text: `${r.type} show rate not shown: ${r.withheld}.`, tone: 'warn' });
   notes.push({ text: `Money ${result.money.fx.text}.`, tone: 'info' });
   if (result.money.unsupportedRows > 0) notes.push({ text: `${result.money.unsupportedRows} payment/spend row(s) in a currency other than CAD or USD are excluded.`, tone: 'warn' });
   if (result.maturity.active) notes.push({ text: `Maturing data — ${maturingCaveatText(result.maturity)} Affected here: consults booked, roadmaps booked, cost per lead / consult / roadmap and the funnel conversions.`, tone: 'warn' });

@@ -104,10 +104,11 @@ export const FunnelStrip: React.FC<{
                       <span
                         className="text-[17px] font-semibold leading-none tabular tracking-[-0.01em]"
                         style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}
+                        title={s.withheld ?? undefined}
                       >
-                        {s.count}
+                        {s.withheld ? '—' : s.count}
                       </span>
-                      {!isEnrolled && (
+                      {!isEnrolled && !s.withheld && (
                         <span className="text-[10.5px] tabular" style={{ color: 'var(--text-quaternary)' }}>
                           {formatPct(s.shareOfApplied)}
                         </span>

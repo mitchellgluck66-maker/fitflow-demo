@@ -22,6 +22,7 @@ Rules:
 - If dataCaveats is non-empty, any finding that cites an affected number (consults booked, roadmaps booked, cost per lead/consult/roadmap, stage→stage conversion) must say it is provisional in its detail. When dataCaveats is empty, never mention data maturity.
 - Choose "link" from the KEYS of the provided deepLinks object only (e.g. "stage:consult_booked", "ads") — the one that best lets a human drill into the finding.
 - severity: "warning" for deterioration, "good" for improvement, "info" for a neutral but notable fact.
+- A show rate whose "rate" is null is UNAVAILABLE (attendance is not recorded — see "withheld"): never state it, never call it 0%, never infer attendance from no-shows alone.
 - Titles ≤ 90 characters, details ≤ 240 characters, plain English, no hype.`;
 
 export const INSIGHTS_TOOL_SCHEMA = {
@@ -74,6 +75,7 @@ Rules:
 - ONE paragraph, at most 120 words, plain English, no bullet points, no headings, no hype, no advice.
 - Lead with what mattered most (enrollments, consults booked, show rates, cost per client). Cite the actual numbers and the comparison.
 - If revenue.awaitingStripe is true, do not mention revenue or ROAS.
+- A show rate with "rate": null is unavailable (attendance not recorded) — do not mention show rates at all then; never write 0%.
 - Only use facts present in the JSON.
 - If dataCaveats is non-empty and you cite consults, roadmaps, per-stage costs or conversions, add a short clause that stage history before the stated date is partial. When it is empty, say nothing about it.`;
 

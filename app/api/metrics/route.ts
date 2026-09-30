@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
       .from(contacts)
       .leftJoin(stages, eq(contacts.stageId, stages.id));
 
-    const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
+    // F2: no denominator → null ("—"), never a fabricated 0%.
+    const pct = (num: number, den: number): number | null => (den > 0 ? Math.round((num / den) * 100) : null);
     const localDate = (d: Date) =>
       new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
     });
 
     // ---- 2. Weekly rollup (chunks of 7 from range start — Phase B replaces with Sun–Sat) ----
-    const weekly: Array<{ label: string; showed: number; noShow: number; cancelled: number; showRate: number }> = [];
+    const weekly: Array<{ label: string; showed: number; noShow: number; cancelled: number; showRate: number | null }> = [];
     for (let i = 0; i < trend.length; i += 7) {
       const chunk = trend.slice(i, i + 7);
       const t: Tally = {
@@ -158,7 +159,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.total - a.total);
     const ownerPerformance = Array.from(groupBy((r) => r.assignedTo ?? r.owner ?? 'Unassigned').entries())
       .map(([owner, t]) => ({ owner, ...derive(t) }))
-      .sort((a, b) => b.showRate - a.showRate);
+      .sort((a, b) => (b.showRate ?? -1) - (a.showRate ?? -1));
 
     const leadsBySource = new Map<string, number>();
     for (const c of allContacts) leadsBySource.set(c.source ?? 'Unknown', (leadsBySource.get(c.source ?? 'Unknown') ?? 0) + 1);
@@ -215,8 +216,8 @@ export async function GET(request: NextRequest) {
       range: { days, start: rangeStart, end: today, timezone },
       overall,
       comparison: {
-        showRate: recent.showRate - earlier.showRate,
-        noShowRate: recent.noShowRate - earlier.noShowRate,
+        showRate: recent.showRate === null || earlier.showRate === null ? null : recent.showRate - earlier.showRate,
+        noShowRate: recent.noShowRate === null || earlier.noShowRate === null ? null : recent.noShowRate - earlier.noShowRate,
         volume: recent.total - earlier.total,
       },
       trend,

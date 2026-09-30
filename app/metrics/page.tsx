@@ -53,16 +53,16 @@ interface Derived {
   noShow: number;
   cancelled: number;
   unmarked: number;
-  showRate: number;
-  noShowRate: number;
+  showRate: number | null;
+  noShowRate: number | null;
 }
 
 interface MetricsData {
   range: { days: number; start: string; end: string; timezone: string };
   overall: Derived;
   comparison: {
-    showRate: number;
-    noShowRate: number;
+    showRate: number | null;
+    noShowRate: number | null;
     volume: number;
   };
   trend: Array<{
@@ -79,7 +79,7 @@ interface MetricsData {
     showed: number;
     noShow: number;
     cancelled: number;
-    showRate: number;
+    showRate: number | null;
   }>;
   sourcePerformance: Array<{ source: string } & Derived>;
   sourceVolume: Array<{ source: string; count: number; share: number }>;
@@ -159,7 +159,7 @@ function MetricsPage() {
 
   // Only sources with enough appointments to mean anything.
   const rankedSources = data.sourcePerformance.filter((s) => s.marked >= 3);
-  const bestSource = [...rankedSources].sort((a, b) => b.showRate - a.showRate)[0];
+  const bestSource = [...rankedSources].sort((a, b) => (b.showRate ?? -1) - (a.showRate ?? -1))[0];
   const maxSourceVolume = Math.max(...data.sourceVolume.map((s) => s.count), 1);
   const maxFunnel = Math.max(...data.funnel.map((f) => f.count), 1);
 
@@ -205,12 +205,12 @@ function MetricsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 stagger">
           <KPITile
             label="Show Rate"
-            value={`${data.overall.showRate}%`}
+            value={data.overall.showRate === null ? '—' : `${data.overall.showRate}%`}
             subtext={`${data.overall.showed} of ${data.overall.decided} showed`}
             icon={CalendarCheck}
             accent="success"
-            trend={data.comparison.showRate === 0 ? 'flat' : data.comparison.showRate > 0 ? 'up' : 'down'}
-            trendValue={fmtDelta(data.comparison.showRate)}
+            trend={!data.comparison.showRate ? 'flat' : data.comparison.showRate > 0 ? 'up' : 'down'}
+            trendValue={data.comparison.showRate === null ? '—' : fmtDelta(data.comparison.showRate)}
             sparkline={showRateSeries}
           />
           <KPITile
@@ -222,12 +222,12 @@ function MetricsPage() {
           />
           <KPITile
             label="No-Show Rate"
-            value={`${data.overall.noShowRate}%`}
+            value={data.overall.noShowRate === null ? '—' : `${data.overall.noShowRate}%`}
             subtext={`${data.overall.noShow} missed appointments`}
             icon={UserX}
             accent="warning"
-            trend={data.comparison.noShowRate === 0 ? 'flat' : data.comparison.noShowRate > 0 ? 'up' : 'down'}
-            trendValue={fmtDelta(data.comparison.noShowRate)}
+            trend={!data.comparison.noShowRate ? 'flat' : data.comparison.noShowRate > 0 ? 'up' : 'down'}
+            trendValue={data.comparison.noShowRate === null ? '—' : fmtDelta(data.comparison.noShowRate)}
             // A rising no-show rate is bad news, so invert the colour logic.
             trendIsGood={false}
           />
@@ -431,7 +431,7 @@ function MetricsPage() {
             action={
               bestSource && (
                 <Badge variant="success" size="md" dot>
-                  Best: {bestSource.source} · {bestSource.showRate}%
+                  Best: {bestSource.source} · {bestSource.showRate === null ? '—' : `${bestSource.showRate}%`}
                 </Badge>
               )
             }
@@ -509,14 +509,14 @@ function MetricsPage() {
                         <td className="py-3 text-right">
                           <Badge
                             variant={
-                              s.showRate >= 60
+                              (s.showRate ?? 0) >= 60
                                 ? 'success'
-                                : s.showRate >= 40
+                                : (s.showRate ?? 0) >= 40
                                   ? 'warning'
                                   : 'danger'
                             }
                           >
-                            {s.showRate}%
+                            {s.showRate === null ? '—' : `${s.showRate}%`}
                           </Badge>
                         </td>
                         <td className="py-3 pl-6" style={{ width: '30%' }}>
@@ -635,11 +635,11 @@ function MetricsPage() {
                       className="text-[13px] font-semibold tabular shrink-0"
                       style={{ color: 'var(--text-primary)' }}
                     >
-                      {o.showRate}%
+                      {o.showRate === null ? '—' : `${o.showRate}%`}
                     </span>
                   </div>
                   <MetricBar
-                    value={o.showRate}
+                    value={o.showRate ?? 0}
                     color={i === 0 ? 'var(--accent)' : 'var(--text-quaternary)'}
                   />
                 </div>

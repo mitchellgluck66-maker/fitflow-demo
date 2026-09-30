@@ -256,5 +256,6 @@ export async function loadMetricsInput(opts: LoadOptions): Promise<MetricsInput>
   };
   // Computed while mapping the contacts above (appliedDate fills it).
   result.health = health;
+  result.asOfMs = Date.now(); // F2: appointments after now are not "past" for show-rate coverage
   return result;
 }

@@ -153,6 +153,7 @@ export function buildAskContext(result: ScorecardResult): AskContext {
   if (m.unattributedEnrollments) dataHealth.push(`${m.unattributedEnrollments} enrollment(s) have no paid/organic class and are excluded from Paid CAC.`);
   if (m.unattributedInitialCount) dataHealth.push(`${m.unattributedInitialCount} initial payment(s) are unmatched/unclassified and excluded from ROAS.`);
   if (scorecard.revenue.unclassifiedCount) dataHealth.push(`${scorecard.revenue.unclassifiedCount} succeeded payment(s) have no payment class.`);
+  for (const r of scorecard.showRates) if (r.withheld) dataHealth.push(`${r.type} show rate unavailable: ${r.withheld}. Do not state a ${r.type.toLowerCase()} show rate or any "0%" for it.`);
   const h = result.inputHealth;
   if (h?.applicantsWithoutDate.length) dataHealth.push(`${h.applicantsWithoutDate.length} contact(s) in the followed pipeline have no application date and are NOT counted as applied — Applied and cost per lead are understated by up to that many.`);
   if (h?.appliedFromMove) dataHealth.push(`${h.appliedFromMove} application(s) were moved in from another pipeline and are dated by their entry into the followed pipeline.`);

@@ -193,6 +193,8 @@ export interface MetricsInput {
   payments: PaymentRow[];
   /** Loader diagnostics (optional; fixtures omit it). */
   health?: InputHealth;
+  /** "Now" for past-vs-future appointment checks (F2). Absent = every appointment counts as past. */
+  asOfMs?: number;
   /** Reporting currency + stored rates. Absent = CAD with no rates (any non-CAD row then throws FxRateMissingError). */
   money?: MoneyContext;
 }
@@ -310,6 +312,8 @@ export interface FunnelStage {
   dropOff: number;
   /** spend ÷ count in cents, null when count is 0 or no spend. */
   costPerCents: number | null;
+  /** Set when the stage's input is not recorded (F2: "Consult showed" without attendance data) — render "—" + this. */
+  withheld?: string | null;
 }
 
 export type FunnelMode = 'period' | 'cohort';
@@ -565,6 +569,15 @@ export function computeFunnel(raw: MetricsInput, range: Range, mode: FunnelMode 
     });
   }
 
+  // F2: "Consult showed" comes only from appointment outcomes — withheld (not a fabricated 0) when attendance is
+  // not recorded for the range's consults.
+  const consultShow = computeShowRates(raw, range).find((r) => r.type === 'Consult');
+  const showedStage = stages.find((st) => st.key === 'consult_showed');
+  if (showedStage && consultShow?.withheld) {
+    showedStage.withheld = consultShow.withheld;
+    showedStage.costPerCents = null;
+  }
+
   // Cohort mode: cohort members who were parked as previous leads after applying.
   const previous =
     mode === 'cohort'
@@ -582,22 +595,52 @@ export interface ShowRate {
   showed: number;
   noShow: number;
   cancelled: number;
-  /** showed ÷ (showed + noShow), null when nothing decided. */
+  /** Past appointments of this type with no recorded outcome. */
+  undecided: number;
+  /** Past appointments of this type in the range. */
+  past: number;
+  /** (showed + noShow + cancelled) ÷ past, null when none. */
+  coverage: number | null;
+  /** showed ÷ (showed + noShow) — null when nothing decided OR coverage < SHOW_RATE_MIN_COVERAGE (never a fabricated 0%). */
   rate: number | null;
+  /** Why the rate is withheld (null when shown). */
+  withheld: string | null;
 }
 
+/** A show rate is shown only when at least this share of the past appointments of that type has an outcome. */
+export const SHOW_RATE_MIN_COVERAGE = 0.9;
+
+/**
+ * Show rates per appointment type (F2, 2026-09-30 — Mitchell's coverage rule). GHL almost never records
+ * attendance (once ever vs 2,791 past "confirmed" Consult/Roadmap appointments), so "0 showed / 2 no-show = 0%"
+ * was a fabricated number. The rate is computed only when ≥ SHOW_RATE_MIN_COVERAGE of the range's PAST
+ * appointments of that type have a decided outcome (showed / no_show / cancelled); otherwise `rate` is null and
+ * `withheld` says why ("attendance recorded for 3% of consults"). Future appointments are not "past"
+ * (input.asOfMs; absent = every appointment counts as past).
+ */
 export function computeShowRates(input: MetricsInput, range: Range): ShowRate[] {
   const byType = new Map<string, ShowRate>();
+  const asOf = input.asOfMs ?? Infinity;
   for (const a of input.appointments) {
-    if (!inRange(a.on, range)) continue;
-    if (!byType.has(a.type)) byType.set(a.type, { type: a.type, showed: 0, noShow: 0, cancelled: 0, rate: null });
+    if (!inRange(a.on, range) || a.atMs > asOf) continue;
+    if (!byType.has(a.type)) byType.set(a.type, { type: a.type, showed: 0, noShow: 0, cancelled: 0, undecided: 0, past: 0, coverage: null, rate: null, withheld: null });
     const t = byType.get(a.type)!;
+    t.past += 1;
     if (a.outcome === 'showed') t.showed += 1;
     else if (a.outcome === 'no_show') t.noShow += 1;
     else if (a.outcome === 'cancelled') t.cancelled += 1;
+    else t.undecided += 1;
   }
   return Array.from(byType.values())
-    .map((t) => ({ ...t, rate: t.showed + t.noShow > 0 ? t.showed / (t.showed + t.noShow) : null }))
+    .map((t) => {
+      const coverage = t.past > 0 ? (t.showed + t.noShow + t.cancelled) / t.past : null;
+      const decided = t.showed + t.noShow;
+      const covered = coverage !== null && coverage >= SHOW_RATE_MIN_COVERAGE;
+      const withheld = covered
+        ? null
+        : `attendance recorded for ${Math.round((coverage ?? 0) * 100)}% of ${t.type.toLowerCase()}s (${t.past - t.undecided} of ${t.past}) — show rate needs ${Math.round(SHOW_RATE_MIN_COVERAGE * 100)}%`;
+      return { ...t, coverage, withheld, rate: covered && decided > 0 ? t.showed / decided : null };
+    })
     .sort((a, b) => a.type.localeCompare(b.type));
 }
 
@@ -857,6 +900,7 @@ export interface SourceBreakdown {
 export function computeSourceBreakdown(input: MetricsInput, range: Range, mode: FunnelMode = 'period'): SourceBreakdown[] {
   const sourceOf = new Map(input.contacts.map((c) => [c.id, c.source?.trim() || 'Unknown']));
   const members = membershipFor(input, range, mode);
+  const consultShowWithheld = Boolean(computeShowRates(input, range).find((r) => r.type === 'Consult')?.withheld);
   const out = new Map<string, SourceBreakdown>();
 
   const bump = (source: string, key: FunnelStageKey) => {
@@ -879,7 +923,8 @@ export function computeSourceBreakdown(input: MetricsInput, range: Range, mode: 
     .map((s) => ({
       ...s,
       appliedToEnrolled: s.counts.applied > 0 ? s.counts.enrolled / s.counts.applied : null,
-      consultShowRate: s.counts.consult_booked > 0 ? s.counts.consult_showed / s.counts.consult_booked : null,
+      // F2: withheld with the range's consult show rate (attendance not recorded) — never a fabricated 0%.
+      consultShowRate: consultShowWithheld ? null : s.counts.consult_booked > 0 ? s.counts.consult_showed / s.counts.consult_booked : null,
     }))
     .sort((a, b) => b.counts.applied - a.counts.applied || a.source.localeCompare(b.source));
 }

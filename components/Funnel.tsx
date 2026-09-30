@@ -65,7 +65,7 @@ export const Funnel: React.FC<{
     <div className="space-y-0.5">
       {stages.map((s, i) => {
         const prev = i > 0 ? stages[i - 1] : null;
-        const solidPct = (s.count / max) * 100;
+        const solidPct = s.withheld ? 0 : (s.count / max) * 100; // F2: withheld = not recorded, never a 0 bar
         const ghostPct = prev ? (Math.max(0, prev.count - s.count) / max) * 100 : 0;
         const short = FUNNEL_STAGES[i].shortLabel;
         const conv = i > 0 ? conversions[i - 1] : null;
@@ -102,9 +102,9 @@ export const Funnel: React.FC<{
                   {s.label}
                   <MaturingBadge maturity={maturity} show={isMaturingStage(s.key, maturity)} compact />
                 </div>
-                <div className="text-[11.5px] tabular mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                  {s.count} · {formatPct(s.shareOfApplied)}
-                  {s.costPerCents !== null && (
+                <div className="text-[11.5px] tabular mt-0.5" style={{ color: s.withheld ? 'var(--warning)' : 'var(--text-tertiary)' }} title={s.withheld ?? undefined}>
+                  {s.withheld ? 'not recorded' : <>{s.count} · {formatPct(s.shareOfApplied)}</>}
+                  {!s.withheld && s.costPerCents !== null && (
                     <>
                       {' '}
                       · {formatCents(s.costPerCents, funnel.currency)}/{short}
@@ -138,8 +138,8 @@ export const Funnel: React.FC<{
                 )}
               </div>
 
-              <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }}>
-                {s.count}
+              <div className="w-[52px] shrink-0 text-right text-[13px] font-semibold tabular" style={{ color: isEnrolled ? 'var(--positive-text)' : 'var(--text-primary)' }} title={s.withheld ?? undefined}>
+                {s.withheld ? '—' : s.count}
               </div>
             </button>
           </React.Fragment>
