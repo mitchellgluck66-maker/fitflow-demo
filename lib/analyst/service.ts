@@ -9,7 +9,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { db, syncIncidents } from '@/db';
 import { ANALYST_CONTRACT, composeUserTurn, type PageContext } from './prompts';
-import { getAnalystConfig, type AnalystModel } from './config';
+import { effortForThread, getAnalystConfig, type AnalystModel } from './config';
 import { makeAnalystClient, buildCountRequest, loopClient } from './api';
 import { currentBrief } from './briefService';
 import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type Freshness } from './tools';
@@ -84,7 +84,7 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
   if (req.threadId && !thread) return { ok: false, status: 'error', message: `No thread "${req.threadId}"` };
   if (!thread) {
     const model: AnalystModel = req.depth === 'deep' ? config.modelDeep : config.modelDefault;
-    thread = await store.createThread({ model, effort: config.effort, answerMode: config.answerMode, briefHash: brief.hash });
+    thread = await store.createThread({ model, effort: effortForThread({ kind: req.kind, model, settingEffort: config.effort }), answerMode: config.answerMode, briefHash: brief.hash });
   } else {
     const live = await store.liveTurn(thread.id);
     if (live && live.status === 'running' && live.clientTurnId !== req.clientTurnId) return { ok: false, status: 'busy', message: 'This thread is answering', thread };

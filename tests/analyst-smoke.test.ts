@@ -1,6 +1,6 @@
 /** The smoke's pure parts (tuning items 7, 8, 10): which turns run, the per-turn line, the targets and the budget rule. */
 import { describe, it, expect } from 'vitest';
-import { formatSmokeTurn, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine } from '@/lib/analyst/smoke';
+import { formatSmokeTurn, sectionsMiss, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine } from '@/lib/analyst/smoke';
 
 const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0 }, { toolCalls: 1, cacheSharePct: 91.2 }, { toolCalls: 0, cacheSharePct: 94.8 }], misses: [], ...over });
 
@@ -17,8 +17,8 @@ describe('item 7: one turn by default, the whole conversation with --full', () =
 
 describe('item 10: the per-turn line and the targets', () => {
   it('prints rounds, tools per round, cache per round, repairs, flagged, seconds, cost vs estimate; a FAIL names what it missed', () => {
-    expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections what_happened\n     ↳ Enrollments doubled.');
-    expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections what_happened · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
+    expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened)\n     ↳ Enrollments doubled.');
+    expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened) · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
     expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.52, misses: ['cost $0.52 USD > $0.40 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.52 USD vs est $0.21 USD (+148%) · missed: cost $0.52 USD > $0.40 USD');
     expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
   });
@@ -52,5 +52,23 @@ describe('item 8: the hard budget', () => {
     expect(parseMaxUsd(['--max-usd=0.25'])).toBe(0.25);
     expect(() => parseMaxUsd(['--max-usd', 'lots'])).toThrow(/positive USD amount/);
     expect(() => parseMaxUsd(['--max-usd'])).toThrow(/positive USD amount/);
+  });
+});
+
+describe('2026-10-01: chat effort medium, and cheaper must not mean thinner', () => {
+  it('chat threads (ask / explain on the default model) are medium; reports and the deep model keep the Setup effort', async () => {
+    const { effortForThread, CHAT_EFFORT } = await import('@/lib/analyst/config');
+    expect(CHAT_EFFORT).toBe('medium');
+    expect(effortForThread({ kind: 'ask', model: 'claude-opus-5-5', settingEffort: 'high' })).toBe('medium');
+    expect(effortForThread({ kind: 'explain', model: 'claude-opus-5-5', settingEffort: 'xhigh' })).toBe('medium');
+    expect(effortForThread({ kind: 'report', model: 'claude-opus-5-5', settingEffort: 'high' })).toBe('high');
+    expect(effortForThread({ kind: 'ask', model: 'claude-fable-5-1', settingEffort: 'high' })).toBe('high');
+    expect(effortForThread({ kind: 'report', model: 'claude-fable-5-1', settingEffort: 'xhigh' })).toBe('xhigh');
+  });
+  it('turn 1 must keep its five sections; a missing one is a named miss', () => {
+    expect(SMOKE_TURNS[0].expectsSections).toEqual(['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know']);
+    expect(sectionsMiss(SMOKE_TURNS[0].expectsSections, ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'])).toBeNull();
+    expect(sectionsMiss(SMOKE_TURNS[0].expectsSections, ['what_happened', 'why', 'do_this'])).toBe('sections 3/5: missing so_what, how_we_will_know');
+    expect(sectionsMiss(undefined, [])).toBeNull();
   });
 });

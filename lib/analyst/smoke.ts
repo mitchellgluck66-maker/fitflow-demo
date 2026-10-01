@@ -76,10 +76,19 @@ export function runMisses(lines: SmokeTurnLine[]): string[] {
 export interface SmokeTurn extends Omit<TurnRequest, 'clientTurnId'> {
   /** Item 6 (memory check): this turn states a durable fact — the answer must carry ≥ 1 note proposal. */
   expectsProposal?: boolean;
+  /** The sections this answer must carry (2026-10-01: cheaper must not mean thinner — turn 1 stays 5/5). */
+  expectsSections?: readonly string[];
+}
+
+/** "sections 4/5: missing so_what" when a required section is absent; null when all are there (pure). */
+export function sectionsMiss(expected: readonly string[] | undefined, got: string[]): string | null {
+  if (!expected?.length) return null;
+  const missing = expected.filter((k) => !got.includes(k));
+  return missing.length ? `sections ${expected.length - missing.length}/${expected.length}: missing ${missing.join(', ')}` : null;
 }
 
 export const SMOKE_TURNS: SmokeTurn[] = [
-  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' } },
+  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' }, expectsSections: ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'] },
   { question: 'And how does that compare with the week before?', kind: 'ask' },
   { question: 'Which campaign had the best cost per client in that period, and should we move budget?', kind: 'ask' },
   { question: 'For the record: from October we cap Meta spend at $4,000 CAD a month. Does that change your advice?', kind: 'ask', expectsProposal: true },
@@ -96,7 +105,7 @@ const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
-  return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.join(',')}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
+  return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
 export interface SmokeOptions {
@@ -138,7 +147,7 @@ export function smokeTurns(opts: Pick<SmokeOptions, 'full'>): SmokeTurn[] {
   return opts.full ? SMOKE_TURNS : SMOKE_TURNS.slice(0, 1);
 }
 
-export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[]; fixturePath: string | null }> {
+export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[]; fixturePath: string | null; effort: string | null }> {
   const store = new MemoryAnalystStore();
   const config = await getAnalystConfig();
   const lines: SmokeTurnLine[] = [];
@@ -169,7 +178,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     };
     // Nothing is written: proposals are collected here, not saved as notes.
     const proposals: string[] = [];
-    const { expectsProposal: _expects, ...turnReq } = req;
+    const { expectsProposal: _expects, expectsSections: _sections, ...turnReq } = req;
     // The remaining budget is what this turn may spend: the cap decision refuses a turn whose estimate does not fit,
     // and the loop pauses between rounds (needs_confirmation) when spent + the next request would not — both read
     // here as the budget stop. Nothing is sent past the budget.
@@ -223,9 +232,10 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       });
     }
     const memoryMiss = req.expectsProposal && proposals.length === 0;
+    const thin = sectionsMiss(req.expectsSections, out.answer?.sections.map((s) => s.key) ?? []);
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
-    const misses = judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : [];
+    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : []), ...(thin ? [thin] : [])];
     lines.push({
       status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,
@@ -255,5 +265,5 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (wire hash ${fixture.wireHash.slice(0, 12)}…; ${fixture.database})`);
   }
   const runLevel = model.startsWith('claude-opus') ? runMisses(lines) : [];
-  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel, fixturePath };
+  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel, fixturePath, effort: threadEffort };
 }

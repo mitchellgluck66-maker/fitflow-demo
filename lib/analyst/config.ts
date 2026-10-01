@@ -38,6 +38,18 @@ export const ANALYST_BETAS = {
   compaction: 'compact-2026-09-04',
 } as const;
 
+/**
+ * Chat turns (ask / explain on the default model) run at "medium" (2026-10-01): the first recorded turn wrote
+ * 17.4K output tokens at "high" (~$0.35 of its $0.65). Full reports and the deep model keep the Setup effort
+ * (default "high"). Effort is part of the prefix thinking is bound to, so it is decided ONCE, when the thread
+ * is created, from its first turn — a thread never changes effort.
+ */
+export const CHAT_EFFORT: Effort = 'medium';
+
+export function effortForThread(p: { kind: 'ask' | 'explain' | 'report' | 'continue'; model: AnalystModel; settingEffort: Effort }): Effort {
+  return p.kind === 'report' || p.model === 'claude-fable-5-1' ? p.settingEffort : CHAT_EFFORT;
+}
+
 /** Defaults; every one is overridable in Setup → Analyst. Costs are USD (amendment 6). */
 export const ANALYST_DEFAULTS = {
   effort: 'high' as Effort,

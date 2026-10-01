@@ -162,7 +162,7 @@ export const AnalystCard: React.FC = () => {
               </option>
             ))}
           </Select>
-          <Select label="Effort" value={s.effort} onChange={(e) => saveSettings({ effort: e.target.value })} hint="Adaptive thinking; fixed per thread.">
+          <Select label="Effort · reports + deep model" value={s.effort} onChange={(e) => saveSettings({ effort: e.target.value })} hint="Chat turns (ask / explain on the default model) always run at medium. Fixed per thread.">
             {['low', 'medium', 'high', 'xhigh', 'max'].map((m) => (
               <option key={m} value={m}>
                 {m}

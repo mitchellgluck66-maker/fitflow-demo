@@ -58,6 +58,8 @@ describe('prepareTurn', () => {
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
     expect(ok.thread.model).toBe('claude-opus-5-5');
+    expect(ok.thread.effort).toBe('medium'); // a chat thread; fixed for the thread's life
+    expect((big as { thread: { effort: string } }).thread.effort).toBe('high'); // a report thread keeps the Setup effort
     expect(ok.estimate.usd).toBeGreaterThan(0);
     expect(ok.estimate.usd).toBeLessThanOrEqual(3);
     expect(ok.allowedUsd).toBe(3);

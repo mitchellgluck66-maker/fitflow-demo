@@ -48,10 +48,10 @@ async function main() {
   console.log(`smoke:analyst${full ? ' --full' : ''} · database: ${target} (read; the conversation runs on the in-memory store, nothing written) · model ${config.modelDefault} · answer mode ${config.answerMode} · ${full ? `${SMOKE_TURNS.length} turns` : '1 turn (--full for the whole conversation)'} · budget ${formatUsd(maxUsd)}`);
   // The fixture is committed: it names the kind of database, never the host.
   const record = args.includes('--record') ? { name: full ? 'conversation' : 'turn-1', database: DATABASE_URL ? 'postgres (DATABASE_URL)' : 'embedded PGlite' } : null;
-  const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped, runMisses, fixturePath } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd, record });
+  const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped, runMisses, fixturePath, effort } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd, record });
   for (const l of lines) console.log(formatSmokeTurn(l));
   const pass = lines.filter((l) => l.status === 'PASS').length;
-  console.log(`answer mode · ${model} · ${answerMode === 'format' ? 'output_config.format' : 'submit_answer tool (fallback)'}`);
+  console.log(`answer mode · ${model} · effort ${effort ?? '—'} · ${answerMode === 'format' ? 'output_config.format' : 'submit_answer tool (fallback)'}`);
   console.log(`targets (Opus): p50 ≤ ${SMOKE_TARGETS.p50Seconds}s · ≤ ${formatUsd(SMOKE_TARGETS.maxUsd)} per turn · cache ≥ ${SMOKE_TARGETS.cacheSharePctFromRound2}% from round 2 · repairs < ${Math.round(SMOKE_TARGETS.repairRateMax * 100)}% · 0 flagged · estimate within ±${Math.round(SMOKE_TARGETS.estimateTolerance * 100)}% · ${runMisses.length ? `run-level MISSED: ${runMisses.join('; ')}` : model.startsWith('claude-opus') ? 'run-level met' : 'not judged for this model'}`);
   console.log(ok ? `\nALL PASS (${pass}/${turns})` : `\nNOT ALL PASS (${pass}/${turns} passed)${budgetStopped ? ' · budget stop' : ''}${runMisses.length ? ' · targets missed' : ''}`);
   if (record) console.log(fixturePath ? `fixture written: ${fixturePath}` : 'FAIL record · no fixture written (no completed turn)');
