@@ -16,7 +16,7 @@ import { DATABASE_URL } from '../db';
 import { getAnalystConfig } from '../lib/analyst/config';
 import { formatProbeLine, runAnalystProbe } from '../lib/analyst/probe';
 import { formatUsd } from '../lib/analyst/cost';
-import { formatSmokeTurn, parseMaxUsd, runAnalystSmoke, SMOKE_TURNS } from '../lib/analyst/smoke';
+import { formatSmokeTurn, parseMaxUsd, runAnalystSmoke, SMOKE_TARGETS, SMOKE_TURNS } from '../lib/analyst/smoke';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -45,11 +45,12 @@ async function main() {
   const full = args.includes('--full');
   const maxUsd = parseMaxUsd(args);
   console.log(`smoke:analyst${full ? ' --full' : ''} · database: ${target} (read; the conversation runs on the in-memory store, nothing written) · model ${config.modelDefault} · answer mode ${config.answerMode} · ${full ? `${SMOKE_TURNS.length} turns` : '1 turn (--full for the whole conversation)'} · budget ${formatUsd(maxUsd)}`);
-  const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd });
+  const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped, runMisses } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd });
   for (const l of lines) console.log(formatSmokeTurn(l));
   const pass = lines.filter((l) => l.status === 'PASS').length;
   console.log(`answer mode · ${model} · ${answerMode === 'format' ? 'output_config.format' : 'submit_answer tool (fallback)'}`);
-  console.log(ok ? `\nALL PASS (${pass}/${turns})` : `\nNOT ALL PASS (${pass}/${turns} passed)${budgetStopped ? ' · budget stop' : ''}`);
+  console.log(`targets (Opus): p50 ≤ ${SMOKE_TARGETS.p50Seconds}s · ≤ ${formatUsd(SMOKE_TARGETS.maxUsd)} per turn · cache ≥ ${SMOKE_TARGETS.cacheSharePctFromRound2}% from round 2 · repairs < ${Math.round(SMOKE_TARGETS.repairRateMax * 100)}% · 0 flagged · estimate within ±${Math.round(SMOKE_TARGETS.estimateTolerance * 100)}% · ${runMisses.length ? `run-level MISSED: ${runMisses.join('; ')}` : model.startsWith('claude-opus') ? 'run-level met' : 'not judged for this model'}`);
+  console.log(ok ? `\nALL PASS (${pass}/${turns})` : `\nNOT ALL PASS (${pass}/${turns} passed)${budgetStopped ? ' · budget stop' : ''}${runMisses.length ? ' · targets missed' : ''}`);
   console.log(`TOTAL ${formatUsd(spentUsd)} of ${formatUsd(maxUsd)} budget`);
   process.exit(ok ? 0 : 1);
 }

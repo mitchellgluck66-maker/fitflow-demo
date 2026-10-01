@@ -30,6 +30,43 @@ export interface SmokeTurnLine {
   sections: string[];
   error: string | null;
   cacheRead: number;
+  /** Item 10: one entry per API request — tool calls it made and its cache share. */
+  rounds: Array<{ toolCalls: number; cacheSharePct: number }>;
+  costUsd: number;
+  /** The per-turn targets this turn missed (empty on a PASS). */
+  misses: string[];
+}
+
+/** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30). The deep model is reported, not judged. */
+export const SMOKE_TARGETS = { p50Seconds: 45, maxUsd: 0.4, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
+
+/** The per-turn misses (pure): cost, cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
+export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'>): string[] {
+  const out: string[] = [];
+  if (l.costUsd > SMOKE_TARGETS.maxUsd + 1e-9) out.push(`cost ${formatUsd(l.costUsd)} > ${formatUsd(SMOKE_TARGETS.maxUsd)}`);
+  l.rounds.forEach((r, i) => {
+    if (i >= 1 && r.cacheSharePct < SMOKE_TARGETS.cacheSharePctFromRound2) out.push(`cache round ${i + 1} ${r.cacheSharePct}% < ${SMOKE_TARGETS.cacheSharePctFromRound2}%`);
+  });
+  if (l.estimateUsd !== null && l.estimateUsd > 0) {
+    const err = (l.costUsd - l.estimateUsd) / l.estimateUsd;
+    if (Math.abs(err) > SMOKE_TARGETS.estimateTolerance + 1e-9) out.push(`estimate ${err > 0 ? '+' : ''}${Math.round(err * 100)}% outside ±${Math.round(SMOKE_TARGETS.estimateTolerance * 100)}%`);
+  }
+  return out;
+}
+
+/** The run-level verdict (pure): p50 seconds, repair rate, flagged across every PASS/FAIL line that ran. */
+export function runMisses(lines: SmokeTurnLine[]): string[] {
+  const ran = lines.filter((l) => l.seconds > 0);
+  if (ran.length === 0) return [];
+  const secs = ran.map((l) => l.seconds).sort((a, b) => a - b);
+  const p50 = secs.length % 2 ? secs[(secs.length - 1) / 2] : (secs[secs.length / 2 - 1] + secs[secs.length / 2]) / 2;
+  const repairs = ran.reduce((a, l) => a + l.repairs, 0);
+  const flagged = ran.reduce((a, l) => a + l.flagged, 0);
+  const out: string[] = [];
+  if (p50 > SMOKE_TARGETS.p50Seconds) out.push(`p50 ${p50}s > ${SMOKE_TARGETS.p50Seconds}s`);
+  if (repairs / ran.length >= SMOKE_TARGETS.repairRateMax) out.push(`repairs ${repairs}/${ran.length} turns ≥ ${Math.round(SMOKE_TARGETS.repairRateMax * 100)}%`);
+  if (flagged > SMOKE_TARGETS.flaggedMax) out.push(`${flagged} flagged number(s) > ${SMOKE_TARGETS.flaggedMax}`);
+  return out;
 }
 
 export interface SmokeTurn extends Omit<TurnRequest, 'clientTurnId'> {
@@ -45,9 +82,17 @@ export const SMOKE_TURNS: SmokeTurn[] = [
   { question: '', kind: 'explain', explainKey: 'paid_cac', context: { page: 'ads', range: null } },
 ];
 
+const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l.costUsd >= l.estimateUsd ? '+' : ''}${Math.round(((l.costUsd - l.estimateUsd) / l.estimateUsd) * 100)}%)` : '');
+
+/**
+ *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (-20%) · sections …
+ *        ↳ headline
+ *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.40 USD; cache round 2 71% < 80%
+ */
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${l.tools} tools · ${l.cost} · ${l.seconds}s · ${l.error}`;
-  return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')} · repairs ${l.repairs}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
+  if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
+  return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.join(',')}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
 export interface SmokeOptions {
@@ -87,7 +132,7 @@ export function smokeTurns(opts: Pick<SmokeOptions, 'full'>): SmokeTurn[] {
   return opts.full ? SMOKE_TURNS : SMOKE_TURNS.slice(0, 1);
 }
 
-export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean }> {
+export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[] }> {
   const store = new MemoryAnalystStore();
   const config = await getAnalystConfig();
   const lines: SmokeTurnLine[] = [];
@@ -96,14 +141,16 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   let spentUsd = 0;
   let budgetStopped = false;
   let threadId: string | null = null;
-  const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, ...extra });
+  const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', costUsd: 0, estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, rounds: [], misses: [], ...extra });
   for (let i = 0; i < turns.length; i++) {
     const req = turns[i];
     const started = Date.now();
     let tools = 0;
     let cacheRead = 0;
+    const rounds: SmokeTurnLine['rounds'] = [];
     const onEvent = (e: AnalystEvent) => {
       if (e.type === 'tools') tools += e.calls.length;
+      if (e.type === 'round') rounds.push({ toolCalls: e.toolCalls, cacheSharePct: e.cacheSharePct });
       if (e.type === 'usage') cacheRead = e.usage.cacheReadTokens;
       if (e.type === 'status') opts.log?.(`   turn ${i + 1} · ${e.text}`);
       if (e.type === 'tools') opts.log?.(`   turn ${i + 1} · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);
@@ -134,7 +181,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);
     } catch (err) {
-      fail(i + 1, req.question, err instanceof Error ? err.message : String(err), { tools, estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), cacheRead });
+      fail(i + 1, req.question, err instanceof Error ? err.message : String(err), { tools, estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), cacheRead, rounds });
       break;
     }
     const seconds = Math.round((Date.now() - started) / 1000);
@@ -142,18 +189,24 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     spentUsd += out.costUsd;
     if (out.status === 'needs_confirmation') {
       budgetStopped = true;
-      fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, null), { tools, cost: costLine(out.usage, out.costUsd), estimateUsd: prepared.estimate.usd, seconds, cacheRead });
+      fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, null), { tools, cost: costLine(out.usage, out.costUsd), costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, seconds, cacheRead, rounds });
       break;
     }
     // Counted from this turn's own events, so the line and the "Repairing…" log lines above it agree.
     const repairs = turn?.events.filter((e) => e.type === 'status' && (e as { text?: string }).text === 'Repairing the answer…').length ?? 0;
     const memoryMiss = req.expectsProposal && proposals.length === 0;
+    // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
+    const judged = prepared.thread.model.startsWith('claude-opus');
+    const misses = judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : [];
     lines.push({
-      status: out.status === 'done' && out.answer && !memoryMiss ? 'PASS' : 'FAIL',
+      status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,
       question: req.question,
       tools,
       cost: costLine(out.usage, out.costUsd),
+      costUsd: out.costUsd,
+      rounds,
+      misses,
       estimateUsd: prepared.estimate.usd,
       seconds,
       headline: out.answer?.headline.text ?? null,
@@ -167,5 +220,6 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     if (out.status !== 'done') break;
   }
   const model = threadId ? ((await store.getThread(threadId))?.model ?? config.modelDefault) : config.modelDefault;
-  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS'), answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped };
+  const runLevel = model.startsWith('claude-opus') ? runMisses(lines) : [];
+  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel };
 }
