@@ -46,7 +46,8 @@ async function main() {
   const full = args.includes('--full');
   const maxUsd = parseMaxUsd(args);
   console.log(`smoke:analyst${full ? ' --full' : ''} · database: ${target} (read; the conversation runs on the in-memory store, nothing written) · model ${config.modelDefault} · answer mode ${config.answerMode} · ${full ? `${SMOKE_TURNS.length} turns` : '1 turn (--full for the whole conversation)'} · budget ${formatUsd(maxUsd)}`);
-  const record = args.includes('--record') ? { name: full ? 'conversation' : 'turn-1', database: target } : null;
+  // The fixture is committed: it names the kind of database, never the host.
+  const record = args.includes('--record') ? { name: full ? 'conversation' : 'turn-1', database: DATABASE_URL ? 'postgres (DATABASE_URL)' : 'embedded PGlite' } : null;
   const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped, runMisses, fixturePath } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd, record });
   for (const l of lines) console.log(formatSmokeTurn(l));
   const pass = lines.filter((l) => l.status === 'PASS').length;
