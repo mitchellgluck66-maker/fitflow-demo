@@ -1,7 +1,8 @@
 /**
- * Live conversation smoke (plan item 8): one question plus a 3-turn follow-up
- * against the real API and the real tools, on the in-memory store (nothing
- * written). Prints per turn:
+ * Live conversation smoke (plan item 8): ONE question by default (item 7 — the
+ * cheap check, target ≤ $0.40 USD); `--full` runs the whole conversation (a
+ * follow-up, a budget question, the memory check, an explain) before a release.
+ * Real API, real tools, in-memory store (nothing written). Prints per turn:
  *   PASS turn 1 · 3 tools · 18.2K in (15.9K cached) · 2.4K out · $0.19 USD · 21 s · estimate $0.31 USD
  * and states whether answers used output_config.format or submit_answer.
  */
@@ -49,13 +50,25 @@ export function formatSmokeTurn(l: SmokeTurnLine): string {
   return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')} · repairs ${l.repairs}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
-export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string }> {
+export interface SmokeOptions {
+  log?: (line: string) => void;
+  /** Item 7: the default run is ONE turn (target ≤ $0.40 USD); `full` runs the whole conversation — before a release only. */
+  full?: boolean;
+}
+
+/** The turns a run exercises: the first one by default, all of them with --full. */
+export function smokeTurns(opts: Pick<SmokeOptions, 'full'>): SmokeTurn[] {
+  return opts.full ? SMOKE_TURNS : SMOKE_TURNS.slice(0, 1);
+}
+
+export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number }> {
   const store = new MemoryAnalystStore();
   const config = await getAnalystConfig();
   const lines: SmokeTurnLine[] = [];
+  const turns = smokeTurns(opts);
   let threadId: string | null = null;
-  for (let i = 0; i < SMOKE_TURNS.length; i++) {
-    const req = SMOKE_TURNS[i];
+  for (let i = 0; i < turns.length; i++) {
+    const req = turns[i];
     const started = Date.now();
     let tools = 0;
     let cacheRead = 0;
@@ -105,5 +118,5 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
     if (out.status !== 'done') break;
   }
   const model = threadId ? ((await store.getThread(threadId))?.model ?? config.modelDefault) : config.modelDefault;
-  return { lines, ok: lines.length === SMOKE_TURNS.length && lines.every((l) => l.status === 'PASS'), answerMode: config.answerMode, model };
+  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS'), answerMode: config.answerMode, model, turns: turns.length };
 }
