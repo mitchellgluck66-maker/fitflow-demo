@@ -66,7 +66,7 @@ describe('POST /api/sync ("Sync now")', () => {
     const r = await post();
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, refreshed: true, opportunities: 2 });
-    expect(r.body.message).toMatch(/^Followed pipeline: 2 opportunities refreshed at Sep \d+, \d+:\d\d (AM|PM) M[DS]T\.$/); // Edmonton
+    expect(r.body.message).toMatch(/^Followed pipeline: 2 opportunities refreshed at [A-Z][a-z]{2} \d+, \d+:\d\d (AM|PM) M[DS]T\.$/); // Edmonton (any month — "Sep" was hard-coded and failed on Oct 1)
     expect(searches).toEqual(['pf']); // the mirror pipeline 'pm' is not walked from "Sync now"
     expect(await db.select().from(ghlOpportunities).where(eq(ghlOpportunities.pipelineId, 'pf'))).toHaveLength(2);
   });
