@@ -3,8 +3,9 @@
  * with real messages.create calls on the exact production prompt, per model: the static budget
  * (lib/anthropic/schemaBudget.ts), count_tokens (secondary), the answer schema alone, the production
  * request (answer strict + 15 non-strict tools), and — informationally — how many tools could be strict
- * alongside the answer (binary search). `--quick` skips the capacity search. Each line PASS/FAIL with the
- * API's exact message and cost. Needs the stored key (CREDENTIALS_KEY in .env.local) and a built brief
+ * alongside the answer (binary search, opt-in with `--capacity`). The paid calls use a minimal system prompt
+ * (the grammar depends on tools + output format, not the brief), so the whole check is cents — the total is
+ * printed. Each line PASS/FAIL with the API's exact message and cost. Needs the stored key (CREDENTIALS_KEY in .env.local) and a built brief
  * (`npm run analyst:brief`); without them it SKIPs and exits 1.
  */
 import { runMigrations } from '../db/migrate';
@@ -31,7 +32,7 @@ async function main() {
   console.log(`check:schemas · database: ${target} · brief ${brief.hash.slice(0, 8)} (${brief.dataThrough}) · models ${config.modelDefault}, ${config.modelDeep}`);
   const budget = auditRequestBudget(productionRequestForBudget(config.answerMode));
   console.log(`${budget.ok ? 'PASS' : 'FAIL'} static budget · ${budget.message}`);
-  const lines = budget.ok ? await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])], answerMode: config.answerMode, scope: process.argv.includes('--quick') ? 'probe' : 'full' }) : [];
+  const lines = budget.ok ? await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])], answerMode: config.answerMode, scope: process.argv.includes('--capacity') ? 'full' : 'probe' }) : [];
   for (const l of lines) console.log(formatSchemaLine(l));
   const ok = budget.ok && lines.every((l) => l.ok);
   const usd = lines.reduce((a, l) => a + l.costUsd, 0);

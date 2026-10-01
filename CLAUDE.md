@@ -966,9 +966,12 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   `askClaude` (production counts: 0/20 strict tools · 0/24 optional · 0/16 unions; the submit
   fallback makes it 1 strict tool). The live check `lib/analyst/schemaCheck.ts` MEASURES with real
   `messages.create` calls (max_tokens 64, tool_choice auto, cost reported): static budget →
-  `count_tokens` (secondary) → the answer schema alone → the production request (answer strict +
-  15 non-strict tools) → informationally, how many tools could be strict alongside the answer
-  (binary search). `npm run check:schemas` runs all of it (`--quick` skips the capacity search);
+  `count_tokens` (secondary, free, the real prompt) → the answer schema alone (first model) → the
+  production request (answer strict + 15 non-strict tools) → informationally, how many tools could
+  be strict alongside the answer (binary search, opt-in `--capacity`). The PAID calls use a minimal
+  system prompt and max_tokens 16 — the grammar depends on tools + output format, not the brief —
+  so the whole check is cents (the total is printed; the brief made it $0.83). `npm run
+  check:schemas` runs it;
   the probe's first lines run static / answer alone / production; Setup → Analyst → Verify runs
   static / count_tokens / production. A rejection names the step and the API's exact message.
 - **Live proof** (Mitchell runs; nothing here is verified until they pass): `npm run analyst:brief`,

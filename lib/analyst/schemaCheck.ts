@@ -5,12 +5,13 @@
  *
  *   static           the per-request budget in code (lib/anthropic/schemaBudget.ts) — free
  *   count_tokens     the free secondary check (it does not compile grammars)
- *   answer_alone     output_config.format with NO tools — is the answer schema itself compilable?
+ *   answer_alone     output_config.format with NO tools — is the answer schema itself compilable? (first model only)
  *   production       the real request: the answer (strict) + the 15 NON-strict tools
- *   strict_capacity  informational: how many of the tools could be strict alongside the answer
- *                    (binary search over the name-sorted list; ≤ 4 extra requests)
+ *   strict_capacity  informational, opt-in (`--capacity`): how many of the tools could be strict alongside
+ *                    the answer (binary search over the name-sorted list; ≤ 4 extra requests)
  *
- * Each real request uses max_tokens 64 and tool_choice auto; its cost (a few cents) is reported.
+ * The paid calls use a MINIMAL system prompt (the grammar depends on tools + output format, not the brief),
+ * max_tokens 16 and tool_choice auto, so the whole check is cents; count_tokens (free) sees the real prompt.
  * Wired into `npm run check:schemas` (every step), the probe's first lines (static, answer_alone,
  * production) and Setup → Analyst → Verify (static, count_tokens, production). A schema the API
  * rejects fails HERE with the exact API message and the step that failed, never first at a user's
@@ -68,14 +69,17 @@ export async function checkAnalystSchemasLive(opts: SchemaCheckOptions): Promise
     return out;
   }
   const client = opts.client ?? makeAnalystClient(opts.key);
-  const system: [string, string] = [ANALYST_CONTRACT, opts.brief];
+  // count_tokens (free) sees the real prompt; the PAID schema calls use a minimal system prompt — the compiled grammar
+  // depends on the tools and the output format, not on the brief (the full brief made the check cost $0.83).
+  const productionSystem: [string, string] = [ANALYST_CONTRACT, opts.brief];
+  const minimalSystem: [string, string] = ['Schema check for the FitFlow Analyst. Call no tool; answer with kind "clarify".', 'No brief: this request only compiles the schemas.'];
   const messages = [{ role: 'user' as const, content: CHECK_QUESTION }];
   const schema = ANSWER_SCHEMA as unknown as Record<string, unknown>;
 
-  /** One real request; returns the line pieces. */
+  /** One real request with the minimal system prompt and the EXACT production tools + output format; returns the line pieces. */
   const attempt = async (model: AnalystModel, tools: BetaTool[]): Promise<{ ok: boolean; costUsd: number; detail: string }> => {
     try {
-      const res = await client.beta.messages.create(buildTurnRequest({ model, effort: 'low', system, tools, messages, answerSchema: schema, answerMode, maxTokens: 64 }));
+      const res = await client.beta.messages.create(buildTurnRequest({ model, effort: 'low', system: minimalSystem, tools, messages, answerSchema: schema, answerMode, maxTokens: 16 }));
       const costUsd = priceUsage(model, res.usage as unknown as UsageLike);
       return { ok: true, costUsd, detail: `accepted (stop ${res.stop_reason}) · ${formatUsd(costUsd)}` };
     } catch (err) {
@@ -87,20 +91,20 @@ export async function checkAnalystSchemasLive(opts: SchemaCheckOptions): Promise
     let inputTokens: number | null = null;
     if (scope !== 'probe') {
       try {
-        const count = await client.beta.messages.countTokens(buildCountRequest({ model, system, tools: productionRequestForBudget(answerMode).tools, messages }));
+        const count = await client.beta.messages.countTokens(buildCountRequest({ model, system: productionSystem, tools: productionRequestForBudget(answerMode).tools, messages }));
         inputTokens = count.input_tokens;
         out.push({ ok: true, model, step: 'count_tokens', budget, inputTokens, costUsd: 0, message: `${budget.message} · count_tokens accepted the production prompt · ${inputTokens.toLocaleString('en-US')} input tokens (secondary — it does not compile grammars)` });
       } catch (err) {
         out.push({ ok: false, model, step: 'count_tokens', budget, inputTokens: null, costUsd: 0, message: `${budget.message} · count_tokens rejected the production prompt: ${describeError(err)}` });
       }
     }
-    if (scope !== 'verify') {
+    if (scope !== 'verify' && model === models[0]) {
       const alone = await attempt(model, []);
-      out.push({ ok: alone.ok, model, step: 'answer_alone', budget, inputTokens, costUsd: alone.costUsd, message: `answer schema alone (output_config.format, no tools) · ${alone.detail}` });
+      out.push({ ok: alone.ok, model, step: 'answer_alone', budget, inputTokens, costUsd: alone.costUsd, message: `answer schema alone (output_config.format, no tools; minimal system prompt) · ${alone.detail}` });
     }
     const tools = productionRequestForBudget(answerMode).tools;
     const prod = await attempt(model, tools);
-    out.push({ ok: prod.ok, model, step: 'production', budget, inputTokens, costUsd: prod.costUsd, message: `${budget.message} · the production request (answer schema strict + ${ANALYST_TOOL_DEFINITIONS.length} non-strict tools) · ${prod.detail}` });
+    out.push({ ok: prod.ok, model, step: 'production', budget, inputTokens, costUsd: prod.costUsd, message: `${budget.message} · the production request (answer schema strict + ${ANALYST_TOOL_DEFINITIONS.length} non-strict tools; minimal system prompt) · ${prod.detail}` });
     if (scope === 'full') {
       // Binary search the largest k such that the first k tools (name order) can be strict alongside the answer.
       let lo = 0;
