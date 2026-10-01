@@ -93,6 +93,14 @@ describe('prepareTurn', () => {
     // A follow-up turn on the same thread gets NO second snapshot.
     const t3 = await prepareTurn({ threadId: ok.thread.id, clientTurnId: 't3', question: 'And the week before?', kind: 'ask' }, { store, client, countTokens: async () => 1 });
     expect(t3).toMatchObject({ ok: true, deps: { starterRows: null } });
+    // Item 5: the first turn stored its estimate beside its measured cost, and the next estimate of the kind is
+    // calibrated from it (actual ÷ estimate, clamped to ≥ 0.5 here because the fake stream cost almost nothing).
+    expect((await store.getTurn(ok.turn.id))?.estimateUsd).toBe(ok.estimate.usd);
+    expect(await store.recentEstimates('ask', 20)).toEqual([{ estimateUsd: ok.estimate.usd, costUsd: (await store.getTurn(ok.turn.id))!.costUsd }]);
+    if (t3.ok) {
+      expect(t3.estimate.detail).toContain('calibrated ×0.5 on 1 run');
+      expect(t3.estimate.calibration).toBe(0.5);
+    }
     expect((await store.getTurn(ok.turn.id))?.costUsd).toBeCloseTo((500 * 4 + 100 * 20) / 1e6, 8);
     expect(await resumeTurn(ok.turn.id, { store, client })).toMatchObject({ ok: false, message: 'Turn is done' });
   });

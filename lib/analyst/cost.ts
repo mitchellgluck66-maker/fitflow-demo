@@ -111,34 +111,71 @@ export function formatTokens(t: UsageTotals): string {
 
 export type RunKind = 'ask' | 'explain' | 'report';
 
-/** Per-kind allowances for the estimate: rounds of tool use, tokens a tool round adds, output tokens. */
-export const RUN_ALLOWANCE: Record<RunKind, { rounds: number; toolTokensPerRound: number; outputTokens: number }> = {
-  ask: { rounds: 4, toolTokensPerRound: 5_000, outputTokens: 3_000 },
-  explain: { rounds: 2, toolTokensPerRound: 4_000, outputTokens: 2_000 },
-  report: { rounds: 10, toolTokensPerRound: 8_000, outputTokens: 12_000 },
+/**
+ * Per-kind allowances (item 5, re-derived 2026-09-30 from the first live smoke on Opus 5.5 — turn 1: 19 rounds,
+ * 11 tools, 267K input of which 159K cached, $0.82; the old model assumed 4 rounds × 5K uncached tool tokens and
+ * 3K output and came out 35–60% low):
+ *   - rounds: API requests in the turn (after items 1 and 4: snapshot → gather → calculate → answer);
+ *   - toolTokensPerRound: tokens the round's tool results add (several tools per round now; a scorecard is ~3K,
+ *     a campaign table ~1.5K, a client list ~2K);
+ *   - thinkingPerRound: output tokens of reasoning + tool calls per request — the term the old model had no
+ *     line for (turn 1's $0.82 implies ~16K output over 19 rounds ≈ 850 per round; a 4-round turn thinks more
+ *     per round);
+ *   - answerTokens: the final structured answer.
+ * With the moving cache breakpoints (item 2) a round's new tokens are WRITTEN to cache once (1.25× input) and
+ * READ afterwards (0.1×), so uncached input no longer compounds with the round count.
+ */
+export const RUN_ALLOWANCE: Record<RunKind, { rounds: number; toolTokensPerRound: number; thinkingPerRound: number; answerTokens: number }> = {
+  ask: { rounds: 4, toolTokensPerRound: 6_000, thinkingPerRound: 1_500, answerTokens: 3_500 },
+  explain: { rounds: 3, toolTokensPerRound: 4_000, thinkingPerRound: 1_200, answerTokens: 2_500 },
+  report: { rounds: 8, toolTokensPerRound: 8_000, thinkingPerRound: 2_000, answerTokens: 12_000 },
 };
 
 export interface RunEstimate {
   usd: number;
-  /** "~4 rounds · 26K prompt (cached after round 1) · 3K out" */
+  /** "~4 rounds · 26K prompt (cached after round 1) · 10K out · calibrated ×1.3 on 12 runs" */
   detail: string;
   promptTokens: number;
   rounds: number;
+  /** The measured correction applied (1 when there is no history yet). */
+  calibration: number;
+  /** How many completed runs the correction came from. */
+  calibrationRuns: number;
+}
+
+/** The calibration window and its clamp: a median over few runs is noisy, so it is bounded. */
+export const CALIBRATION_RUNS = 20;
+export const CALIBRATION_CLAMP: [number, number] = [0.5, 3];
+
+/** Median of actual ÷ estimate over completed runs, clamped; 1 with no history. Pure. */
+export function calibrationFactor(pairs: Array<{ estimateUsd: number; costUsd: number }>): { factor: number; runs: number } {
+  const ratios = pairs.filter((p) => p.estimateUsd > 0 && p.costUsd > 0).map((p) => p.costUsd / p.estimateUsd).sort((a, b) => a - b);
+  if (ratios.length === 0) return { factor: 1, runs: 0 };
+  const mid = Math.floor(ratios.length / 2);
+  const median = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
+  return { factor: Math.min(CALIBRATION_CLAMP[1], Math.max(CALIBRATION_CLAMP[0], Math.round(median * 100) / 100)), runs: ratios.length };
 }
 
 /**
- * The prefix (system + tools + history) is written to the cache on round 1 and read on every later round;
- * tool results accumulate as uncached input; the answer is output. A conservative estimate for the cap.
+ * The prefix (system + tools + history) is written to the cache on round 1 and read on every later round; each
+ * round's tool results are written once and read by the rounds after it; every round thinks; the answer is output.
+ * `calibration` (item 5) scales the model by the measured actual ÷ estimate of recent completed runs of the kind.
  */
-export function estimateRunUsd(model: string, promptTokens: number, kind: RunKind): RunEstimate {
+export function estimateRunUsd(model: string, promptTokens: number, kind: RunKind, calibration: { factor: number; runs: number } = { factor: 1, runs: 0 }): RunEstimate {
   const p = ANALYST_PRICES[model];
   if (!p) throw new UnknownModelPriceError(model);
   const a = RUN_ALLOWANCE[kind];
   let usd = (promptTokens * p.cacheWrite5mPerMTok) / 1e6;
-  for (let round = 2; round <= a.rounds; round++) usd += (promptTokens * p.cacheReadPerMTok + (round - 1) * a.toolTokensPerRound * p.inputPerMTok) / 1e6;
-  usd += (a.outputTokens * p.outputPerMTok) / 1e6;
+  for (let round = 2; round <= a.rounds; round++) {
+    const earlierToolTokens = (round - 2) * a.toolTokensPerRound;
+    usd += (promptTokens * p.cacheReadPerMTok + earlierToolTokens * p.cacheReadPerMTok + a.toolTokensPerRound * p.cacheWrite5mPerMTok) / 1e6;
+  }
+  const outputTokens = a.rounds * a.thinkingPerRound + a.answerTokens;
+  usd += (outputTokens * p.outputPerMTok) / 1e6;
+  usd *= calibration.factor;
   const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
-  return { usd: Math.round(usd * 100) / 100, detail: `~${a.rounds} rounds · ${k(promptTokens)} prompt (cached after round 1) · ${k(a.outputTokens)} out`, promptTokens, rounds: a.rounds };
+  const cal = calibration.runs > 0 ? ` · calibrated ×${calibration.factor} on ${calibration.runs} run${calibration.runs === 1 ? '' : 's'}` : ' · uncalibrated (no completed runs of this kind yet)';
+  return { usd: Math.round(usd * 100) / 100, detail: `~${a.rounds} rounds · ${k(promptTokens)} prompt (cached after round 1) · ${k(outputTokens)} out${cal}`, promptTokens, rounds: a.rounds, calibration: calibration.factor, calibrationRuns: calibration.runs };
 }
 
 export interface CapDecision {

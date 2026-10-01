@@ -979,8 +979,22 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   PRODUCTION wiring — real tools, real brief, real answer schema, two turns per model, ~$1 USD;
   prints the answer-mode verdict per model) and `npm run smoke:analyst` (one question + a 3-turn
   follow-up on the in-memory store, ~$1 USD). All need `CREDENTIALS_KEY` in `.env.local`.
-- **Deploy order:** `npm run db:migrate` (0017: five `analyst_*` tables, RLS on, additive) THEN push.
-  The first dispatch builds the brief; or `npm run analyst:brief`.
+- **Deploy order:** `npm run db:migrate` (0017: five `analyst_*` tables, RLS on, additive; 0019:
+  `analyst_turns.estimate_usd`, additive) THEN push. The first dispatch builds the brief; or
+  `npm run analyst:brief`.
+- **Tuning (2026-09-30, after the first live smoke — 4/4 PASS but $0.82–1.06 and 47–163 s per turn):**
+  the contract asks for every tool call in ONE round (they run in parallel) and `calculate` takes a
+  batch of labelled operations (`#label` chains them; each row has its own ref); two cache breakpoints
+  move with the last two user messages (`api#withMessageBreakpoints`; `round.cacheSharePct`); every
+  money / ratio leaf carries a `<key>Text` display string the model copies verbatim
+  (`lib/analyst/display.ts`; the verifier matches magnitudes — a negative delta is "down 50%"); a new
+  thread opens with a server-fetched snapshot (r1 data health, r2 last week vs previous + 8-week
+  baseline — `lib/analyst/starter.ts`); results are trimmed (campaign money fields end in `Cents`,
+  prior-period table reduced, funnel stages without derivable fields, cap 30K chars); the estimate
+  (`cost.ts#RUN_ALLOWANCE`: rounds × thinking + tool tokens written once then read) is multiplied by the
+  median actual ÷ estimate of the last 20 completed runs of the kind (`calibrationFactor`, clamped
+  0.5–3, named in `estimate.detail`). Targets per Opus turn: p50 ≤ 45 s, ≤ $0.40 USD, cache ≥ 80 % from
+  round 2, repairs < 20 %, 0 flagged, estimate within ±25 %.
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
 

@@ -37,7 +37,8 @@ import { DECISIONS_LOG } from './brief';
 
 export const PAGE_SIZE = 25;
 /** A result larger than this (JSON chars) is truncated with a note — the model pages instead. */
-export const MAX_RESULT_CHARS = 60_000;
+/** Item 5: ~9K tokens. A larger result is cut by halving its biggest arrays, and says so. */
+export const MAX_RESULT_CHARS = 30_000;
 
 export interface Freshness {
   stale: boolean;
@@ -178,15 +179,13 @@ const cov = (c: Coverage) => ({ used: c.used, total: c.total, unit: c.unit, part
 function summarizeFunnel(f: { mode: string; stages: Array<{ key: FunnelStageKey; label: string; count: number; shareOfApplied: number | null; conversionFromPrevious: number | null; conversionFrom: FunnelStageKey | null; capped: boolean; dropOff: number; costPerCents: number | null; withheld?: string | null }>; previousLeads: { count: number } }, maturity: { active: boolean } | null) {
   return {
     mode: f.mode,
+    // Trimmed (item 5): no shareOfApplied (count ÷ applied, derivable), conversionFrom (the stage order) or capped.
     stages: f.stages.map((s) => ({
       key: s.key,
       label: s.label,
       count: s.withheld ? null : s.count,
       withheld: s.withheld ?? null,
-      shareOfApplied: s.shareOfApplied,
       conversionFromPrevious: s.conversionFromPrevious,
-      conversionFrom: s.conversionFrom,
-      capped: s.capped,
       dropOff: s.dropOff,
       costPerCents: s.costPerCents,
       maturing: isMaturingStage(s.key, maturity as never),
@@ -358,14 +357,17 @@ const getCampaignsTool = tool(
       trackedConsults: c.tracked.consult_booked,
       trackedRoadmaps: c.tracked.roadmap_booked,
       trackedEnrolled: c.tracked.enrolled,
-      costPerApplied: c.costPer.applied,
-      costPerConsult: c.costPer.consult_booked,
-      costPerRoadmap: c.costPer.roadmap_booked,
-      costPerClient: c.costPer.enrolled,
+      // Money fields end in Cents so the ledger renders them as dollars (item 5: `costPerClient` was read as a plain number → flagged).
+      costPerAppliedCents: c.costPer.applied,
+      costPerConsultCents: c.costPer.consult_booked,
+      costPerRoadmapCents: c.costPer.roadmap_booked,
+      costPerClientCents: c.costPer.enrolled,
       initialCents: c.initialCents,
       roas: c.roas,
       notTrackedYet: c.from === 'api' && c.tracked.applied === 0,
     });
+    /** The prior period's table, trimmed to what a comparison cites (the full row is in `campaigns`). */
+    const priorRow = (c: (typeof res.ads.campaigns)[number]) => ({ campaign: c.campaignName, spendCents: c.spendCents, trackedApplied: c.tracked.applied, trackedEnrolled: c.tracked.enrolled, costPerClientCents: c.costPer.enrolled, roas: c.roas });
     const k = res.ads.kpis;
     return {
       range: rangeOut(res.range),
@@ -374,7 +376,7 @@ const getCampaignsTool = tool(
       data: {
         kpis: { spendCents: k.spendCents, costPerLeadCents: k.costPerLeadCents, costPerConsultCents: k.costPerConsultCents, costPerRoadmapCents: k.costPerRoadmapCents, paidCacCents: k.paidCacCents, blendedCacCents: k.blendedCacCents, roas: k.roas, paidCacCoverage: cov(k.paidCacCoverage), roasCoverage: cov(k.roasCoverage), apiConnected: k.apiConnected, byPlatform: k.byPlatform },
         campaigns: res.ads.campaigns.map(row),
-        comparison: res.comparison.range ? { ...rangeOut(res.comparison.range), campaigns: (res.ads.previousCampaigns ?? []).map(row) } : null,
+        comparison: res.comparison.range ? { ...rangeOut(res.comparison.range), campaigns: (res.ads.previousCampaigns ?? []).map(priorRow) } : null,
         maturityActive: res.maturity.active,
       },
     };

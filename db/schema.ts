@@ -754,6 +754,8 @@ export const analystTurns = pgTable(
     costUsd: doublePrecision('cost_usd').notNull().default(0),
     /** Whether cost was measured from usage or estimated from a cut stream. */
     costEstimated: boolean('cost_estimated').notNull().default(false),
+    /** The pre-run estimate (USD) shown to the owner; with cost_usd it calibrates later estimates (item 5). */
+    estimateUsd: doublePrecision('estimate_usd'),
     error: text('error'),
     startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),

@@ -16,7 +16,7 @@ import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type Freshness } from './tools
 import { runStarterCalls, starterMessages, starterRows, STARTER_CALLS } from './starter';
 import { runAnalystTurn, sweepOrphanTurns, ORPHAN_REASON, type AnalystClient, type AnalystEvent, type RunDeps, type TurnOutcome } from './run';
 import { analystStore, type AnalystStore, type ThreadRow, type TurnKind, type TurnRow } from './store';
-import { capDecision, estimateRunUsd, formatUsd, type RunEstimate } from './cost';
+import { calibrationFactor, CALIBRATION_RUNS, capDecision, estimateRunUsd, formatUsd, type RunEstimate } from './cost';
 import { freshnessSummary, readSyncStatus } from '../sync/sourceFreshness';
 import { readMarker, type MarkerFamily } from '../sync/markers';
 import { getTimezone } from '../settings';
@@ -122,7 +122,9 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
     promptTokens = (brief.tokens ?? Math.ceil(brief.text.length / 3.5)) + Math.ceil((ANALYST_CONTRACT.length + newMessages.reduce((a, m) => a + JSON.stringify(m).length, 0) + rows.reduce((a, r) => a + r.apiJson.length, 0)) / 3.5);
     opts.onEvent?.({ type: 'status', text: `Token count unavailable (${describeError(err)}); the estimate uses text sizes.` });
   }
-  const estimate = estimateRunUsd(thread.model, promptTokens, req.kind === 'ask' ? 'ask' : req.kind);
+  const kind = req.kind === 'ask' ? 'ask' : req.kind;
+  // Item 5: the model is scaled by the measured actual ÷ estimate of the last completed runs of this kind.
+  const estimate = estimateRunUsd(thread.model, promptTokens, kind, calibrationFactor(await store.recentEstimates(req.kind, CALIBRATION_RUNS)));
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
@@ -132,6 +134,7 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
   const allowedUsd = req.confirmedUsd ?? Math.max(config.capRunUsd, estimate.usd);
 
   const { turn, created } = await store.createTurn({ threadId: thread.id, clientTurnId: req.clientTurnId, question: req.question, kind: req.kind, pageContext: (req.context as Record<string, unknown> | null) ?? null });
+  if (created) await store.updateTurn(turn.id, { estimateUsd: estimate.usd });
   const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null };
   return { ok: true, thread, turn, created, estimate, allowedUsd, deps };
 }

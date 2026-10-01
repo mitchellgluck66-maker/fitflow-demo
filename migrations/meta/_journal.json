@@ -134,6 +134,13 @@
       "when": 1790804480499,
       "tag": "0018_applied_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790818784505,
+      "tag": "0019_analyst_estimate",
+      "breakpoints": true
     }
   ]
 }
