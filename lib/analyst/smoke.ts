@@ -13,9 +13,8 @@ import { costLine, type AnalystEvent, type TurnOutcome } from './run';
 import { formatUsd } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient } from './api';
-import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
-import { db, contacts } from '@/db';
-import { ne } from 'drizzle-orm';
+import { analystWireHash, recordingClient, scrubFixture, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
+import { loadPeople } from './scrubPeople';
 
 export interface SmokeTurnLine {
   status: 'PASS' | 'FAIL';
@@ -147,7 +146,7 @@ export function smokeTurns(opts: Pick<SmokeOptions, 'full'>): SmokeTurn[] {
   return opts.full ? SMOKE_TURNS : SMOKE_TURNS.slice(0, 1);
 }
 
-export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[]; fixturePath: string | null; effort: string | null }> {
+export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[]; fixturePath: string | null; recordError: string | null; effort: string | null }> {
   const store = new MemoryAnalystStore();
   const config = await getAnalystConfig();
   const lines: SmokeTurnLine[] = [];
@@ -160,6 +159,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   const recorder = opts.record && config.key ? recordingClient(loopClient(makeAnalystClient(config.key))) : null;
   const recorded: RecordedTurn[] = [];
   let fixturePath: string | null = null;
+  let recordError: string | null = null;
   let threadModel: string | null = null;
   let threadEffort: string | null = null;
   const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', costUsd: 0, estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, rounds: [], misses: [], ...extra });
@@ -259,11 +259,18 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   }
   const model = threadId ? ((await store.getThread(threadId))?.model ?? config.modelDefault) : config.modelDefault;
   if (opts.record && recorder && recorded.length > 0 && threadModel && threadEffort) {
-    const [real] = await db.select({ id: contacts.id }).from(contacts).where(ne(contacts.origin, 'demo')).limit(1);
-    const fixture: ReplayFixture = { version: 1, recordedAt: new Date().toISOString(), wireHash: analystWireHash(config.answerMode), model: threadModel as ReplayFixture['model'], effort: threadEffort as ReplayFixture['effort'], answerMode: config.answerMode, database: `${opts.record.database}${real ? ' · REAL data — names inside, review before committing' : ' · demo data'}`, turns: recorded };
-    fixturePath = writeFixture(opts.record.name, fixture);
-    opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (wire hash ${fixture.wireHash.slice(0, 12)}…; ${fixture.database})`);
+    // A fixture never holds real people: scrub names / emails / phones to stable placeholders, prove nobody from the
+    // contacts table is left and that the scrubbed file still replays, and only then write it.
+    const raw: ReplayFixture = { version: 1, recordedAt: new Date().toISOString(), wireHash: analystWireHash(config.answerMode), model: threadModel as ReplayFixture['model'], effort: threadEffort as ReplayFixture['effort'], answerMode: config.answerMode, database: opts.record.database, turns: recorded };
+    try {
+      const fixture = await scrubFixture(raw, await loadPeople());
+      fixturePath = writeFixture(opts.record.name, fixture);
+      opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (wire hash ${fixture.wireHash.slice(0, 12)}…; scrubbed: ${fixture.scrub!.people} people → Client A…, ${fixture.scrub!.names} name / ${fixture.scrub!.emails} email / ${fixture.scrub!.phones} phone replacements; checked against ${fixture.scrub!.checkedAgainst} people)`);
+    } catch (err) {
+      recordError = err instanceof Error ? err.message : String(err);
+      opts.log?.(`   FAIL record · ${recordError}`);
+    }
   }
   const runLevel = model.startsWith('claude-opus') ? runMisses(lines) : [];
-  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel, fixturePath, effort: threadEffort };
+  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel, fixturePath, recordError, effort: threadEffort };
 }

@@ -1004,7 +1004,16 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   "TOTAL $X of $Y budget". `--record` writes the run to `tests/fixtures/analyst-replay/` and
   `tests/analyst-replay.test.ts` (in `npm run check`) replays every fixture through the real loop at $0 —
   a fixture recorded by other code (contract / tools / answer schema / request shape — `replay#analystWireHash`)
-  fails with "fixtures stale: re-record".
+  fails with "fixtures stale: re-record". **A fixture never holds real people:** `--record` replaces every
+  name, email and phone with stable placeholders (Client A, B… — `lib/analyst/scrub.ts`) BEFORE writing,
+  checks the result against the contacts table + Stripe customer names and that it still replays, and
+  writes nothing otherwise; an unscrubbed fixture fails the suite; `npm run check:fixtures` runs the
+  guard against the real database before a push.
+- **Units (2026-10-01):** every number a tool returns reaches the verifier with a unit — by name
+  (`…Cents`, `rate`, counts) or by a declared `unit` on the object (calculate rows, compare_periods
+  rows, trend points, get_metric, conversions; `ledger#leafUnit`). `tests/analyst-display` sweeps all
+  15 tools and fails on a new unit-less numeric field. Chat threads run at effort "medium"; report
+  threads and the deep model at the Setup effort (`config#effortForThread`, fixed per thread).
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
 
