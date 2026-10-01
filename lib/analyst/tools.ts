@@ -19,7 +19,7 @@ import { readRatioSummary } from '../reconcile/appliedRatio';
 import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
 import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
-import { withDisplayStrings } from './display';
+import { displayFor, withDisplayStrings } from './display';
 import { z } from 'zod';
 import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
@@ -53,6 +53,8 @@ export interface ToolContext {
   freshness: Freshness;
   /** `calculate` reads operands from earlier results through this. `undefined` = unknown ref. */
   resolveRef: (ref: string) => number | null | undefined;
+  /** The ledger's unit and currency for a ref (the loop passes it; `calculate` uses it so its result has the unit the verifier will check). */
+  resolveInfo?: (ref: string) => { unit: 'cents' | 'count' | 'ratio' | 'number'; currency: string | null } | undefined;
 }
 
 export interface ToolResult {
@@ -272,7 +274,7 @@ const getScorecardTool = tool(
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
         /** The trailing 8 complete Sun–Sat weeks: each stage→stage conversion now vs that baseline, with the chip's tone. */
-        baseline: { start: res.baseline.start, end: res.baseline.end, note: 'trailing 8 complete Sun–Sat weeks before the period', conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, current: c.current, baseline: c.previous, tone: c.tone })) },
+        baseline: { start: res.baseline.start, end: res.baseline.end, note: 'trailing 8 complete Sun–Sat weeks before the period', conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, baseline: c.previous, tone: c.tone })) },
         showRates: sc.showRates.map((s) => ({ type: s.type, rate: s.rate, showed: s.showed, noShow: s.noShow, cancelled: s.cancelled, past: s.past, coverage: s.coverage, withheld: s.withheld })),
         sources: sc.sources.slice(0, 12).map((s) => ({ source: s.source, applied: s.counts.applied, consultBooked: s.counts.consult_booked, enrolled: s.counts.enrolled, appliedToEnrolled: s.appliedToEnrolled })),
         maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? 'History-dependent metrics (consults booked, roadmaps booked, cost per lead / consult / roadmap, stage→stage conversions) are maturing for this range or its comparison: a change in them is not a real change.' : null },
@@ -302,7 +304,7 @@ const getFunnelTool = tool(
       data: {
         ...summarizeFunnel(f, res.maturity),
         spendCents: f.spendCents,
-        conversions: conv.map((c) => ({ from: c.from, to: c.to, current: c.current, previous: c.previous, capped: c.capped, tone: c.tone })),
+        conversions: conv.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, previous: c.previous, capped: c.capped, tone: c.tone })),
         baseline: rangeOut({ ...res.baseline, label: `trailing 8 weeks · ${res.baseline.start} – ${res.baseline.end}` }),
         appliedCaveat: { text: sc.appliedCaveat.text, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.map((p) => ({ name: p.name, reason: p.reason, link: `/clients/${p.contactId}` })), otherPipelines: sc.appliedCaveat.otherPipelines.map((p) => ({ name: p.name, pipeline: p.pipeline, link: `/clients/${p.contactId}` })) },
         maturityActive: res.maturity.active,
@@ -490,6 +492,8 @@ const getTrendTool = tool(
         metric: t.key,
         label: t.label,
         kind: t.kind,
+        /** Applies to spanValue / previousSpanValue and every point's value (count · cents · pct · ratio). */
+        unit: t.kind,
         lowerIsBetter: t.lowerIsBetter,
         grain: t.grain,
         maturing: t.maturing,
@@ -657,7 +661,9 @@ const comparePeriodsTool = tool(
       const abs = cur === null || prev === null ? null : cur - prev;
       const pct = abs === null || prev === null || prev === 0 ? null : abs / Math.abs(prev);
       const metricKey = k === 'consultsBooked' ? 'consults_booked' : k === 'roadmapsBooked' ? 'roadmaps_booked' : k === 'costPerRoadmapCents' ? 'cost_roadmap' : k;
-      return { kpi: k, current: cur, against: prev, abs, pct, maturing: isMaturingMetric(metricKey, a.maturity) || isMaturingMetric(metricKey, b.maturity) };
+      // The row names its unit: `kpis[3].current` says nothing by itself (the ledger and the verifier read `unit`).
+      const unit = /Cents$/.test(k) ? 'cents' : /^(roas|ltvToCac)$/.test(k) ? 'ratio' : 'count';
+      return { kpi: k, unit, current: cur, against: prev, abs, pct, maturing: isMaturingMetric(metricKey, a.maturity) || isMaturingMetric(metricKey, b.maturity) };
     });
     return {
       range: rangeOut(a.range),
@@ -754,45 +760,61 @@ const RATIO_PATH = /(rate|roas|pct|share|conversion|ltvtocac|frequency|coverage)
 const COVERAGE_COUNT_PATH = /coverage\.(used|total)$/i;
 const CENTS_PATH = /cents/i;
 
-export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef'], unitFor?: (ref: string) => 'cents' | 'ratio' | 'number' | undefined): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
-  const operand = (o: Operand, name: string): { value: number; unit: 'cents' | 'ratio' | 'number' } => {
+export type CalcUnit = 'cents' | 'count' | 'ratio' | 'number';
+/** What the ledger knows about a ref: its unit and the currency of its tool result. */
+export type RefInfo = { unit: CalcUnit; currency: string | null };
+
+/**
+ * One operation. Units come from the LEDGER (`info`) — the same unit the verifier will hold the result to —
+ * and only fall back to the path's name when no ledger is given (pure tests). The result always carries a
+ * unit, and cents carry the currency of their operands (two currencies never mix).
+ */
+export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef'], info?: (ref: string) => RefInfo | undefined): { value: number; unit: CalcUnit; text: string; currency: string | null } {
+  const operand = (o: Operand, name: string): { value: number; unit: CalcUnit; currency: string | null } => {
     if (o.kind === 'ref') {
       if (!o.ref) throw new Error(`${name}: kind is "ref" but ref is empty`);
       const v = resolve(o.ref);
       if (v === undefined) throw new Error(`${name}: unknown ref "${o.ref}" — cite a number from an earlier tool result in this conversation`);
       if (v === null) throw new Error(`${name}: ref "${o.ref}" is null (withheld) — there is nothing to compute`);
-      const known = unitFor?.(o.ref);
-      return { value: v, unit: known ?? (CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number') };
+      const known = info?.(o.ref);
+      if (known) return { value: v, unit: known.unit, currency: known.unit === 'cents' ? known.currency : null };
+      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number', currency: null };
     }
-    if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number' };
+    if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number', currency: null };
     throw new Error(`${name}: give a ref or a numeric value`);
   };
   const x = operand(a, 'a');
   const y = operand(b, 'b');
-  if ((op === 'sum' || op === 'difference') && x.unit === 'ratio' && y.unit === 'ratio') throw new Error('refused: do not add or average ratios — recompute from the totals (e.g. ratio of the summed numerators and denominators)');
-  if ((op === 'sum' || op === 'difference') && x.unit !== y.unit && x.unit !== 'number' && y.unit !== 'number') throw new Error(`refused: ${op} of ${x.unit} and ${y.unit} mixes units`);
+  if (x.currency && y.currency && x.currency !== y.currency) throw new Error(`refused: ${x.currency} and ${y.currency} amounts cannot be combined — fetch both in the reporting currency`);
+  const currency = x.currency ?? y.currency;
+  const additive = op === 'sum' || op === 'difference';
+  if (additive && x.unit === 'ratio' && y.unit === 'ratio') throw new Error('refused: do not add or average ratios — recompute from the totals (e.g. ratio of the summed numerators and denominators)');
+  if (additive && x.unit !== y.unit && x.unit !== 'number' && y.unit !== 'number') throw new Error(`refused: ${op} of ${x.unit} and ${y.unit} mixes units`);
   const cents = x.unit === 'cents' || y.unit === 'cents';
+  /** sum / difference keep the operands' unit (a literal adopts the other side's). */
+  const same: CalcUnit = x.unit !== 'number' ? x.unit : y.unit;
   switch (op) {
     case 'sum':
-      return out(x.value + y.value, cents ? 'cents' : x.unit === 'ratio' ? 'ratio' : 'number');
+      return out(x.value + y.value, same);
     case 'difference':
-      return out(x.value - y.value, cents ? 'cents' : x.unit === 'ratio' ? 'ratio' : 'number');
+      return out(x.value - y.value, same);
     case 'percent_change':
       if (y.value === 0) throw new Error('percent_change: the base (b) is 0 — there is no percentage');
       return out((x.value - y.value) / Math.abs(y.value), 'ratio');
     case 'ratio':
       if (y.value === 0) throw new Error('ratio: b is 0');
-      return out(x.value / y.value, x.unit === 'cents' && y.unit === 'cents' ? 'ratio' : x.unit === 'cents' ? 'cents' : 'number');
+      // Like ÷ like is a share or a multiple (cents ÷ cents, count ÷ count: "41%" / "2.1×"); cents ÷ anything else stays money.
+      return out(x.value / y.value, x.unit === y.unit ? 'ratio' : x.unit === 'cents' ? 'cents' : 'number');
     case 'per_unit':
       if (y.value === 0) throw new Error('per_unit: b is 0');
       return out(x.unit === 'cents' ? Math.round(x.value / y.value) : x.value / y.value, x.unit === 'cents' ? 'cents' : 'number');
     case 'product':
-      return out(x.value * y.value, cents ? 'cents' : x.unit === 'ratio' && y.unit === 'ratio' ? 'ratio' : 'number');
+      return out(x.value * y.value, cents ? 'cents' : x.unit === 'ratio' && y.unit === 'ratio' ? 'ratio' : x.unit === 'count' && y.unit === 'count' ? 'count' : 'number');
   }
-  function out(value: number, unit: 'cents' | 'count' | 'ratio' | 'number') {
-    const v = unit === 'cents' ? Math.round(value) : Math.round(value * 1e6) / 1e6;
+  function out(value: number, unit: CalcUnit) {
+    const v = unit === 'cents' || unit === 'count' ? Math.round(value) : Math.round(value * 1e6) / 1e6;
     const text = unit === 'cents' ? money(v, 'CAD').replace(' CAD', '') : unit === 'ratio' ? (op === 'percent_change' ? formatPct(v, 1) : `${v.toFixed(4)}`) : String(v);
-    return { value: v, unit, text };
+    return { value: v, unit, text, currency: unit === 'cents' ? currency : null };
   }
 }
 
@@ -809,15 +831,19 @@ const OPERATION_SCHEMA = {
   additionalProperties: false,
 } as const;
 export type CalcOperation = { label: string; op: CalcOp; a: Operand; b: Operand };
-export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: number | null; unit: 'cents' | 'count' | 'ratio' | 'number' | null; text: string | null; error: string | null };
+/**
+ * A result row is a tool result like any other: the number, its `unit` (which the ledger and the verifier read —
+ * `results[16].value` says nothing by itself) and the display string to copy. A ratio carries both readings.
+ */
+export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: number | null; unit: CalcUnit | null; valueText: string | null; valueMultipleText?: string; error: string | null };
 
 /**
- * Run a whole batch in order (item 1, 2026-09-30: one calculate call per turn instead of one per number).
- * Each row has its own citeable ref (`<call ref>:data.results[i].value`); a failing operation fails ONLY
- * its row (value null + the reason) so the rest still get refs; `#label` chains an earlier row.
+ * Run a whole batch in order (one calculate call per turn instead of one per number). Each row has its own
+ * citeable ref (`<call ref>:data.results[i].value`); a failing operation fails ONLY its row (value null + the
+ * reason) so the rest still get refs; `#label` chains an earlier row with its unit and currency.
  */
-export function calculateBatch(operations: CalcOperation[], callRef: string, resolve: ToolContext['resolveRef']): CalcResultRow[] {
-  const byLabel = new Map<string, { value: number | null; unit: 'cents' | 'ratio' | 'number' | undefined }>();
+export function calculateBatch(operations: CalcOperation[], callRef: string, resolve: ToolContext['resolveRef'], info?: (ref: string) => RefInfo | undefined): CalcResultRow[] {
+  const byLabel = new Map<string, { value: number | null; unit: CalcUnit | null; currency: string | null }>();
   const resolveWithBatch: ToolContext['resolveRef'] = (ref) => {
     if (ref.startsWith('#')) {
       const label = ref.slice(1);
@@ -826,18 +852,30 @@ export function calculateBatch(operations: CalcOperation[], callRef: string, res
     }
     return resolve(ref);
   };
-  // A chained row keeps the unit of the row it reads (cents stay cents), which the path regexes could not tell from "#label".
-  const unitFor = (ref: string) => (ref.startsWith('#') ? byLabel.get(ref.slice(1))?.unit : undefined);
+  const infoWithBatch = (ref: string): RefInfo | undefined => {
+    if (!ref.startsWith('#')) return info?.(ref);
+    const row = byLabel.get(ref.slice(1));
+    return row?.unit ? { unit: row.unit, currency: row.currency } : undefined;
+  };
   return operations.map((o, i) => {
     const ref = `${callRef}:data.results[${i}].value`;
     try {
       if (byLabel.has(o.label)) throw new Error(`label "${o.label}" is used twice in this batch`);
-      const r = calculate(o.op, o.a, o.b, resolveWithBatch, unitFor);
-      byLabel.set(o.label, { value: r.value, unit: r.unit === 'count' ? 'number' : r.unit });
-      return { label: o.label, op: o.op, ref, value: r.value, unit: r.unit, text: r.text, error: null };
+      const r = calculate(o.op, o.a, o.b, resolveWithBatch, infoWithBatch);
+      // No silent currency: a money result whose operands' currency is unknown is an error, never "$… CAD" by default.
+      if (r.unit === 'cents' && !r.currency) throw new Error('the result is money but its currency is unknown — use refs from tool results in this conversation (their result names the currency)');
+      byLabel.set(o.label, { value: r.value, unit: r.unit, currency: r.currency });
+      const abs = Math.abs(r.value);
+      const row: CalcResultRow = { label: o.label, op: o.op, ref, value: r.value, unit: r.unit, valueText: null, error: null };
+      if (r.unit === 'cents') row.valueText = displayFor('data.valueCents', r.value, r.currency!);
+      else if (r.unit === 'ratio') {
+        row.valueText = `${(Math.round(abs * 1000) / 10).toFixed(1)}%`;
+        row.valueMultipleText = `${(Math.round(abs * 10) / 10).toFixed(1)}×`;
+      } else row.valueText = String(abs);
+      return row;
     } catch (err) {
-      byLabel.set(o.label, { value: null, unit: undefined });
-      return { label: o.label, op: o.op, ref, value: null, unit: null, text: null, error: err instanceof Error ? err.message : String(err) };
+      byLabel.set(o.label, { value: null, unit: null, currency: null });
+      return { label: o.label, op: o.op, ref, value: null, unit: null, valueText: null, error: err instanceof Error ? err.message : String(err) };
     }
   });
 }
@@ -846,7 +884,7 @@ const calculateTool = tool(
   {
     name: 'calculate',
     description:
-      'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so every result has a ref you can cite. Send ALL the arithmetic a turn needs as ONE batch of operations (one call, not one call per number); an operation may read an earlier one of the same batch with ref "#<label>". Each result row carries its own ref ("r7:data.results[0].value") and display text; a failing operation fails only its row. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
+      'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so every result has a ref you can cite. Send ALL the arithmetic a turn needs as ONE batch of operations (one call, not one call per number); an operation may read an earlier one of the same batch with ref "#<label>". Each result row carries its own ref ("r7:data.results[0].value"), its unit (cents / count / ratio / number) and the display string to copy ("valueText": "$4,937.50 CAD" or "41.2%"; a ratio also has "valueMultipleText": "2.1×"); a failing operation fails only its row. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
     input_schema: {
       type: 'object',
       properties: {
@@ -860,7 +898,7 @@ const calculateTool = tool(
     const operations = input.operations as CalcOperation[];
     if (operations.length === 0) return { range: null, currency: 'CAD', fx: '', data: null, error: 'operations is empty — give at least one operation' };
     if (operations.length > 40) return { range: null, currency: 'CAD', fx: '', data: null, error: `${operations.length} operations — at most 40 per call` };
-    const results = calculateBatch(operations, ctx.ref, ctx.resolveRef);
+    const results = calculateBatch(operations, ctx.ref, ctx.resolveRef, ctx.resolveInfo);
     const failed = results.filter((r) => r.error).length;
     return { range: null, currency: 'CAD', fx: '', data: { results, failed }, ...(failed ? { error: `${failed} of ${results.length} operations failed — see results[i].error` } : {}) };
   },

@@ -321,7 +321,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
           toolUses.map(async (tu) => {
             calls += 1;
             const ref = `r${calls}`;
-            const result = await runAnalystTool(tu.name, tu.input, { ref, freshness: deps.freshness, resolveRef: (r) => ledger.resolve(r) }, deps.tools);
+            const result = await runAnalystTool(tu.name, tu.input, { ref, freshness: deps.freshness, resolveRef: (r) => ledger.resolve(r), resolveInfo: (r) => ledger.info(r) }, deps.tools);
             return { id: tu.id, ref, name: tu.name, label: toolLabel(tu.name, tu.input), result };
           }),
         );

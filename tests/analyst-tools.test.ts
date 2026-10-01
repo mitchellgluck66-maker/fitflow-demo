@@ -18,7 +18,7 @@ import { todayInTimezone, rangeFromParams } from '@/lib/dates';
 
 const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
 const values = new Map<string, number | null>();
-const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: (r) => (values.has(r) ? values.get(r) : undefined) });
+const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: (r) => (values.has(r) ? values.get(r) : undefined), resolveInfo: (r) => (values.has(r) ? { unit: /Cents/.test(r) ? 'cents' : /enrollments/.test(r) ? 'count' : 'number', currency: 'CAD' } : undefined) });
 const LAST_WEEK = { preset: 'last_week', start: '', end: '' };
 
 describe('contract', () => {
@@ -38,13 +38,24 @@ describe('contract', () => {
 describe('calculate (pure)', () => {
   const resolve = (r: string) => ({ 'r1:data.marketing.spendCents': 369_768, 'r1:data.marketing.enrollments': 8, 'r2:data.marketing.spendCents': 300_000, 'r1:data.showRates[0].rate': 0.6, 'r2:data.showRates[0].rate': 0.5, 'r1:data.marketing.roas': null, 'r1:data.marketing.ltvCoverage.used': 21, 'r1:data.marketing.ltvCoverage.total': 24 } as Record<string, number | null>)[r];
   it('money stays in cents; percent change is a ratio; per_unit rounds to cents', () => {
-    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toEqual({ value: 69_768, unit: 'cents', text: '$697.68' });
+    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toEqual({ value: 69_768, unit: 'cents', text: '$697.68', currency: null });
     expect(calculate('percent_change', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toMatchObject({ value: 0.23256, unit: 'ratio', text: '23.3%' });
-    expect(calculate('per_unit', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 }, resolve)).toEqual({ value: 46_221, unit: 'cents', text: '$462.21' });
-    expect(calculate('product', { kind: 'value', ref: '', value: 3 }, { kind: 'value', ref: '', value: 4 }, resolve)).toEqual({ value: 12, unit: 'number', text: '12' });
+    expect(calculate('per_unit', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 }, resolve)).toEqual({ value: 46_221, unit: 'cents', text: '$462.21', currency: null });
+    expect(calculate('product', { kind: 'value', ref: '', value: 3 }, { kind: 'value', ref: '', value: 4 }, resolve)).toEqual({ value: 12, unit: 'number', text: '12', currency: null });
   });
   it('partial-data rule: a coverage block\'s used / total are counts (a "coverage" path is a ratio only for show-rate attendance)', () => {
-    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.total', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.used', value: 0 }, resolve)).toEqual({ value: 3, unit: 'number', text: '3' });
+    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.total', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.used', value: 0 }, resolve)).toEqual({ value: 3, unit: 'number', text: '3', currency: null });
+  });
+  /** The ledger's view of the same refs: unit + currency (what the loop passes as resolveInfo). */
+  const info = (r: string) => (resolve(r) === undefined ? undefined : { unit: (/Cents/.test(r) ? 'cents' : /rate|roas/.test(r) ? 'ratio' : /enrollments|used|total/.test(r) ? 'count' : 'number') as 'cents' | 'count' | 'ratio' | 'number', currency: 'CAD' });
+  it('units come from the ledger: counts stay counts, like ÷ like is a ratio, cents carry their currency, two currencies never mix', () => {
+    const c = (op: Parameters<typeof calculate>[0], a: string, b: string, inf = info) => calculate(op, { kind: 'ref', ref: a, value: 0 }, { kind: 'ref', ref: b, value: 0 }, resolve, inf);
+    expect(c('difference', 'r1:data.marketing.ltvCoverage.total', 'r1:data.marketing.ltvCoverage.used')).toMatchObject({ value: 3, unit: 'count', currency: null });
+    expect(c('ratio', 'r1:data.marketing.ltvCoverage.used', 'r1:data.marketing.ltvCoverage.total')).toMatchObject({ value: 0.875, unit: 'ratio' });
+    expect(c('ratio', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents')).toMatchObject({ unit: 'ratio', currency: null });
+    expect(c('sum', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents')).toMatchObject({ value: 669_768, unit: 'cents', currency: 'CAD' });
+    expect(() => c('sum', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents', (r) => ({ unit: 'cents', currency: r.startsWith('r1') ? 'CAD' : 'USD' }))).toThrow(/CAD and USD amounts cannot be combined/);
+    expect(() => c('sum', 'r1:data.marketing.spendCents', 'r1:data.marketing.enrollments')).toThrow(/mixes units/);
   });
   it('batch: every row gets its own ref, "#label" chains an earlier row, a failing row fails alone', () => {
     const rows = calculateBatch(
@@ -58,14 +69,15 @@ describe('calculate (pure)', () => {
       ],
       'r7',
       resolve,
+      info,
     );
-    expect(rows.map((r) => [r.label, r.ref, r.value, r.text])).toEqual([
-      ['delta', 'r7:data.results[0].value', 69_768, '$697.68'],
-      ['per_client', 'r7:data.results[1].value', 8_721, '$87.21'],
-      ['bad', 'r7:data.results[2].value', null, null],
-      ['after_bad', 'r7:data.results[3].value', null, null],
-      ['unknown', 'r7:data.results[4].value', null, null],
-      ['delta', 'r7:data.results[5].value', null, null],
+    expect(rows.map((r) => [r.label, r.ref, r.value, r.unit, r.valueText])).toEqual([
+      ['delta', 'r7:data.results[0].value', 69_768, 'cents', '$697.68 CAD'],
+      ['per_client', 'r7:data.results[1].value', 8_721, 'cents', '$87.21 CAD'],
+      ['bad', 'r7:data.results[2].value', null, null, null],
+      ['after_bad', 'r7:data.results[3].value', null, null, null],
+      ['unknown', 'r7:data.results[4].value', null, null, null],
+      ['delta', 'r7:data.results[5].value', null, null, null],
     ]);
     expect(rows[2].error).toMatch(/null \(withheld\)/);
     expect(rows[3].error).toMatch(/ref "#bad" is null/);
@@ -205,7 +217,7 @@ describe('parity with the page functions on the demo database', () => {
     expect(await runAnalystTool('get_trend', { metric: 'enrollments', window: 'bogus' }, ctx('r23'))).toMatchObject({ error: expect.stringMatching(/^invalid input for get_trend: window: /) });
     values.set('r1:data.marketing.spendCents', 100_000);
     values.set('r1:data.marketing.enrollments', 4);
-    expect((await runAnalystTool('calculate', { operations: [{ label: 'cac', op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }] }, ctx('r24'))).data).toMatchObject({ results: [{ label: 'cac', ref: 'r24:data.results[0].value', value: 25_000, unit: 'cents', text: '$250', error: null }], failed: 0 });
+    expect((await runAnalystTool('calculate', { operations: [{ label: 'cac', op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }] }, ctx('r24'))).data).toMatchObject({ results: [{ label: 'cac', ref: 'r24:data.results[0].value', value: 25_000, unit: 'cents', valueText: '$250 CAD', error: null }], failed: 0 });
     // A batch with one bad row is NOT an empty success: data carries every row, the error names the count.
     const mixed = await runAnalystTool('calculate', { operations: [{ label: 'ok', op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2 } }, { label: 'bad', op: 'sum', a: { kind: 'ref', ref: 'r1:data.x.rate', value: 0 }, b: { kind: 'ref', ref: 'r1:data.y.rate', value: 0 } }] }, ctx('r25'));
     expect(mixed).toMatchObject({ error: '1 of 2 operations failed — see results[i].error', data: { failed: 1, results: [{ value: 3 }, { value: null, error: expect.stringMatching(/unknown ref/) }] } });

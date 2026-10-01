@@ -49,3 +49,6 @@ db/pglite/
 *.tgz
 !.env.example
 _to_delete/
+
+# Analyst replay recordings that still hold real names (never committed; re-record with the scrubber)
+tests/fixtures/analyst-replay/*.local
