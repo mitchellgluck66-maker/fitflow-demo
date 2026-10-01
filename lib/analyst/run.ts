@@ -139,7 +139,7 @@ const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = 
   get_notes: () => 'Reading the owner notes…',
   get_metric: (i) => `Working the ${String(i.key ?? 'metric')} formula…`,
   get_todo: () => "Reading today's call list…",
-  calculate: (i) => `Calculating (${String(i.op ?? 'arithmetic')})…`,
+  calculate: (i) => `Calculating (${Array.isArray(i.operations) ? `${i.operations.length} operation${i.operations.length === 1 ? '' : 's'}` : 'arithmetic'})…`,
 };
 
 function rangeText(i: Record<string, unknown>): string {

@@ -749,14 +749,15 @@ const RATIO_PATH = /(rate|roas|pct|share|conversion|ltvtocac|frequency|coverage)
 const COVERAGE_COUNT_PATH = /coverage\.(used|total)$/i;
 const CENTS_PATH = /cents/i;
 
-export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef']): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
+export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef'], unitFor?: (ref: string) => 'cents' | 'ratio' | 'number' | undefined): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
   const operand = (o: Operand, name: string): { value: number; unit: 'cents' | 'ratio' | 'number' } => {
     if (o.kind === 'ref') {
       if (!o.ref) throw new Error(`${name}: kind is "ref" but ref is empty`);
       const v = resolve(o.ref);
       if (v === undefined) throw new Error(`${name}: unknown ref "${o.ref}" — cite a number from an earlier tool result in this conversation`);
       if (v === null) throw new Error(`${name}: ref "${o.ref}" is null (withheld) — there is nothing to compute`);
-      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number' };
+      const known = unitFor?.(o.ref);
+      return { value: v, unit: known ?? (CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number') };
     }
     if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number' };
     throw new Error(`${name}: give a ref or a numeric value`);
@@ -790,28 +791,73 @@ export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolConte
   }
 }
 
+/** One operation of a `calculate` batch. `label` names it for the model; an operand `ref` of `#<label>` reads an EARLIER operation of the same batch. */
+const OPERATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    label: { type: 'string', description: 'Your short name for this operation (unique in the batch), e.g. "spend_delta". A later operation may read it with ref "#spend_delta".' },
+    op: { type: 'string', enum: CALC_OPS },
+    a: OPERAND_SCHEMA,
+    b: OPERAND_SCHEMA,
+  },
+  required: ['label', 'op', 'a', 'b'],
+  additionalProperties: false,
+} as const;
+export type CalcOperation = { label: string; op: CalcOp; a: Operand; b: Operand };
+export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: number | null; unit: 'cents' | 'count' | 'ratio' | 'number' | null; text: string | null; error: string | null };
+
+/**
+ * Run a whole batch in order (item 1, 2026-09-30: one calculate call per turn instead of one per number).
+ * Each row has its own citeable ref (`<call ref>:data.results[i].value`); a failing operation fails ONLY
+ * its row (value null + the reason) so the rest still get refs; `#label` chains an earlier row.
+ */
+export function calculateBatch(operations: CalcOperation[], callRef: string, resolve: ToolContext['resolveRef']): CalcResultRow[] {
+  const byLabel = new Map<string, { value: number | null; unit: 'cents' | 'ratio' | 'number' | undefined }>();
+  const resolveWithBatch: ToolContext['resolveRef'] = (ref) => {
+    if (ref.startsWith('#')) {
+      const label = ref.slice(1);
+      if (!byLabel.has(label)) throw new Error(`"${ref}" names no earlier operation of this batch (labels so far: ${[...byLabel.keys()].map((l) => `#${l}`).join(', ') || 'none'})`);
+      return byLabel.get(label)!.value;
+    }
+    return resolve(ref);
+  };
+  // A chained row keeps the unit of the row it reads (cents stay cents), which the path regexes could not tell from "#label".
+  const unitFor = (ref: string) => (ref.startsWith('#') ? byLabel.get(ref.slice(1))?.unit : undefined);
+  return operations.map((o, i) => {
+    const ref = `${callRef}:data.results[${i}].value`;
+    try {
+      if (byLabel.has(o.label)) throw new Error(`label "${o.label}" is used twice in this batch`);
+      const r = calculate(o.op, o.a, o.b, resolveWithBatch, unitFor);
+      byLabel.set(o.label, { value: r.value, unit: r.unit === 'count' ? 'number' : r.unit });
+      return { label: o.label, op: o.op, ref, value: r.value, unit: r.unit, text: r.text, error: null };
+    } catch (err) {
+      byLabel.set(o.label, { value: null, unit: undefined });
+      return { label: o.label, op: o.op, ref, value: null, unit: null, text: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+}
+
 const calculateTool = tool(
   {
     name: 'calculate',
-    description: 'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so the result has a ref you can cite. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
+    description:
+      'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so every result has a ref you can cite. Send ALL the arithmetic a turn needs as ONE batch of operations (one call, not one call per number); an operation may read an earlier one of the same batch with ref "#<label>". Each result row carries its own ref ("r7:data.results[0].value") and display text; a failing operation fails only its row. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
     input_schema: {
       type: 'object',
       properties: {
-        op: { type: 'string', enum: CALC_OPS },
-        a: OPERAND_SCHEMA,
-        b: OPERAND_SCHEMA,
+        operations: { type: 'array', items: OPERATION_SCHEMA, description: 'Every operation for this turn, in order (1–40).' },
       },
-      required: ['op', 'a', 'b'],
+      required: ['operations'],
       additionalProperties: false,
     },
   },
   async (input, ctx) => {
-    try {
-      const r = calculate(input.op as CalcOp, input.a as Operand, input.b as Operand, ctx.resolveRef);
-      return { range: null, currency: 'CAD', fx: '', data: { op: input.op, a: input.a, b: input.b, value: r.value, unit: r.unit, text: r.text } };
-    } catch (err) {
-      return { range: null, currency: 'CAD', fx: '', data: null, error: err instanceof Error ? err.message : String(err) };
-    }
+    const operations = input.operations as CalcOperation[];
+    if (operations.length === 0) return { range: null, currency: 'CAD', fx: '', data: null, error: 'operations is empty — give at least one operation' };
+    if (operations.length > 40) return { range: null, currency: 'CAD', fx: '', data: null, error: `${operations.length} operations — at most 40 per call` };
+    const results = calculateBatch(operations, ctx.ref, ctx.resolveRef);
+    const failed = results.filter((r) => r.error).length;
+    return { range: null, currency: 'CAD', fx: '', data: { results, failed }, ...(failed ? { error: `${failed} of ${results.length} operations failed — see results[i].error` } : {}) };
   },
 );
 

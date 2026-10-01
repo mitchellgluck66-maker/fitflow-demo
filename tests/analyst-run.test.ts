@@ -118,6 +118,41 @@ describe('the loop (memory store)', () => {
     expect(ledgerFromLog(rows).ledger.resolve('r1:data.kpis.enrollments.current')).toBe(8);
   });
 
+  it('item 1: a round with several tool calls runs them CONCURRENTLY, refs in call order, one tool_results message, toolCalls = N', async () => {
+    const store = new MemoryAnalystStore();
+    let inFlight = 0;
+    let peak = 0;
+    const slowTools: AnalystTool[] = [
+      ...tools,
+      {
+        definition: { name: 'get_funnel', description: 'y'.repeat(50), strict: true, input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false } },
+        run: async () => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise((r) => setTimeout(r, 20));
+          inFlight -= 1;
+          return { range: null, currency: 'CAD', fx: '', data: { stages: [{ key: 'applied', count: 52 }] } };
+        },
+      },
+    ];
+    slowTools[0] = { ...slowTools[0], run: async (...a) => { inFlight += 1; peak = Math.max(peak, inFlight); await new Promise((r) => setTimeout(r, 20)); inFlight -= 1; return tools[0].run(...a); } };
+    const client = fakeClient([
+      msg([think('Gathering'), toolUse('tu1', 'get_scorecard'), toolUse('tu2', 'get_funnel'), toolUse('tu3', 'get_funnel')], 'tool_use'),
+      msg([text(answerJson())], 'end_turn'),
+    ]);
+    const { thread, turn, events, deps } = await setup(store, { client, tools: slowTools });
+    const out = await runAnalystTurn(thread.id, turn.id, deps);
+    expect(out.status).toBe('done');
+    expect(peak).toBe(3); // all three ran at once, not one after another
+    expect(events.find((e) => e.type === 'round')).toMatchObject({ toolCalls: 3 });
+    expect(events.find((e) => e.type === 'tools')).toMatchObject({ calls: [{ ref: 'r1', name: 'get_scorecard' }, { ref: 'r2', name: 'get_funnel' }, { ref: 'r3', name: 'get_funnel' }] });
+    const rows = await store.listMessages(thread.id);
+    expect(rows.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results', 'assistant']);
+    const results = (JSON.parse(rows[2].apiJson) as { content: Array<{ tool_use_id: string }> }).content;
+    expect(results.map((c) => c.tool_use_id)).toEqual(['tu1', 'tu2', 'tu3']);
+    expect(ledgerFromLog(rows).ledger.resolve('r3:data.stages[0].count')).toBe(52);
+  });
+
   it('a wrong number gets ONE repair turn; a correct second answer is accepted as repaired', async () => {
     const store = new MemoryAnalystStore();
     const bad = answerJson({ headline: { text: 'Enrollments hit 9.', ref: 'r1:data.kpis.enrollments.current' } });

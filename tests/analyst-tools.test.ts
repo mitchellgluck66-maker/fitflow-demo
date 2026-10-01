@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { runMigrations } from '@/db/migrate';
 import { seedDemo } from '@/db/seed-demo';
-import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, calculate, runAnalystTool, scrubContact, type Freshness, type ToolContext } from '@/lib/analyst/tools';
+import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, calculate, calculateBatch, runAnalystTool, scrubContact, type Freshness, type ToolContext } from '@/lib/analyst/tools';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '@/lib/metrics/service';
 import { listClients, getClientProfile } from '@/lib/queries/clients';
@@ -45,6 +45,32 @@ describe('calculate (pure)', () => {
   });
   it('partial-data rule: a coverage block\'s used / total are counts (a "coverage" path is a ratio only for show-rate attendance)', () => {
     expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.total', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.used', value: 0 }, resolve)).toEqual({ value: 3, unit: 'number', text: '3' });
+  });
+  it('batch: every row gets its own ref, "#label" chains an earlier row, a failing row fails alone', () => {
+    const rows = calculateBatch(
+      [
+        { label: 'delta', op: 'difference', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 } },
+        { label: 'per_client', op: 'per_unit', a: { kind: 'ref', ref: '#delta', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } },
+        { label: 'bad', op: 'ratio', a: { kind: 'ref', ref: 'r1:data.marketing.roas', value: 0 }, b: { kind: 'value', ref: '', value: 1 } },
+        { label: 'after_bad', op: 'sum', a: { kind: 'ref', ref: '#bad', value: 0 }, b: { kind: 'value', ref: '', value: 1 } },
+        { label: 'unknown', op: 'sum', a: { kind: 'ref', ref: '#nope', value: 0 }, b: { kind: 'value', ref: '', value: 1 } },
+        { label: 'delta', op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 1 } },
+      ],
+      'r7',
+      resolve,
+    );
+    expect(rows.map((r) => [r.label, r.ref, r.value, r.text])).toEqual([
+      ['delta', 'r7:data.results[0].value', 69_768, '$697.68'],
+      ['per_client', 'r7:data.results[1].value', 8_721, '$87.21'],
+      ['bad', 'r7:data.results[2].value', null, null],
+      ['after_bad', 'r7:data.results[3].value', null, null],
+      ['unknown', 'r7:data.results[4].value', null, null],
+      ['delta', 'r7:data.results[5].value', null, null],
+    ]);
+    expect(rows[2].error).toMatch(/null \(withheld\)/);
+    expect(rows[3].error).toMatch(/ref "#bad" is null/);
+    expect(rows[4].error).toMatch(/names no earlier operation/);
+    expect(rows[5].error).toMatch(/used twice/);
   });
   it('refuses to add or average ratios, unknown refs, null refs and division by zero', () => {
     expect(() => calculate('sum', { kind: 'ref', ref: 'r1:data.showRates[0].rate', value: 0 }, { kind: 'ref', ref: 'r2:data.showRates[0].rate', value: 0 }, resolve)).toThrow(/recompute from the totals/);
@@ -179,8 +205,11 @@ describe('parity with the page functions on the demo database', () => {
     expect(await runAnalystTool('get_trend', { metric: 'enrollments', window: 'bogus' }, ctx('r23'))).toMatchObject({ error: expect.stringMatching(/^invalid input for get_trend: window: /) });
     values.set('r1:data.marketing.spendCents', 100_000);
     values.set('r1:data.marketing.enrollments', 4);
-    expect((await runAnalystTool('calculate', { op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }, ctx('r24'))).data).toMatchObject({ value: 25_000, unit: 'cents', text: '$250' });
-    expect(await runAnalystTool('calculate', { op: 'sum', a: { kind: 'ref', ref: 'r1:data.x.rate', value: 0 }, b: { kind: 'ref', ref: 'r1:data.y.rate', value: 0 } }, ctx('r25'))).toMatchObject({ data: null, error: expect.stringMatching(/unknown ref/) });
+    expect((await runAnalystTool('calculate', { operations: [{ label: 'cac', op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }] }, ctx('r24'))).data).toMatchObject({ results: [{ label: 'cac', ref: 'r24:data.results[0].value', value: 25_000, unit: 'cents', text: '$250', error: null }], failed: 0 });
+    // A batch with one bad row is NOT an empty success: data carries every row, the error names the count.
+    const mixed = await runAnalystTool('calculate', { operations: [{ label: 'ok', op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2 } }, { label: 'bad', op: 'sum', a: { kind: 'ref', ref: 'r1:data.x.rate', value: 0 }, b: { kind: 'ref', ref: 'r1:data.y.rate', value: 0 } }] }, ctx('r25'));
+    expect(mixed).toMatchObject({ error: '1 of 2 operations failed — see results[i].error', data: { failed: 1, results: [{ value: 3 }, { value: null, error: expect.stringMatching(/unknown ref/) }] } });
+    expect(await runAnalystTool('calculate', { operations: [] }, ctx('r26'))).toMatchObject({ data: null, error: expect.stringMatching(/empty/) });
   });
 
   it('the runtime tool list is the same object the wire contract sorts', () => {

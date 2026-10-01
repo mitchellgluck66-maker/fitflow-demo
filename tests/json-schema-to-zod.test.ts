@@ -37,14 +37,14 @@ describe('runAnalystTool validates input (non-strict tools)', () => {
     expect(r1.error).toContain('fix the input and call again');
     const r2 = await runAnalystTool('get_scorecard', { range: { preset: 'last_week', start: '', end: '' } }, ctx); // compare missing
     expect(r2.error).toMatch(/^invalid input for get_scorecard: compare: /);
-    const r3 = await runAnalystTool('calculate', { op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2, extra: true } }, ctx);
-    expect(r3.error).toMatch(/^invalid input for calculate: b/);
+    const r3 = await runAnalystTool('calculate', { operations: [{ label: 'x', op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2, extra: true } }] }, ctx);
+    expect(r3.error).toMatch(/^invalid input for calculate: operations\.0\.b/);
     const r4 = await runAnalystTool('get_trend', { metric: 'enrollments', window: '2y' }, ctx);
     expect(r4.error).toMatch(/^invalid input for get_trend: window: /);
   });
   it('the corrected call then runs (the model can retry from the error text)', async () => {
-    const ok = await runAnalystTool('calculate', { op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2 } }, ctx);
+    const ok = await runAnalystTool('calculate', { operations: [{ label: 'x', op: 'sum', a: { kind: 'value', ref: '', value: 1 }, b: { kind: 'value', ref: '', value: 2 } }] }, ctx);
     expect(ok.error).toBeUndefined();
-    expect(ok.data).toMatchObject({ value: 3 });
+    expect(ok.data).toMatchObject({ results: [{ value: 3, ref: expect.stringMatching(/:data\.results\[0\]\.value$/) }], failed: 0 });
   });
 });
