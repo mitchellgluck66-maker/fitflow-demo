@@ -22,6 +22,7 @@ import { readMarker, type MarkerFamily } from '../sync/markers';
 import { getTimezone } from '../settings';
 import { todayInTimezone, rangeFromParams } from '../dates';
 import { glossaryEntry } from '../metrics/glossary';
+import { saveProposals } from './notes';
 import { loadMetricsInput } from '../metrics/load';
 import { describeError } from '../anthropic/client';
 
@@ -66,6 +67,8 @@ export interface PrepareOptions {
   onEvent?: (e: AnalystEvent) => void;
   /** Item 4: the snapshot calls a NEW thread opens with (STARTER_CALLS by default; [] = none). */
   starterCalls?: readonly { name: string; input: Record<string, unknown> }[];
+  /** Item 6: save the answer's note_proposals as proposed notes (default true; the smoke passes its own handler). */
+  onProposals?: ((texts: string[]) => Promise<{ saved: number; skipped: number }>) | null;
 }
 
 export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): Promise<PrepareResult> {
@@ -135,7 +138,15 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
 
   const { turn, created } = await store.createTurn({ threadId: thread.id, clientTurnId: req.clientTurnId, question: req.question, kind: req.kind, pageContext: (req.context as Record<string, unknown> | null) ?? null });
   if (created) await store.updateTurn(turn.id, { estimateUsd: estimate.usd });
-  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null };
+  const onProposals =
+    opts.onProposals === null
+      ? undefined
+      : (opts.onProposals ??
+        (async (texts: string[]) => {
+          const r = await saveProposals(texts, { threadId: thread!.id, turnId: turn.id });
+          return { saved: r.saved.length, skipped: r.skipped };
+        }));
+  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null, onProposals };
   return { ok: true, thread, turn, created, estimate, allowedUsd, deps };
 }
 
@@ -158,7 +169,21 @@ export async function resumeTurn(turnId: string, opts: { confirmedUsd?: number |
     await store.updateTurn(turnId, { status: 'running' });
   } else if (turn.status !== 'running') return { ok: false, message: `Turn is ${turn.status}` };
   const freshness = await currentFreshness();
-  const deps: RunDeps = { store, client: opts.client ?? loopClient(makeAnalystClient(config.key)), contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore: await newestMarkerAt(), allowedUsd: opts.confirmedUsd ?? Math.max(config.capRunUsd, turn.costUsd), onEvent: opts.onEvent };
+  const deps: RunDeps = {
+    store,
+    client: opts.client ?? loopClient(makeAnalystClient(config.key)),
+    contract: ANALYST_CONTRACT,
+    brief: { text: brief.text, hash: brief.hash },
+    tools: ANALYST_TOOLS,
+    freshness,
+    staleBefore: await newestMarkerAt(),
+    allowedUsd: opts.confirmedUsd ?? Math.max(config.capRunUsd, turn.costUsd),
+    onEvent: opts.onEvent,
+    onProposals: async (texts) => {
+      const r = await saveProposals(texts, { threadId: turn.threadId, turnId });
+      return { saved: r.saved.length, skipped: r.skipped };
+    },
+  };
   return runAnalystTurn(turn.threadId, turnId, deps);
 }
 

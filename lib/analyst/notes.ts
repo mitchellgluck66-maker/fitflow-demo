@@ -141,6 +141,30 @@ export async function addNote(text: string, opts: { source: 'owner' | 'analyst';
   return asNote(row);
 }
 
+/** Whitespace / case / trailing punctuation folded, so a re-proposed fact is recognised. */
+export const normalizeNoteText = (t: string) => t.trim().replace(/\s+/g, ' ').replace(/[.。]+$/, '').toLowerCase();
+
+/**
+ * Tuning item 6: the Analyst's `note_proposals` from a finished answer → `proposed` rows the owner decides in
+ * Setup → Analyst → Notes. A text already active or proposed (normalised) is skipped, never duplicated; a
+ * previously REJECTED text is skipped too (the owner said no). Returns what happened, for the status line.
+ */
+export async function saveProposals(texts: string[], opts: { threadId?: string | null; turnId?: string | null }): Promise<{ saved: NoteRow[]; skipped: number }> {
+  const existing = new Set((await listNotes()).map((n) => normalizeNoteText(n.text)));
+  const saved: NoteRow[] = [];
+  let skipped = 0;
+  for (const text of texts) {
+    const key = normalizeNoteText(text);
+    if (!key || existing.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    existing.add(key);
+    saved.push(await addNote(text, { source: 'analyst', threadId: opts.threadId ?? null, turnId: opts.turnId ?? null }));
+  }
+  return { saved, skipped };
+}
+
 /** The owner approves (→ active) or rejects a proposed note. Only proposed rows can be decided. */
 export async function decideNote(id: string, decision: 'active' | 'rejected'): Promise<NoteRow | null> {
   const [row] = await db

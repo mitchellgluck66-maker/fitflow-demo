@@ -24,21 +24,29 @@ export interface SmokeTurnLine {
   flagged: number;
   /** Repair turns this turn took, counted from ITS OWN events (0 or 1). */
   repairs: number;
+  /** The answer's note proposals (kept in memory by the smoke — nothing is written). */
+  proposals: string[];
   sections: string[];
   error: string | null;
   cacheRead: number;
 }
 
-export const SMOKE_TURNS: Array<Omit<TurnRequest, 'clientTurnId'>> = [
+export interface SmokeTurn extends Omit<TurnRequest, 'clientTurnId'> {
+  /** Item 6 (memory check): this turn states a durable fact — the answer must carry ≥ 1 note proposal. */
+  expectsProposal?: boolean;
+}
+
+export const SMOKE_TURNS: SmokeTurn[] = [
   { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' } },
   { question: 'And how does that compare with the week before?', kind: 'ask' },
   { question: 'Which campaign had the best cost per client in that period, and should we move budget?', kind: 'ask' },
+  { question: 'For the record: from October we cap Meta spend at $4,000 CAD a month. Does that change your advice?', kind: 'ask', expectsProposal: true },
   { question: '', kind: 'explain', explainKey: 'paid_cac', context: { page: 'ads', range: null } },
 ];
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${l.tools} tools · ${l.cost} · ${l.seconds}s · ${l.error}`;
-  return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')} · repairs ${l.repairs}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}\n     ↳ ${l.headline}`;
+  return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')} · repairs ${l.repairs}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
 export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string }> {
@@ -57,9 +65,12 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
       if (e.type === 'status') opts.log?.(`   turn ${i + 1} · ${e.text}`);
       if (e.type === 'tools') opts.log?.(`   turn ${i + 1} · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);
     };
-    const prepared = await prepareTurn({ ...req, threadId, clientTurnId: `smoke-${i + 1}`, confirmedUsd: 3 }, { store, onEvent });
+    // Nothing is written: proposals are collected here, not saved as notes.
+    const proposals: string[] = [];
+    const { expectsProposal: _expects, ...turnReq } = req;
+    const prepared = await prepareTurn({ ...turnReq, threadId, clientTurnId: `smoke-${i + 1}`, confirmedUsd: 3 }, { store, onEvent, onProposals: async (texts) => { proposals.push(...texts); return { saved: 0, skipped: texts.length }; } });
     if (!prepared.ok) {
-      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools: 0, cost: '$0.00 USD', estimateUsd: prepared.status === 'needs_confirmation' ? prepared.estimate.usd : null, seconds: 0, headline: null, flagged: 0, repairs: 0, sections: [], error: prepared.status === 'needs_confirmation' ? prepared.reason : prepared.message, cacheRead: 0 });
+      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools: 0, cost: '$0.00 USD', estimateUsd: prepared.status === 'needs_confirmation' ? prepared.estimate.usd : null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error: prepared.status === 'needs_confirmation' ? prepared.reason : prepared.message, cacheRead: 0 });
       break;
     }
     threadId = prepared.thread.id;
@@ -67,15 +78,16 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);
     } catch (err) {
-      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools, cost: '$0.00 USD', estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), headline: null, flagged: 0, repairs: 0, sections: [], error: err instanceof Error ? err.message : String(err), cacheRead });
+      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools, cost: '$0.00 USD', estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error: err instanceof Error ? err.message : String(err), cacheRead });
       break;
     }
     const seconds = Math.round((Date.now() - started) / 1000);
     const turn = await store.getTurn(prepared.turn.id);
     // Counted from this turn's own events, so the line and the "Repairing…" log lines above it agree.
     const repairs = turn?.events.filter((e) => e.type === 'status' && (e as { text?: string }).text === 'Repairing the answer…').length ?? 0;
+    const memoryMiss = req.expectsProposal && proposals.length === 0;
     lines.push({
-      status: out.status === 'done' && out.answer ? 'PASS' : 'FAIL',
+      status: out.status === 'done' && out.answer && !memoryMiss ? 'PASS' : 'FAIL',
       turn: i + 1,
       question: req.question,
       tools,
@@ -86,7 +98,8 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
       flagged: out.flagged.length,
       repairs,
       sections: out.answer?.sections.map((s) => s.key) ?? [],
-      error: out.error ?? (out.status !== 'done' ? out.status : null),
+      proposals,
+      error: out.error ?? (out.status !== 'done' ? out.status : memoryMiss ? 'memory check: the owner stated a durable fact but the answer proposed no note' : null),
       cacheRead,
     });
     if (out.status !== 'done') break;

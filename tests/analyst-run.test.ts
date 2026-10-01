@@ -158,6 +158,20 @@ describe('the loop (memory store)', () => {
     expect(ledgerFromLog(rows).ledger.resolve('r3:data.stages[0].count')).toBe(52);
   });
 
+  it('item 6: note_proposals go to the handler (status says how many were saved); without a handler they are listed, never dropped silently', async () => {
+    const store = new MemoryAnalystStore();
+    const proposing = answerJson({ note_proposals: ['2026-09-30: Meta cap $4,000 CAD a month from October'] });
+    const seen: string[][] = [];
+    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(proposing)])]);
+    const { thread, turn, events, deps } = await setup(store, { client, onProposals: async (t) => { seen.push(t); return { saved: 1, skipped: 0 }; } });
+    expect((await runAnalystTurn(thread.id, turn.id, deps)).status).toBe('done');
+    expect(seen).toEqual([['2026-09-30: Meta cap $4,000 CAD a month from October']]);
+    expect(events.some((e) => e.type === 'status' && e.text === '1 note proposal saved for your approval (Setup → Analyst → Notes).')).toBe(true);
+    const bare = await setup(new MemoryAnalystStore(), { client: fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(proposing)])]) });
+    await runAnalystTurn(bare.thread.id, bare.turn.id, bare.deps);
+    expect(bare.events.some((e) => e.type === 'status' && e.text.startsWith('1 note proposal (not saved — no handler): 2026-09-30: Meta cap'))).toBe(true);
+  });
+
   it('a wrong number gets ONE repair turn; a correct second answer is accepted as repaired', async () => {
     const store = new MemoryAnalystStore();
     const bad = answerJson({ headline: { text: 'Enrollments hit 9.', ref: 'r1:data.kpis.enrollments.current' } });

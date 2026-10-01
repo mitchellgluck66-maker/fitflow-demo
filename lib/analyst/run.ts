@@ -78,6 +78,8 @@ export interface RunDeps {
   compactAboveTokens?: number;
   retryDelayMs?: number;
   onEvent?: (e: AnalystEvent) => void;
+  /** Item 6: where a finished answer's `note_proposals` go (the service saves them as proposed notes; the smoke keeps them in memory). */
+  onProposals?: (texts: string[]) => Promise<{ saved: number; skipped: number }>;
 }
 
 export interface TurnOutcome {
@@ -380,6 +382,17 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     await emit({ type: 'answer', answer: accepted, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
     await emit({ type: 'usage', usage, costUsd, model, rounds, estimated: false });
     await noteAnthropicOutcome({ ok: true });
+    // Item 6: proposals become `proposed` notes for the owner to approve; never silently dropped, never auto-active.
+    if (accepted.note_proposals.length > 0) {
+      if (deps.onProposals) {
+        try {
+          const r = await deps.onProposals(accepted.note_proposals);
+          await emit({ type: 'status', text: `${r.saved} note proposal${r.saved === 1 ? '' : 's'} saved for your approval (Setup → Analyst → Notes)${r.skipped ? ` · ${r.skipped} already known` : ''}.` });
+        } catch (err) {
+          await emit({ type: 'status', text: `Note proposals could not be saved (${describeError(err)}): ${accepted.note_proposals.join(' | ')}` });
+        }
+      } else await emit({ type: 'status', text: `${accepted.note_proposals.length} note proposal${accepted.note_proposals.length === 1 ? '' : 's'} (not saved — no handler): ${accepted.note_proposals.join(' | ')}` });
+    }
 
     // Compaction after a completed turn past the token limit — a separate request, same prefix, no output format.
     let compacted = false;
