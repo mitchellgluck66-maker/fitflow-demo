@@ -67,6 +67,8 @@ describe('ledger', () => {
     expect(unitForPath('data.kpis.paidCacCents.current')).toBe('cents');
     expect(unitForPath('data.kpis.enrollments.pct')).toBe('ratio');
     expect(unitForPath('data.kpis.enrollments.abs')).toBe('count');
+    expect(unitForPath('data.kpis.paidCacCents.pct')).toBe('ratio'); // a delta's pct is never cents (item 3)
+    expect(unitForPath('data.kpis.paidCacCents.abs')).toBe('cents');
     expect(unitForPath('data.timeInStageHours')).toBe('hours');
     expect(ledger.resolve('r1:data.marketing.ltvToCac')).toBeNull();
     expect(ledger.resolve('r1:data.nope')).toBeUndefined();
@@ -93,8 +95,12 @@ describe('renders — per-unit rounding', () => {
     expect(renders(e('r1:data.kpis.roas.current'), '2.09x')).toBe(true);
     expect(renders(e('r1:data.kpis.roas.current'), '2.5×')).toBe(false);
     expect(renders(e('r1:data.kpis.enrollments.pct'), '100%')).toBe(true);
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '-50%')).toBe(false); // the sign is prose; "50%" is the number
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '50%')).toBe(false); // -0.5 renders as -50, not 50 — the model must cite the drop as a difference
+    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '-50%')).toBe(false); // the sign is prose ("down 50%"); the token has none
+    // Item 3 (2026-09-30): the MAGNITUDE must match — before, -0.5 rendered as neither "-50%" nor "50%", so every
+    // negative delta was unciteable and went to repair.
+    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '50%')).toBe(true);
+    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '50.0%')).toBe(true);
+    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '49%')).toBe(false);
   });
   it('counts exact; hours to one decimal', () => {
     expect(renders(e('r1:data.kpis.enrollments.current'), '8')).toBe(true);

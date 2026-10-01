@@ -19,6 +19,7 @@ import { readRatioSummary } from '../reconcile/appliedRatio';
 import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
 import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
+import { withDisplayStrings } from './display';
 import { z } from 'zod';
 import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
@@ -904,7 +905,8 @@ export async function runAnalystTool(name: string, input: unknown, ctx: ToolCont
     return { ...base, range: null, currency: 'CAD', fx: '', data: null, error: `${name} failed: ${err instanceof Error ? err.message : String(err)}` };
   }
   const scrubbed = scrubContact(result);
-  const full: ToolResult = { ...base, ...scrubbed };
+  // Item 3: every money / ratio leaf gets its `<key>Text` display string (lib/analyst/display.ts) so the model copies, never renders.
+  const full: ToolResult = { ...base, ...scrubbed, data: scrubbed.data === null ? null : withDisplayStrings(scrubbed.data, scrubbed.currency) };
   const json = JSON.stringify(full);
   if (json.length <= MAX_RESULT_CHARS) return full;
   return truncateResult(full);

@@ -22,7 +22,8 @@ export interface SmokeTurnLine {
   seconds: number;
   headline: string | null;
   flagged: number;
-  repaired: boolean;
+  /** Repair turns this turn took, counted from ITS OWN events (0 or 1). */
+  repairs: number;
   sections: string[];
   error: string | null;
   cacheRead: number;
@@ -37,7 +38,7 @@ export const SMOKE_TURNS: Array<Omit<TurnRequest, 'clientTurnId'>> = [
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${l.tools} tools · ${l.cost} · ${l.seconds}s · ${l.error}`;
-  return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')}${l.repaired ? ' · repaired once' : ''}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}\n     ↳ ${l.headline}`;
+  return `PASS turn ${l.turn} · ${l.tools} tools · ${l.cost} · ${l.seconds}s${l.estimateUsd !== null ? ` · estimate ${formatUsd(l.estimateUsd)}` : ''}${l.cacheRead > 0 ? '' : ' · NO CACHE READ'} · sections ${l.sections.join(',')} · repairs ${l.repairs}${l.flagged ? ` · ${l.flagged} FLAGGED number(s)` : ''}\n     ↳ ${l.headline}`;
 }
 
 export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string }> {
@@ -53,12 +54,12 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
     const onEvent = (e: AnalystEvent) => {
       if (e.type === 'tools') tools += e.calls.length;
       if (e.type === 'usage') cacheRead = e.usage.cacheReadTokens;
-      if (e.type === 'status') opts.log?.(`   · ${e.text}`);
-      if (e.type === 'tools') opts.log?.(`   · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);
+      if (e.type === 'status') opts.log?.(`   turn ${i + 1} · ${e.text}`);
+      if (e.type === 'tools') opts.log?.(`   turn ${i + 1} · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);
     };
     const prepared = await prepareTurn({ ...req, threadId, clientTurnId: `smoke-${i + 1}`, confirmedUsd: 3 }, { store, onEvent });
     if (!prepared.ok) {
-      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools: 0, cost: '$0.00 USD', estimateUsd: prepared.status === 'needs_confirmation' ? prepared.estimate.usd : null, seconds: 0, headline: null, flagged: 0, repaired: false, sections: [], error: prepared.status === 'needs_confirmation' ? prepared.reason : prepared.message, cacheRead: 0 });
+      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools: 0, cost: '$0.00 USD', estimateUsd: prepared.status === 'needs_confirmation' ? prepared.estimate.usd : null, seconds: 0, headline: null, flagged: 0, repairs: 0, sections: [], error: prepared.status === 'needs_confirmation' ? prepared.reason : prepared.message, cacheRead: 0 });
       break;
     }
     threadId = prepared.thread.id;
@@ -66,12 +67,13 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);
     } catch (err) {
-      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools, cost: '$0.00 USD', estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), headline: null, flagged: 0, repaired: false, sections: [], error: err instanceof Error ? err.message : String(err), cacheRead });
+      lines.push({ status: 'FAIL', turn: i + 1, question: req.question, tools, cost: '$0.00 USD', estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), headline: null, flagged: 0, repairs: 0, sections: [], error: err instanceof Error ? err.message : String(err), cacheRead });
       break;
     }
     const seconds = Math.round((Date.now() - started) / 1000);
     const turn = await store.getTurn(prepared.turn.id);
-    const repaired = Boolean(turn?.events.some((e) => e.type === 'answer' && (e as { repaired?: boolean }).repaired));
+    // Counted from this turn's own events, so the line and the "Repairing…" log lines above it agree.
+    const repairs = turn?.events.filter((e) => e.type === 'status' && (e as { text?: string }).text === 'Repairing the answer…').length ?? 0;
     lines.push({
       status: out.status === 'done' && out.answer ? 'PASS' : 'FAIL',
       turn: i + 1,
@@ -82,7 +84,7 @@ export async function runAnalystSmoke(opts: { log?: (line: string) => void } = {
       seconds,
       headline: out.answer?.headline.text ?? null,
       flagged: out.flagged.length,
-      repaired,
+      repairs,
       sections: out.answer?.sections.map((s) => s.key) ?? [],
       error: out.error ?? (out.status !== 'done' ? out.status : null),
       cacheRead,

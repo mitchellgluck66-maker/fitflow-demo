@@ -36,7 +36,7 @@ export type AnalystEvent =
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
   | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
-  | { type: 'answer'; answer: Answer; flagged: Flag[]; repaired: boolean; strippedSpendActions: number }
+  | { type: 'answer'; answer: Answer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean }
   | { type: 'continue' }
   | { type: 'needs_confirmation'; reason: string; spentUsd: number }
@@ -371,7 +371,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, flagged, repaired: repairs > 0, strippedSpendActions } }]);
     await store.updateTurn(turnId, { status: 'done', finishedAt: new Date(), usage: usage as unknown as Record<string, number>, costUsd, rounds });
     await store.updateThread(threadId, { lastTurnAt: new Date(), ...(thread.title ? {} : { title: turn.question.slice(0, 80) }) });
-    await emit({ type: 'answer', answer: accepted, flagged, repaired: repairs > 0, strippedSpendActions });
+    await emit({ type: 'answer', answer: accepted, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
     await emit({ type: 'usage', usage, costUsd, model, rounds, estimated: false });
     await noteAnthropicOutcome({ ok: true });
 

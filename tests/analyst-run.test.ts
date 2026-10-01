@@ -167,7 +167,8 @@ describe('the loop (memory store)', () => {
     expect(out.status).toBe('done');
     expect(out.flagged).toEqual([]);
     expect(events.some((e) => e.type === 'status' && e.text === 'Repairing the answer…')).toBe(true);
-    expect((events.find((e) => e.type === 'answer') as { repaired: boolean }).repaired).toBe(true);
+    expect(events.find((e) => e.type === 'answer')).toMatchObject({ repaired: true, repairs: 1 });
+    expect(events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length).toBe(1); // the count the smoke line prints
     const roles = (await store.listMessages(thread.id)).map((r) => r.role);
     expect(roles).toEqual(['user', 'assistant', 'tool_results', 'assistant', 'user', 'assistant']);
     const repair = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };

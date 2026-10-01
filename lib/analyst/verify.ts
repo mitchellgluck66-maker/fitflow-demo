@@ -82,7 +82,9 @@ export function renders(entry: LedgerEntry, text: string): boolean {
   const m = new RegExp(NUMBER_TOKEN.source).exec(text.trim());
   if (!m || m.index !== 0) return false;
   const t = parseToken(m as RegExpExecArray);
-  const v = entry.value;
+  // The number token carries no sign and display strings are unsigned (item 3): a drop of $12.34 is written
+  // "down $12.34 CAD", so the magnitude is what must match.
+  const v = Math.abs(entry.value);
   const close = (a: number, b: number, eps: number) => Math.abs(a - b) <= eps;
   const r1 = (x: number) => Math.round(x * 10) / 10;
   const r2 = (x: number) => Math.round(x * 100) / 100;

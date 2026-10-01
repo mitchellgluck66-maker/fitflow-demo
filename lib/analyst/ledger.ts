@@ -27,9 +27,10 @@ const COUNT = /(count|enrollments|applied|booked|showed|enrolled|impressions|rea
 export function unitForPath(path: string): LedgerUnit {
   const last = path.split(/[.[]/).filter(Boolean).pop() ?? '';
   const tail = path.split('.').slice(-2).join('.');
+  // A delta's `pct` is a ratio whatever its parent (kpis.paidCacCents.pct — item 3 found it read as cents); `abs` keeps the parent's unit.
+  if (/^(pct|abs)$/.test(last)) return last === 'pct' ? 'ratio' : unitForPath(path.replace(/\.(pct|abs)$/, ''));
   if (CENTS.test(last) || CENTS.test(tail)) return 'cents';
   if (HOURS.test(last)) return 'hours';
-  if (/^(pct|abs)$/.test(last)) return last === 'pct' ? 'ratio' : unitForPath(path.replace(/\.(pct|abs)$/, ''));
   if (RATIO.test(last)) return 'ratio';
   if (/^(current|previous|against|value|spanValue|previousSpanValue)$/.test(last)) {
     // Inherit from the parent: kpis.paidCacCents.current → cents; kpis.roas.current → ratio.
@@ -74,7 +75,9 @@ export class Ledger {
   }
 
   get(ref: string): LedgerEntry | undefined {
-    return this.entries.get(ref.trim());
+    const key = ref.trim();
+    // A ref to a display string (`…spendCentsText`) means the number beside it (item 3).
+    return this.entries.get(key) ?? (key.endsWith('Text') ? this.entries.get(key.slice(0, -4)) : undefined);
   }
 
   /** For `calculate`: the value, null when withheld, undefined when the ref is unknown. */
