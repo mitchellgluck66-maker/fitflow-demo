@@ -110,3 +110,25 @@ describe('through the real tools (demo database)', () => {
     expect(checked).toBeGreaterThan(20);
   });
 });
+
+describe('starter snapshot rows (item 4)', () => {
+  it('instruction → fabricated assistant tool_use → tool_results + the question; refs r1, r2; a failed call is is_error', async () => {
+    const { starterRows, starterMessages, STARTER_CALLS, STARTER_INSTRUCTION } = await import('@/lib/analyst/starter');
+    expect(STARTER_CALLS.map((c) => c.name)).toEqual(['get_data_health', 'get_scorecard']);
+    const rows = starterRows('turn-1', 'How did we do?', 'Today: 2026-09-30.\nHow did we do?', [
+      { ref: 'r1', name: 'get_data_health', input: { range: { preset: 'last_week', start: '', end: '' } }, result: { ref: 'r1', freshness: { stale: false, line: 'ok', sources: [] }, range: null, currency: 'CAD', fx: '', data: { stale: false } } },
+      { ref: 'r2', name: 'get_scorecard', input: { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' }, result: { ref: 'r2', freshness: { stale: false, line: 'ok', sources: [] }, range: null, currency: 'CAD', fx: '', data: null, error: 'boom' } },
+    ]);
+    expect(rows.map((r) => [r.role, r.turnId])).toEqual([['user', 'turn-1'], ['assistant', 'turn-1'], ['tool_results', 'turn-1']]);
+    const [instruction, assistant, results] = starterMessages(rows) as Array<{ role: string; content: unknown }>;
+    expect(instruction).toEqual({ role: 'user', content: STARTER_INSTRUCTION });
+    expect(assistant).toEqual({ role: 'assistant', content: [{ type: 'tool_use', id: 'starter_r1', name: 'get_data_health', input: STARTER_CALLS[0].input }, { type: 'tool_use', id: 'starter_r2', name: 'get_scorecard', input: STARTER_CALLS[1].input }] });
+    const blocks = results.content as Array<Record<string, unknown>>;
+    expect(blocks.map((b) => b.type)).toEqual(['tool_result', 'tool_result', 'text']);
+    expect(blocks[0]).toMatchObject({ tool_use_id: 'starter_r1' });
+    expect(blocks[0]).not.toHaveProperty('is_error');
+    expect(blocks[1]).toMatchObject({ tool_use_id: 'starter_r2', is_error: true });
+    expect(blocks[2]).toEqual({ type: 'text', text: 'Today: 2026-09-30.\nHow did we do?' });
+    expect(rows[2].display).toMatchObject({ starter: true, refs: ['r1', 'r2'], question: 'How did we do?' });
+  });
+});

@@ -13,6 +13,7 @@ import { getAnalystConfig, type AnalystModel } from './config';
 import { makeAnalystClient, buildCountRequest, loopClient } from './api';
 import { currentBrief } from './briefService';
 import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type Freshness } from './tools';
+import { runStarterCalls, starterMessages, starterRows, STARTER_CALLS } from './starter';
 import { runAnalystTurn, sweepOrphanTurns, ORPHAN_REASON, type AnalystClient, type AnalystEvent, type RunDeps, type TurnOutcome } from './run';
 import { analystStore, type AnalystStore, type ThreadRow, type TurnKind, type TurnRow } from './store';
 import { capDecision, estimateRunUsd, formatUsd, type RunEstimate } from './cost';
@@ -63,6 +64,8 @@ export interface PrepareOptions {
   /** Token counter (the real count endpoint by default; tests stub it). */
   countTokens?: (params: ReturnType<typeof buildCountRequest>) => Promise<number>;
   onEvent?: (e: AnalystEvent) => void;
+  /** Item 4: the snapshot calls a NEW thread opens with (STARTER_CALLS by default; [] = none). */
+  starterCalls?: readonly { name: string; input: Record<string, unknown> }[];
 }
 
 export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): Promise<PrepareResult> {
@@ -104,14 +107,19 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
   const client: AnalystClient = opts.client ?? loopClient(makeAnalystClient(config.key));
   const rows = await store.listMessages(thread.id);
   const history = rows.length ? (await import('./run')).historyFromLog(rows).messages : [];
+  // Item 4: a NEW thread opens with the snapshot (r1 data health, r2 last week's scorecard), fetched here so the
+  // count below includes it. Its rows carry the user turn; the turn id is filled in once the turn exists.
+  const starter = rows.length === 0 && (opts.starterCalls ?? STARTER_CALLS).length > 0 ? await runStarterCalls(freshness, ANALYST_TOOLS, opts.starterCalls ?? STARTER_CALLS) : null;
+  const starterPreview = starter ? starterRows('pending', req.question, userTurn, starter) : null;
+  const newMessages = starterPreview ? starterMessages(starterPreview) : [{ role: 'user' as const, content: userTurn }];
   let promptTokens: number;
   try {
     const key = config.key;
     const count = opts.countTokens ?? (async (params) => (await makeAnalystClient(key).beta.messages.countTokens(params)).input_tokens);
-    promptTokens = await count(buildCountRequest({ model: thread.model, system: [ANALYST_CONTRACT, brief.text], tools: [...ANALYST_TOOL_DEFINITIONS], messages: [...history, { role: 'user', content: userTurn }] }));
+    promptTokens = await count(buildCountRequest({ model: thread.model, system: [ANALYST_CONTRACT, brief.text], tools: [...ANALYST_TOOL_DEFINITIONS], messages: [...history, ...newMessages] }));
   } catch (err) {
     // A failed count must not block the owner: estimate from the stored brief count and the text sizes, and say so.
-    promptTokens = (brief.tokens ?? Math.ceil(brief.text.length / 3.5)) + Math.ceil((ANALYST_CONTRACT.length + userTurn.length + rows.reduce((a, r) => a + r.apiJson.length, 0)) / 3.5);
+    promptTokens = (brief.tokens ?? Math.ceil(brief.text.length / 3.5)) + Math.ceil((ANALYST_CONTRACT.length + newMessages.reduce((a, m) => a + JSON.stringify(m).length, 0) + rows.reduce((a, r) => a + r.apiJson.length, 0)) / 3.5);
     opts.onEvent?.({ type: 'status', text: `Token count unavailable (${describeError(err)}); the estimate uses text sizes.` });
   }
   const estimate = estimateRunUsd(thread.model, promptTokens, req.kind === 'ask' ? 'ask' : req.kind);
@@ -124,7 +132,7 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
   const allowedUsd = req.confirmedUsd ?? Math.max(config.capRunUsd, estimate.usd);
 
   const { turn, created } = await store.createTurn({ threadId: thread.id, clientTurnId: req.clientTurnId, question: req.question, kind: req.kind, pageContext: (req.context as Record<string, unknown> | null) ?? null });
-  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent };
+  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null };
   return { ok: true, thread, turn, created, estimate, allowedUsd, deps };
 }
 

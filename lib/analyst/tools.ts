@@ -272,6 +272,8 @@ const getScorecardTool = tool(
         },
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
+        /** The trailing 8 complete Sun–Sat weeks: each stage→stage conversion now vs that baseline, with the chip's tone. */
+        baseline: { start: res.baseline.start, end: res.baseline.end, note: 'trailing 8 complete Sun–Sat weeks before the period', conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, current: c.current, baseline: c.previous, tone: c.tone })) },
         showRates: sc.showRates.map((s) => ({ type: s.type, rate: s.rate, showed: s.showed, noShow: s.noShow, cancelled: s.cancelled, past: s.past, coverage: s.coverage, withheld: s.withheld })),
         sources: sc.sources.slice(0, 12).map((s) => ({ source: s.source, applied: s.counts.applied, consultBooked: s.counts.consult_booked, enrolled: s.counts.enrolled, appliedToEnrolled: s.appliedToEnrolled })),
         maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? 'History-dependent metrics (consults booked, roadmaps booked, cost per lead / consult / roadmap, stage→stage conversions) are maturing for this range or its comparison: a change in them is not a real change.' : null },

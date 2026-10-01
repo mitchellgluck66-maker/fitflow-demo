@@ -50,7 +50,8 @@ describe('prepareTurn', () => {
     expect(big).toMatchObject({ ok: false, status: 'needs_confirmation', reason: expect.stringMatching(/^This run is estimated at \$\d+\.\d\d USD, above your \$3\.00 USD per-run cap$/) });
     expect(await store.liveTurn((big as { thread: { id: string } }).thread.id)).toBeNull(); // nothing was spent or started
 
-    const ok = await prepareTurn({ clientTurnId: 't1', question: 'How did last week go?', kind: 'ask', context: { page: 'command_center', range: { start: '2026-09-20', end: '2026-09-26', label: 'Last week' } } }, { store, client, countTokens: async () => 20_000 });
+    const counted: Array<{ messages: Array<{ role: string }> }> = [];
+    const ok = await prepareTurn({ clientTurnId: 't1', question: 'How did last week go?', kind: 'ask', context: { page: 'command_center', range: { start: '2026-09-20', end: '2026-09-26', label: 'Last week' } } }, { store, client, countTokens: async (p) => { counted.push(p as unknown as { messages: Array<{ role: string }> }); return 20_000; } });
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
     expect(ok.thread.model).toBe('claude-opus-5-5');
@@ -66,9 +67,32 @@ describe('prepareTurn', () => {
     const again = await prepareTurn({ threadId: ok.thread.id, clientTurnId: 't1', question: 'How did last week go?', kind: 'ask' }, { store, client, countTokens: async () => 1 });
     expect(again).toMatchObject({ ok: true, created: false });
 
+    // Item 4: a NEW thread opens with the server-fetched snapshot — the count saw it, the deps carry it.
+    expect(counted.at(-1)?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(ok.deps.starterRows?.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results']);
+    expect(ok.deps.starterRows?.every((r) => r.turnId === ok.turn.id)).toBe(true);
+
     const out = await executeTurn(ok.thread.id, ok.turn.id, ok.deps);
     expect(out.status).toBe('done');
     expect(out.answer?.headline.text).toBe('Nothing to report yet.');
+    const rows = await store.listMessages(ok.thread.id);
+    expect(rows.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results', 'assistant']);
+    const snapshot = JSON.parse(rows[2].apiJson) as { content: Array<{ type: string; tool_use_id?: string; content?: string; text?: string }> };
+    expect(snapshot.content.map((c) => c.type)).toEqual(['tool_result', 'tool_result', 'text']);
+    expect(snapshot.content[2].text).toBe(ok.deps.userTurn);
+    const r1 = JSON.parse(snapshot.content[0].content!) as { ref: string; data: unknown; error?: string };
+    const r2 = JSON.parse(snapshot.content[1].content!) as { ref: string; data: { kpis: unknown; baseline: { conversions: unknown[] } }; error?: string };
+    expect([r1.ref, r2.ref]).toEqual(['r1', 'r2']);
+    expect(r1.error).toBeUndefined();
+    expect(r2.error).toBeUndefined();
+    expect(r2.data.kpis).toBeDefined();
+    expect(Array.isArray(r2.data.baseline.conversions)).toBe(true);
+    const { ledgerFromLog } = await import('@/lib/analyst/run');
+    expect(ledgerFromLog(rows).calls).toBe(2); // the next live call is r3
+    expect(ledgerFromLog(rows).ledger.get('r2:data.marketing.spendCents')).toBeDefined();
+    // A follow-up turn on the same thread gets NO second snapshot.
+    const t3 = await prepareTurn({ threadId: ok.thread.id, clientTurnId: 't3', question: 'And the week before?', kind: 'ask' }, { store, client, countTokens: async () => 1 });
+    expect(t3).toMatchObject({ ok: true, deps: { starterRows: null } });
     expect((await store.getTurn(ok.turn.id))?.costUsd).toBeCloseTo((500 * 4 + 100 * 20) / 1e6, 8);
     expect(await resumeTurn(ok.turn.id, { store, client })).toMatchObject({ ok: false, message: 'Turn is done' });
   });

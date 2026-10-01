@@ -27,7 +27,7 @@ import { repairMessage, verifyAnswer, type Flag } from './verify';
 import { formatUsd, priceUsage, shouldPause, usageTotals, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { COMPACTION_INSTRUCTIONS } from './prompts';
-import type { AnalystStore, MessageRow, TurnRow } from './store';
+import type { AnalystStore, MessageRow, NewMessage, TurnRow } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
 
 export type AnalystEvent =
@@ -65,6 +65,8 @@ export interface RunDeps {
   staleBefore?: string | null;
   /** The user turn text for a NEW turn (ignored on resume: the log already has it). */
   userTurn?: string;
+  /** Item 4: on a NEW thread, the server-fetched snapshot rows that open the log (they carry the user turn). */
+  starterRows?: NewMessage[] | null;
   /** USD the owner allowed for this run (the cap, or a confirmed amount). */
   allowedUsd: number;
   now?: () => number;
@@ -215,7 +217,11 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   const alreadyStarted = rows.some((r) => r.turnId === turnId);
   if (!alreadyStarted) {
     if (!deps.userTurn) return fail('no user turn to run', false);
-    await store.appendMessages(threadId, [{ turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: deps.userTurn } satisfies BetaMessageParam), display: { question: turn.question } }]);
+    if (rows.length === 0 && deps.starterRows?.length) {
+      // A new thread opens with the snapshot (r1, r2) and the question inside the same user message.
+      await store.appendMessages(threadId, deps.starterRows);
+      await emit({ type: 'tools', calls: deps.starterRows.flatMap((r) => ((r.display?.tools as Array<{ ref: string; name: string; label: string }> | undefined) ?? [])) });
+    } else await store.appendMessages(threadId, [{ turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: deps.userTurn } satisfies BetaMessageParam), display: { question: turn.question } }]);
     rows = await store.listMessages(threadId);
     await emit({ type: 'notice', text: deps.freshness.line, stale: deps.freshness.stale });
   }
