@@ -22,3 +22,19 @@ describe('the per-turn line', () => {
     expect(formatSmokeTurn(line({ status: 'FAIL', error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 3 tools · 18.2K in (15.9K cached) · 2.4K out · $0.19 USD · 21s · memory check: the owner stated a durable fact but the answer proposed no note');
   });
 });
+
+describe('item 8: the hard budget', () => {
+  it('withinBudget and the stop message; --max-usd parsing refuses a bad value', async () => {
+    const { withinBudget, budgetStopMessage, DEFAULT_MAX_USD, parseMaxUsd } = await import('@/lib/analyst/smoke');
+    expect(DEFAULT_MAX_USD).toBe(1);
+    expect(withinBudget(0.6, 0.4, 1)).toBe(true);
+    expect(withinBudget(0.61, 0.4, 1)).toBe(false);
+    expect(budgetStopMessage(0.84, 1, 0.31)).toBe('Stopped at $0.84 USD of $1.00 USD budget — the next request was estimated at $0.31 USD');
+    expect(budgetStopMessage(1.02, 1, null)).toBe('Stopped at $1.02 USD of $1.00 USD budget');
+    expect(parseMaxUsd([])).toBe(1);
+    expect(parseMaxUsd(['--full', '--max-usd', '1.5'])).toBe(1.5);
+    expect(parseMaxUsd(['--max-usd=0.25'])).toBe(0.25);
+    expect(() => parseMaxUsd(['--max-usd', 'lots'])).toThrow(/positive USD amount/);
+    expect(() => parseMaxUsd(['--max-usd'])).toThrow(/positive USD amount/);
+  });
+});

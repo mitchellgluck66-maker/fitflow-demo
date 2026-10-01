@@ -5,6 +5,7 @@
  *   npm run smoke:analyst -- --probe   every API assumption on the PRODUCTION wiring, both models (~$1 USD)
  *   npm run smoke:analyst              ONE question on the in-memory store (the cheap check; target ≤ $0.40 USD)
  *   npm run smoke:analyst -- --full    the whole 5-turn conversation (follow-up, budget, memory check, explain) — before a release
+ *   --max-usd 1.50                     the hard budget for the run (default 1.00): nothing is sent past it; a stop is a FAIL
  *
  * Uses the database .env.local points at (for the stored key, the brief and the
  * tools' data). Needs CREDENTIALS_KEY there to decrypt a stored key. Exit 0 only
@@ -15,7 +16,7 @@ import { DATABASE_URL } from '../db';
 import { getAnalystConfig } from '../lib/analyst/config';
 import { formatProbeLine, runAnalystProbe } from '../lib/analyst/probe';
 import { formatUsd } from '../lib/analyst/cost';
-import { formatSmokeTurn, runAnalystSmoke, SMOKE_TURNS } from '../lib/analyst/smoke';
+import { formatSmokeTurn, parseMaxUsd, runAnalystSmoke, SMOKE_TURNS } from '../lib/analyst/smoke';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -42,13 +43,14 @@ async function main() {
   }
 
   const full = args.includes('--full');
-  console.log(`smoke:analyst${full ? ' --full' : ''} · database: ${target} (read; the conversation runs on the in-memory store, nothing written) · model ${config.modelDefault} · answer mode ${config.answerMode} · ${full ? `${SMOKE_TURNS.length} turns` : '1 turn (--full for the whole conversation)'}`);
-  const { lines, ok, answerMode, model, turns } = await runAnalystSmoke({ log: (l) => console.log(l), full });
+  const maxUsd = parseMaxUsd(args);
+  console.log(`smoke:analyst${full ? ' --full' : ''} · database: ${target} (read; the conversation runs on the in-memory store, nothing written) · model ${config.modelDefault} · answer mode ${config.answerMode} · ${full ? `${SMOKE_TURNS.length} turns` : '1 turn (--full for the whole conversation)'} · budget ${formatUsd(maxUsd)}`);
+  const { lines, ok, answerMode, model, turns, spentUsd, budgetStopped } = await runAnalystSmoke({ log: (l) => console.log(l), full, maxUsd });
   for (const l of lines) console.log(formatSmokeTurn(l));
-  const usd = lines.reduce((a, l) => a + Number((/\$([\d.]+) USD$/.exec(l.cost) ?? [])[1] ?? 0), 0);
   const pass = lines.filter((l) => l.status === 'PASS').length;
   console.log(`answer mode · ${model} · ${answerMode === 'format' ? 'output_config.format' : 'submit_answer tool (fallback)'}`);
-  console.log(ok ? `\nALL PASS (${pass}/${turns}) · ${formatUsd(usd)}` : `\nNOT ALL PASS (${pass}/${turns} passed) · ${formatUsd(usd)}`);
+  console.log(ok ? `\nALL PASS (${pass}/${turns})` : `\nNOT ALL PASS (${pass}/${turns} passed)${budgetStopped ? ' · budget stop' : ''}`);
+  console.log(`TOTAL ${formatUsd(spentUsd)} of ${formatUsd(maxUsd)} budget`);
   process.exit(ok ? 0 : 1);
 }
 
