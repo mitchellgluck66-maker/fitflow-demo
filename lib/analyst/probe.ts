@@ -53,6 +53,7 @@ interface Round {
   stopReason: string | null;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  cacheSharePct: number;
   droppedThinking: number;
   progressUpdates: number;
   toolCalls: number;
@@ -133,7 +134,9 @@ export async function runAnalystProbe(opts: { key: string | null; models?: Analy
     // 4: cache reads on every request after the first.
     const later = rounds.slice(1);
     const reads = later.map((r) => r.cacheReadTokens);
-    lines.push(line(later.length > 0 && reads.every((n) => n > 0) ? 'PASS' : 'FAIL', 'cache_read_input_tokens > 0 on every request after the first', `request 1 wrote ${rounds[0]?.cacheWriteTokens ?? 0} · later requests read ${reads.join(', ') || 'none — fewer than two requests'}`));
+    const shares = later.map((r) => `${r.cacheSharePct}%`);
+    // Item 2 (2026-09-30): the moving message breakpoints must make every request after the first read ≥ 80% from cache.
+    lines.push(line(later.length > 0 && reads.every((n) => n > 0) && later.every((r) => r.cacheSharePct >= 80) ? 'PASS' : 'FAIL', 'cache reads ≥ 80% of input on every request after the first', `request 1 wrote ${rounds[0]?.cacheWriteTokens ?? 0} · later requests read ${reads.join(', ') || 'none — fewer than two requests'} · cache share per round ${shares.join(', ') || '—'}`));
     // 5: display updates accepted (zero-or-more; Opus 5.5 rarely writes them).
     const updates = rounds.reduce((a, r) => a + r.progressUpdates, 0);
     lines.push(line(rounds.length > 0 ? 'PASS' : 'FAIL', 'thinking.display "updates" accepted', `${updates} progress update(s) as text across ${rounds.length} request(s)${updates === 0 ? ' (zero is allowed; the model may skip any gap)' : ''} · ${statuses} status line(s) shown`));

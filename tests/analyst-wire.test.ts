@@ -6,7 +6,7 @@
  * tools, and a compaction request with no output format.
  */
 import { describe, it, expect } from 'vitest';
-import { buildCompactionRequest, buildCountRequest, buildTurnRequest, SUBMIT_ANSWER_TOOL, type BetaTool } from '@/lib/analyst/api';
+import { buildCompactionRequest, buildCountRequest, buildTurnRequest, cacheSharePct, withMessageBreakpoints, SUBMIT_ANSWER_TOOL, type BetaMessageParam, type BetaTool } from '@/lib/analyst/api';
 import { ANALYST_BETAS } from '@/lib/analyst/config';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
 import { ANALYST_PRICES, formatUsd, priceUsage, usageTotals } from '@/lib/analyst/cost';
@@ -40,12 +40,38 @@ describe('turn request', () => {
     expect(req).not.toHaveProperty('compaction'); // ↔ no compaction beta
     expect(buildTurnRequest(base, { carriesCompaction: true }).betas).toContain(ANALYST_BETAS.compaction);
   });
-  it('at most 4 cache breakpoints: two on system, none elsewhere', () => {
+  it('at most 4 cache breakpoints: two on system, two moving with the last user messages (item 2)', () => {
     const sys = req.system as Array<{ cache_control?: unknown }>;
     expect(sys.filter((s) => s.cache_control).length).toBe(2);
     const json = JSON.stringify(req);
     expect((json.match(/"cache_control"/g) ?? []).length).toBeLessThanOrEqual(4);
     expect(json).not.toContain('"ttl"'); // 5-minute TTL only
+    // One user message → one message breakpoint, on a text block made from the string content.
+    expect(req.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } }] }]);
+
+    // A three-round history: the breakpoints sit on the LAST block of the last two user messages; assistant
+    // messages (thinking blocks) never carry one; the caller's messages are untouched; total stays ≤ 4.
+    const history: BetaMessageParam[] = [
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 't', signature: 's' }, { type: 'tool_use', id: 'a', name: 'get_scorecard', input: {} }] as BetaMessageParam['content'] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: '{}' }, { type: 'tool_result', tool_use_id: 'b', content: '{}' }] },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 't', signature: 's' }, { type: 'tool_use', id: 'c', name: 'get_scorecard', input: {} }] as BetaMessageParam['content'] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c', content: '{}' }] },
+    ];
+    const before = JSON.stringify(history);
+    const full = buildTurnRequest({ ...base, messages: history });
+    expect(JSON.stringify(history)).toBe(before);
+    expect((JSON.stringify(full).match(/"cache_control"/g) ?? []).length).toBe(4);
+    const marked = full.messages.map((m) => (typeof m.content === 'string' ? [] : m.content.map((b, i) => ((b as { cache_control?: unknown }).cache_control ? i : -1)).filter((i) => i >= 0)));
+    expect(marked).toEqual([[], [], [1], [], [0]]); // user #2: its 2nd (last) block; user #3: its only block; user #1 and the assistants: none
+    expect(buildCompactionRequest({ model: base.model, effort: base.effort, system: base.system, tools, messages: history }, 'summarize').messages).toEqual(full.messages);
+    expect(withMessageBreakpoints([]).length).toBe(0);
+  });
+  it('cacheSharePct = cache reads ÷ all input, one decimal', () => {
+    expect(cacheSharePct({ inputTokens: 2_000, cacheReadTokens: 18_000, cacheWriteTokens: 0 })).toBe(90);
+    expect(cacheSharePct({ inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 9_000 })).toBe(0);
+    expect(cacheSharePct({ inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })).toBe(0);
+    expect(cacheSharePct({ inputTokens: 1, cacheReadTokens: 2, cacheWriteTokens: 0 })).toBe(66.7);
   });
   it('tools are name-sorted, NOT strict (only the answer is), with schemas the API accepts', () => {
     const names = (req.tools ?? []).map((t) => (t as BetaTool).name);

@@ -9,7 +9,12 @@
  *   - thinking blocks are bound to the prefix; `drop_block` degrades a changed
  *     prefix instead of failing, and the response reports `input_transformations`;
  *   - `thinking.display: "updates"` returns progress updates as text;
- *   - prompt caching: tools → system → messages; ≤ 4 breakpoints; 5-minute TTL;
+ *   - prompt caching: tools → system → messages; ≤ 4 breakpoints; 5-minute TTL. Two sit on the
+ *     system (contract, brief); two MOVE with the conversation (item 2, 2026-09-30): the last block
+ *     of the final user message and of the previous user message, so every round reads the whole
+ *     prior conversation from cache (the API looks back ≤ 20 blocks from a breakpoint for a hit;
+ *     the previous one keeps the hit when a round adds more blocks than that). Thinking blocks never
+ *     carry cache_control; the stored log rows are never mutated — the markers are added per request;
  *   - structured output (`output_config.format`) combines with strict tools, but
  *     is rejected on a compaction request, as is a forced tool_choice.
  *
@@ -45,6 +50,38 @@ export interface AnalystRequestInput {
 /** The betas every turn request carries, in a fixed order (order is part of the cache key). */
 export const TURN_BETAS = [ANALYST_BETAS.displayUpdates, ANALYST_BETAS.bindingControls] as const;
 
+/** The share of a response's input that was read from cache (0–100; 0 when the request was empty). */
+export function cacheSharePct(u: { inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): number {
+  const total = u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens;
+  return total > 0 ? Math.round((u.cacheReadTokens / total) * 1000) / 10 : 0;
+}
+
+/** How many moving breakpoints the messages carry (with the two system ones = 4, the API maximum). */
+export const MESSAGE_BREAKPOINTS = 2;
+
+/**
+ * Copy `messages` with a cache breakpoint on the last content block of the last `MESSAGE_BREAKPOINTS`
+ * user messages (never an assistant message: its thinking blocks cannot carry cache_control, and a
+ * user message always ends a round). A string content is turned into one text block. Pure: the
+ * caller's array and the log rows it came from are untouched.
+ */
+export function withMessageBreakpoints(messages: BetaMessageParam[]): BetaMessageParam[] {
+  const out = messages.map((m) => ({ ...m }));
+  let placed = 0;
+  for (let i = out.length - 1; i >= 0 && placed < MESSAGE_BREAKPOINTS; i--) {
+    const m = out[i];
+    if (m.role !== 'user') continue;
+    const blocks = typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content.map((b) => ({ ...b }));
+    if (blocks.length === 0) continue;
+    const last = blocks[blocks.length - 1] as Record<string, unknown>;
+    if (last.type === 'thinking' || last.type === 'redacted_thinking') continue;
+    blocks[blocks.length - 1] = { ...last, cache_control: { type: 'ephemeral' } } as (typeof blocks)[number];
+    out[i] = { ...m, content: blocks };
+    placed += 1;
+  }
+  return out;
+}
+
 /**
  * A turn request. The output schema is the last thing to change between turns
  * only if `answerMode` changes, which never happens inside a thread.
@@ -75,7 +112,7 @@ export function buildTurnRequest(input: AnalystRequestInput, opts: { carriesComp
       effort: input.effort,
       ...(input.answerMode === 'format' ? { format: { type: 'json_schema', schema: input.answerSchema } } : {}),
     },
-    messages: input.messages,
+    messages: withMessageBreakpoints(input.messages),
   };
 }
 
@@ -97,7 +134,7 @@ export function buildCompactionRequest(input: Omit<AnalystRequestInput, 'answerS
     tools,
     thinking: { type: 'adaptive', display: 'updates', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
     output_config: { effort: input.effort },
-    messages: input.messages,
+    messages: withMessageBreakpoints(input.messages),
     compaction: { type: 'summarize', instructions },
   };
 }

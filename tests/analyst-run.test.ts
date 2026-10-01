@@ -101,17 +101,22 @@ describe('the loop (memory store)', () => {
     expect(out.flagged).toEqual([]);
     expect(out.rounds).toBe(1);
     expect(events.map((e) => e.type)).toEqual(['notice', 'status', 'round', 'tools', 'status', 'round', 'answer', 'usage', 'done']);
-    expect(events.filter((e) => e.type === 'round')).toEqual([expect.objectContaining({ stopReason: 'tool_use', cacheWriteTokens: 900, toolCalls: 1 }), expect.objectContaining({ stopReason: 'end_turn', cacheReadTokens: 900, toolCalls: 0 })]);
+    expect(events.filter((e) => e.type === 'round')).toEqual([expect.objectContaining({ stopReason: 'tool_use', cacheWriteTokens: 900, cacheSharePct: 0, toolCalls: 1 }), expect.objectContaining({ stopReason: 'end_turn', cacheReadTokens: 900, cacheSharePct: 47.4, toolCalls: 0 })]);
     expect(events[3]).toMatchObject({ type: 'tools', calls: [{ ref: 'r1', name: 'get_scorecard', label: 'Reading the scorecard…' }] });
     // Cost: 1000 in + 900 cache write + 200 out, then 1000 in + 900 cache read + 200 out on Opus.
     expect(out.costUsd).toBeCloseTo((2000 * 4 + 900 * 5 + 900 * 0.2 + 400 * 20) / 1e6, 8);
     const rows = await store.listMessages(thread.id);
     expect(rows.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results', 'assistant']);
     for (const r of rows) expect(JSON.stringify(JSON.parse(r.apiJson))).toBe(r.apiJson);
-    // The second request replayed the first round byte for byte, including the thinking block.
-    const second = client.requests[1] as { messages: unknown[]; betas: string[] };
+    // The second request replayed the first round byte for byte, including the thinking block; the two user
+    // messages carry the moving cache breakpoints (item 2) which the stored rows do NOT.
+    const second = client.requests[1] as { messages: Array<{ content: Array<Record<string, unknown>> }>; betas: string[] };
     expect(second.messages.length).toBe(3);
     expect(JSON.stringify(second.messages[1])).toBe(rows[1].apiJson);
+    expect(second.messages[0].content.at(-1)?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(second.messages[2].content.at(-1)?.cache_control).toEqual({ type: 'ephemeral' });
+    expect(rows[0].apiJson).not.toContain('cache_control');
+    expect(rows[2].apiJson).not.toContain('cache_control');
     expect(second.betas).toEqual([ANALYST_BETAS.displayUpdates, ANALYST_BETAS.bindingControls]);
     expect((await store.getTurn(turn.id))?.status).toBe('done');
     expect((await store.getThread(thread.id))?.title).toBe('How did we do?');
