@@ -23,6 +23,7 @@ import { buildTurnRequest, type BetaMessage, type BetaMessageParam } from './api
 import { ANALYST_CONTRACT } from './prompts';
 import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { ANSWER_SCHEMA } from './schema';
+import { SNAPSHOT_PREFIX } from './starter';
 import { runAnalystTurn, type AnalystClient, type AnalystEvent, type TurnOutcome } from './run';
 import { MemoryAnalystStore, type MessageRow, type NewMessage } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
@@ -123,11 +124,12 @@ export function recordedToolResults(fixture: ReplayFixture): Map<string, ToolRes
   for (const t of fixture.turns) {
     for (const r of t.rows) {
       if (r.role !== 'tool_results') continue;
-      const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; content?: string }> };
+      const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; content?: string; text?: string }> };
       for (const b of msg.content ?? []) {
-        if (b.type !== 'tool_result' || typeof b.content !== 'string') continue;
+        const json = b.type === 'tool_result' && typeof b.content === 'string' ? b.content : b.type === 'text' && typeof b.text === 'string' && b.text.startsWith(SNAPSHOT_PREFIX) ? b.text.slice(SNAPSHOT_PREFIX.length) : null;
+        if (json === null) continue;
         try {
-          const res = JSON.parse(b.content) as ToolResult;
+          const res = JSON.parse(json) as ToolResult;
           if (res && typeof res.ref === 'string') out.set(res.ref, res);
         } catch {
           /* an unparseable result has no ref */
@@ -199,7 +201,7 @@ export async function replayFixture(fixture: ReplayFixture): Promise<ReplayTurnR
     const t = fixture.turns[i];
     const { turn } = await store.createTurn({ threadId: thread.id, clientTurnId: `replay-${i + 1}`, question: t.question, kind: t.kind as 'ask' | 'explain' | 'report', pageContext: null });
     const events: AnalystEvent[] = [];
-    const starter = i === 0 && t.rows.length >= 3 && t.rows[0].display?.starter ? t.rows.slice(0, 3).map((r): NewMessage => ({ turnId: turn.id, role: r.role, apiJson: r.apiJson, display: r.display })) : null;
+    const starter = i === 0 && t.rows[0]?.display?.starter ? [{ turnId: turn.id, role: t.rows[0].role, apiJson: t.rows[0].apiJson, display: t.rows[0].display } satisfies NewMessage] : null;
     const outcome = await runAnalystTurn(thread.id, turn.id, {
       store,
       client: replayClient(t),

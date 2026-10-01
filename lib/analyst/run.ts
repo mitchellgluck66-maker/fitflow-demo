@@ -27,6 +27,7 @@ import { repairMessage, verifyAnswer, type Flag } from './verify';
 import { formatUsd, priceUsage, shouldPause, usageTotals, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { COMPACTION_INSTRUCTIONS } from './prompts';
+import { SNAPSHOT_PREFIX } from './starter';
 import type { AnalystStore, MessageRow, NewMessage, TurnRow } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
 
@@ -113,12 +114,14 @@ export function ledgerFromLog(rows: MessageRow[]): { ledger: Ledger; calls: numb
   let calls = 0;
   for (const r of rows) {
     if (r.role !== 'tool_results') continue;
-    const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; content?: string }> };
+    const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; content?: string; text?: string }> };
     for (const b of msg.content ?? []) {
-      if (b.type !== 'tool_result' || typeof b.content !== 'string') continue;
+      // A tool_result block, or a starter snapshot block (item 4: a text block carrying a ToolResult after SNAPSHOT_PREFIX).
+      const json = b.type === 'tool_result' && typeof b.content === 'string' ? b.content : b.type === 'text' && typeof b.text === 'string' && b.text.startsWith(SNAPSHOT_PREFIX) ? b.text.slice(SNAPSHOT_PREFIX.length) : null;
+      if (json === null) continue;
       calls += 1;
       try {
-        const res = JSON.parse(b.content) as ToolResult;
+        const res = JSON.parse(json) as ToolResult;
         if (res && typeof res.ref === 'string') ledger.add(res.ref, res.data, r.createdAt.toISOString(), res.currency ?? 'CAD');
       } catch {
         /* an unparseable result contributes no refs */
@@ -220,7 +223,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   if (!alreadyStarted) {
     if (!deps.userTurn) return fail('no user turn to run', false);
     if (rows.length === 0 && deps.starterRows?.length) {
-      // A new thread opens with the snapshot (r1, r2) and the question inside the same user message.
+      // A new thread opens with the snapshot (r1, r2) and the question inside the same user message (one row).
       await store.appendMessages(threadId, deps.starterRows);
       await emit({ type: 'tools', calls: deps.starterRows.flatMap((r) => ((r.display?.tools as Array<{ ref: string; name: string; label: string }> | undefined) ?? [])) });
     } else await store.appendMessages(threadId, [{ turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: deps.userTurn } satisfies BetaMessageParam), display: { question: turn.question } }]);

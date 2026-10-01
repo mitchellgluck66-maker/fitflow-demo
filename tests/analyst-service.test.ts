@@ -12,6 +12,7 @@ import { ANTHROPIC_KEYS } from '@/lib/anthropic/config';
 import { rebuildBrief } from '@/lib/analyst/briefService';
 import { addNote, decideNote, listNotes, saveProposals } from '@/lib/analyst/notes';
 import { runAnalystTool } from '@/lib/analyst/tools';
+import { SNAPSHOT_PREFIX, STARTER_INSTRUCTION } from '@/lib/analyst/starter';
 import { executeTurn, prepareTurn, resumeTurn, sweepAndRecord, ORPHAN_INCIDENT_KIND } from '@/lib/analyst/service';
 import { DbAnalystStore } from '@/lib/analyst/store';
 import type { AnalystClient, AnalystEvent } from '@/lib/analyst/run';
@@ -69,21 +70,24 @@ describe('prepareTurn', () => {
     const again = await prepareTurn({ threadId: ok.thread.id, clientTurnId: 't1', question: 'How did last week go?', kind: 'ask' }, { store, client, countTokens: async () => 1 });
     expect(again).toMatchObject({ ok: true, created: false });
 
-    // Item 4: a NEW thread opens with the server-fetched snapshot — the count saw it, the deps carry it.
-    expect(counted.at(-1)?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
-    expect(ok.deps.starterRows?.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results']);
+    // Item 4: a NEW thread opens with the server-fetched snapshot — the count saw it, the deps carry it (ONE user message).
+    expect(counted.at(-1)?.messages.map((m) => m.role)).toEqual(['user']);
+    expect(ok.deps.starterRows?.map((r) => r.role)).toEqual(['tool_results']);
     expect(ok.deps.starterRows?.every((r) => r.turnId === ok.turn.id)).toBe(true);
 
     const out = await executeTurn(ok.thread.id, ok.turn.id, ok.deps);
     expect(out.status).toBe('done');
     expect(out.answer?.headline.text).toBe('Nothing to report yet.');
     const rows = await store.listMessages(ok.thread.id);
-    expect(rows.map((r) => r.role)).toEqual(['user', 'assistant', 'tool_results', 'assistant']);
-    const snapshot = JSON.parse(rows[2].apiJson) as { content: Array<{ type: string; tool_use_id?: string; content?: string; text?: string }> };
-    expect(snapshot.content.map((c) => c.type)).toEqual(['tool_result', 'tool_result', 'text']);
-    expect(snapshot.content[2].text).toBe(ok.deps.userTurn);
-    const r1 = JSON.parse(snapshot.content[0].content!) as { ref: string; data: unknown; error?: string };
-    const r2 = JSON.parse(snapshot.content[1].content!) as { ref: string; data: { kpis: unknown; baseline: { conversions: unknown[] } }; error?: string };
+    expect(rows.map((r) => r.role)).toEqual(['tool_results', 'assistant']);
+    const snapshot = JSON.parse(rows[0].apiJson) as { role: string; content: Array<{ type: string; text: string }> };
+    expect(snapshot.role).toBe('user');
+    expect(snapshot.content.map((c) => c.type)).toEqual(['text', 'text', 'text', 'text']);
+    expect(snapshot.content[0].text).toBe(STARTER_INSTRUCTION);
+    expect(snapshot.content[3].text).toBe(ok.deps.userTurn);
+    expect(snapshot.content[1].text.startsWith(SNAPSHOT_PREFIX)).toBe(true);
+    const r1 = JSON.parse(snapshot.content[1].text.slice(SNAPSHOT_PREFIX.length)) as { ref: string; data: unknown; error?: string };
+    const r2 = JSON.parse(snapshot.content[2].text.slice(SNAPSHOT_PREFIX.length)) as { ref: string; data: { kpis: unknown; baseline: { conversions: unknown[] } }; error?: string };
     expect([r1.ref, r2.ref]).toEqual(['r1', 'r2']);
     expect(r1.error).toBeUndefined();
     expect(r2.error).toBeUndefined();
