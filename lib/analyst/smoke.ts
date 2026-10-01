@@ -12,6 +12,10 @@ import { MemoryAnalystStore } from './store';
 import { costLine, type AnalystEvent, type TurnOutcome } from './run';
 import { formatUsd } from './cost';
 import { getAnalystConfig } from './config';
+import { loopClient, makeAnalystClient } from './api';
+import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
+import { db, contacts } from '@/db';
+import { ne } from 'drizzle-orm';
 
 export interface SmokeTurnLine {
   status: 'PASS' | 'FAIL';
@@ -101,6 +105,8 @@ export interface SmokeOptions {
   full?: boolean;
   /** Item 8: the hard USD budget for the whole run (default 1.00). Before every request, spent + the next request's estimate must fit. */
   maxUsd?: number;
+  /** Item 9: keep every API response, tool result and log row as a replay fixture (tests/fixtures/analyst-replay/<name>.json). */
+  record?: { name: string; database: string } | null;
 }
 
 export const DEFAULT_MAX_USD = 1;
@@ -132,7 +138,7 @@ export function smokeTurns(opts: Pick<SmokeOptions, 'full'>): SmokeTurn[] {
   return opts.full ? SMOKE_TURNS : SMOKE_TURNS.slice(0, 1);
 }
 
-export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[] }> {
+export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines: SmokeTurnLine[]; ok: boolean; answerMode: string; model: string; turns: number; spentUsd: number; maxUsd: number; budgetStopped: boolean; runMisses: string[]; fixturePath: string | null }> {
   const store = new MemoryAnalystStore();
   const config = await getAnalystConfig();
   const lines: SmokeTurnLine[] = [];
@@ -141,6 +147,12 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   let spentUsd = 0;
   let budgetStopped = false;
   let threadId: string | null = null;
+  // Item 9: the recorder wraps the live client; prepareTurn uses the client it is given.
+  const recorder = opts.record && config.key ? recordingClient(loopClient(makeAnalystClient(config.key))) : null;
+  const recorded: RecordedTurn[] = [];
+  let fixturePath: string | null = null;
+  let threadModel: string | null = null;
+  let threadEffort: string | null = null;
   const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', costUsd: 0, estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, rounds: [], misses: [], ...extra });
   for (let i = 0; i < turns.length; i++) {
     const req = turns[i];
@@ -162,7 +174,8 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     // and the loop pauses between rounds (needs_confirmation) when spent + the next request would not — both read
     // here as the budget stop. Nothing is sent past the budget.
     const remaining = Math.max(0, maxUsd - spentUsd);
-    const prepared = await prepareTurn({ ...turnReq, threadId, clientTurnId: `smoke-${i + 1}`, confirmedUsd: remaining }, { store, onEvent, onProposals: async (texts) => { proposals.push(...texts); return { saved: 0, skipped: texts.length }; } });
+    recorder?.reset();
+    const prepared = await prepareTurn({ ...turnReq, threadId, clientTurnId: `smoke-${i + 1}`, confirmedUsd: remaining }, { store, onEvent, client: recorder ?? undefined, onProposals: async (texts) => { proposals.push(...texts); return { saved: 0, skipped: texts.length }; } });
     if (!prepared.ok) {
       if (prepared.status === 'needs_confirmation') {
         budgetStopped = true;
@@ -171,6 +184,8 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       break;
     }
     threadId = prepared.thread.id;
+    threadModel = prepared.thread.model;
+    threadEffort = prepared.thread.effort;
     // The per-run cap ($3) may admit a turn the smoke budget cannot: check here, before the first request is sent.
     if (!withinBudget(spentUsd, prepared.estimate.usd, maxUsd)) {
       budgetStopped = true;
@@ -194,6 +209,19 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     }
     // Counted from this turn's own events, so the line and the "Repairing…" log lines above it agree.
     const repairs = turn?.events.filter((e) => e.type === 'status' && (e as { text?: string }).text === 'Repairing the answer…').length ?? 0;
+    if (recorder && out.status === 'done') {
+      const rows = (await store.listMessages(prepared.thread.id)).filter((r) => r.turnId === prepared.turn.id).map((r) => ({ role: r.role, apiJson: r.apiJson, display: r.display }));
+      recorded.push({
+        question: req.question,
+        kind: req.kind,
+        userTurn: prepared.deps.userTurn ?? '',
+        freshness: prepared.deps.freshness,
+        responses: [...recorder.responses],
+        compactions: [...recorder.compactions],
+        rows,
+        outcome: { status: out.status, headline: out.answer?.headline.text ?? null, flagged: out.flagged, repairs, rounds: out.rounds, costUsd: out.costUsd, usage: out.usage, sections: out.answer?.sections.map((s) => s.key) ?? [], proposals },
+      });
+    }
     const memoryMiss = req.expectsProposal && proposals.length === 0;
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
@@ -220,6 +248,12 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     if (out.status !== 'done') break;
   }
   const model = threadId ? ((await store.getThread(threadId))?.model ?? config.modelDefault) : config.modelDefault;
+  if (opts.record && recorder && recorded.length > 0 && threadModel && threadEffort) {
+    const [real] = await db.select({ id: contacts.id }).from(contacts).where(ne(contacts.origin, 'demo')).limit(1);
+    const fixture: ReplayFixture = { version: 1, recordedAt: new Date().toISOString(), wireHash: analystWireHash(config.answerMode), model: threadModel as ReplayFixture['model'], effort: threadEffort as ReplayFixture['effort'], answerMode: config.answerMode, database: `${opts.record.database}${real ? ' · REAL data — names inside, review before committing' : ' · demo data'}`, turns: recorded };
+    fixturePath = writeFixture(opts.record.name, fixture);
+    opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (wire hash ${fixture.wireHash.slice(0, 12)}…; ${fixture.database})`);
+  }
   const runLevel = model.startsWith('claude-opus') ? runMisses(lines) : [];
-  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel };
+  return { lines, ok: lines.length === turns.length && lines.every((l) => l.status === 'PASS') && runLevel.length === 0, answerMode: config.answerMode, model, turns: turns.length, spentUsd, maxUsd, budgetStopped, runMisses: runLevel, fixturePath };
 }

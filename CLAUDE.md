@@ -994,7 +994,17 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   (`cost.ts#RUN_ALLOWANCE`: rounds × thinking + tool tokens written once then read) is multiplied by the
   median actual ÷ estimate of the last 20 completed runs of the kind (`calibrationFactor`, clamped
   0.5–3, named in `estimate.detail`). Targets per Opus turn: p50 ≤ 45 s, ≤ $0.40 USD, cache ≥ 80 % from
-  round 2, repairs < 20 %, 0 flagged, estimate within ±25 %.
+  round 2, repairs < 20 %, 0 flagged, estimate within ±25 %. Memory: a finished answer's
+  `note_proposals` become `proposed` notes (`notes#saveProposals`, deduped); approval rebuilds the
+  brief, so the fact is in the next turn's system prompt and `get_notes`.
+- **Cheap testing:** `npm run smoke:analyst` = ONE turn (`--full` = the 5-turn conversation incl. the
+  memory check and an explain); `--max-usd 1.50` is a hard budget (default $1.00; a stop is FAIL
+  "Stopped at $X of $Y budget"); the per-turn line prints rounds · tools/round · cache %/round · repairs
+  · flagged · seconds · cost vs estimate and FAILS a turn or run that misses the targets; the last line is
+  "TOTAL $X of $Y budget". `--record` writes the run to `tests/fixtures/analyst-replay/` and
+  `tests/analyst-replay.test.ts` (in `npm run check`) replays every fixture through the real loop at $0 —
+  a fixture recorded by other code (contract / tools / answer schema / request shape — `replay#analystWireHash`)
+  fails with "fixtures stale: re-record".
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
 
