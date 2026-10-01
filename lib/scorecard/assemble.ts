@@ -10,7 +10,7 @@
  */
 
 import type { ScorecardResult } from '../metrics/service';
-import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
+import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Coverage, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
 import { isMaturingMetric, maturingCaveatText, type DataMaturity } from '../metrics/maturity';
 
@@ -35,6 +35,8 @@ export interface ScorecardStat {
   empty?: { title: string; description: string };
   /** Carries the maturing-data badge (history-dependent metric while the disclaimer is active). */
   maturing: boolean;
+  /** The partial-data rule: computed from the records that have the input ("Based on 21 of 24 new clients · 3 missing contract value"), with the excluded names. */
+  partial?: { note: string; people: Array<{ contactId: string | null; name: string }> };
 }
 
 export interface CampaignPick {
@@ -82,9 +84,10 @@ function deltaSub(d: Delta, kind: ScorecardStat['deltaKind'], currency: Currency
 
 /** A stat builder whose money deltas are labelled with the reporting currency. */
 function statIn(currency: Currency) {
-  return (key: string, label: string, value: string, delta: Delta, deltaKind: ScorecardStat['deltaKind'], override?: { sub: string; tone?: StatTone; empty?: ScorecardStat['empty'] }): ScorecardStat => {
+  return (key: string, label: string, value: string, delta: Delta, deltaKind: ScorecardStat['deltaKind'], override?: { sub?: string; tone?: StatTone; empty?: ScorecardStat['empty']; coverage?: Coverage }): ScorecardStat => {
     const ds = deltaSub(delta, deltaKind, currency);
-    return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty, maturing: false };
+    const partial = override?.coverage?.partial && !override.empty ? { note: override.coverage.note!, people: override.coverage.missing } : undefined;
+    return { key, label, value, delta, deltaKind, sub: override?.sub ?? ds.sub, tone: override?.tone ?? ds.tone, empty: override?.empty, maturing: false, ...(partial ? { partial } : {}) };
   };
 }
 
@@ -122,21 +125,20 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
       : stat('initial_cash', 'Initial cash collected', money$(k.initialCents.current), k.initialCents, 'cents'),
     stat('enrollments', 'Enrollments', String(k.enrollments.current ?? 0), k.enrollments, 'count'),
     stat('paid_cac', 'Paid CAC', k.paidCacCents.current === null ? '—' : money$(k.paidCacCents.current), k.paidCacCents, 'cents',
-      k.paidCacCents.current === null ? { sub: m.noSpendData ? 'no spend entered' : 'no paid-attributed enrollments' } : undefined),
+      k.paidCacCents.current === null ? { sub: m.noSpendData ? 'no spend entered' : 'no paid-attributed enrollments' } : { coverage: m.paidCacCoverage }),
     stat('blended_cac', 'Blended CAC', k.blendedCacCents.current === null ? '—' : money$(k.blendedCacCents.current), k.blendedCacCents, 'cents',
       k.blendedCacCents.current === null ? { sub: m.noSpendData ? 'no spend entered' : 'no enrollments' } : undefined),
     awaiting
       ? stat('roas', 'ROAS', '—', k.roas, 'ratio', { sub: 'Awaiting Stripe', empty: stripeEmpty })
-      : stat('roas', 'ROAS', k.roas.current === null ? '—' : `${k.roas.current.toFixed(2)}×`, k.roas, 'ratio', k.roas.current === null ? { sub: 'no spend in period' } : undefined),
+      : stat('roas', 'ROAS', k.roas.current === null ? '—' : `${k.roas.current.toFixed(2)}×`, k.roas, 'ratio', k.roas.current === null ? { sub: 'no spend in period' } : { coverage: m.roasCoverage }),
+    // Partial-data rule: LTV:CAC over the new clients WITH a contract value; not available only when none has one.
     stat('ltv_cac', 'LTV:CAC', k.ltvToCac.current === null ? '—' : `${k.ltvToCac.current.toFixed(1)}×`, k.ltvToCac, 'ratio',
       k.ltvToCac.current === null
         ? {
-            sub: m.contractValueMissing.length ? `${m.contractValueMissing.length} new client${m.contractValueMissing.length === 1 ? '' : 's'} missing contract value` : m.enrollments === 0 ? 'no new clients' : 'no spend in period',
-            empty: m.contractValueMissing.length
-              ? { title: 'Contract value missing', description: `${m.contractValueMissing.map((p) => p.name).join(', ')} — set the opportunity value in GHL.` }
-              : undefined,
+            sub: m.enrollments === 0 ? 'no new clients' : m.noSpendData || m.spendCents === 0 ? 'no spend in period' : 'not available: no new client has a contract value',
+            empty: m.enrollments > 0 && m.spendCents > 0 && m.ltvCoverage.used === 0 ? { title: 'Not available', description: `No new client has a contract value in GHL (${m.contractValueMissing.map((p) => p.name).join(', ')}) — set the opportunity value; it appears on the next sync.` } : undefined,
           }
-        : undefined),
+        : { coverage: m.ltvCoverage }),
   ];
 
   // ---- Pipeline ----------------------------------------------------------
@@ -206,11 +208,11 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
           `Paid CAC: ${money$(m.spendCents)} spend ÷ ${m.paidEnrollments} paid-attributed enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${m.paidCacCents === null ? '—' : money$(m.paidCacCents)}.`,
           `Blended CAC: ${money$(m.spendCents)} ÷ ${m.enrollments} enrollments (${m.organicEnrollments} organic) = ${money$(m.blendedCacCents)}.`,
           m.ltvToCac !== null
-            ? `LTV:CAC: ${money$(m.contractValueCents)} contract value ÷ ${money$(m.spendCents)} spend = ${m.ltvToCac.toFixed(1)}×.`
+            ? `LTV:CAC: ${money$(m.contractValueCents)} contract value of ${m.ltvCoverage.used} new client${m.ltvCoverage.used === 1 ? '' : 's'} (avg ${money$(Math.round(m.contractValueCents / m.ltvCoverage.used))}) ÷ Blended CAC ${money$(m.blendedCacCents)} = ${m.ltvToCac.toFixed(1)}×${m.ltvCoverage.partial ? ` — ${m.ltvCoverage.note} (${m.contractValueMissing.map((p) => p.name).join(', ')})` : ''}.`
             : m.contractValueMissing.length
-              ? `LTV:CAC withheld — no contract value in GHL for: ${m.contractValueMissing.map((p) => p.name).join(', ')}.`
+              ? `LTV:CAC not available — no new client has a contract value in GHL (${m.contractValueMissing.map((p) => p.name).join(', ')}).`
               : '',
-          m.unattributedEnrollments ? `${m.unattributedEnrollments} enrollment(s) have no paid/organic class and are excluded from Paid CAC.` : '',
+          m.paidCacCoverage.partial ? `Paid CAC: ${m.paidCacCoverage.note} (${m.paidCacCoverage.missing.map((p) => p.name).join(', ')}) — excluded from Paid CAC, still in Blended CAC.` : '',
         ]
           .filter(Boolean)
           .join(' ');
@@ -220,7 +222,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   else notes.push({ text: `Initial cash = new-client payments only, net of refunds (${money$(rev.recurringCents)} recurring collected separately). ROAS = paid-attributed initial cash ÷ spend.`, tone: 'info' });
   if (scorecard.appliedCaveat.withoutFormRecord.length || scorecard.appliedCaveat.otherPipelines.length) notes.push({ text: `Applied: ${scorecard.appliedCaveat.text} (${scorecard.appliedCaveat.withoutFormRecord.map((p) => p.name).join(', ')}${scorecard.appliedCaveat.otherPipelines.length ? `; other pipelines: ${scorecard.appliedCaveat.otherPipelines.map((p) => p.name).join(', ')}` : ''})`, tone: 'warn' });
   if (rev.unclassifiedCount > 0) notes.push({ text: `${rev.unclassifiedCount} succeeded payment(s) have no payment class — run npm run reclassify:payments.`, tone: 'warn' });
-  if (m.unattributedInitialCount > 0) notes.push({ text: `${money$(m.unattributedInitialCents)} of initial cash is unmatched or unclassified and excluded from ROAS.`, tone: 'warn' });
+  if (m.roasCoverage.partial) notes.push({ text: `ROAS: ${m.roasCoverage.note} — ${money$(m.unattributedInitialCents)} of initial cash is excluded.`, tone: 'warn' });
   for (const r of scorecard.showRates) if (r.withheld) notes.push({ text: `${r.type} show rate not shown: ${r.withheld}.`, tone: 'warn' });
   notes.push({ text: `Money ${result.money.fx.text}.`, tone: 'info' });
   if (result.money.unsupportedRows > 0) notes.push({ text: `${result.money.unsupportedRows} payment/spend row(s) in a currency other than CAD or USD are excluded.`, tone: 'warn' });

@@ -159,9 +159,14 @@ describe('worked() text', () => {
     expect(glossaryEntry('paid_cac')!.worked(INPUT, B)).toMatchObject({ value: null, reason: 'no spend in the period' });
     expect(glossaryEntry('roadmap_show_rate')!.worked(INPUT, A)).toMatchObject({ value: null, reason: expect.stringContaining('attendance recorded for 50% of roadmaps') });
   });
-  it('LTV:CAC shows when every new client has a value and is withheld once one does not', () => {
-    expect(glossaryEntry('ltv_cac')!.worked(INPUT, A).value).toBeCloseTo(15, 6); // $15,000 ÷ $1,000
+  it('LTV:CAC: complete → the formula; partial → over the clients with a value plus the coverage; none → not available', () => {
+    expect(glossaryEntry('ltv_cac')!.worked(INPUT, A).value).toBeCloseTo(15, 2); // avg $5,000 ÷ Blended CAC $333.33 (integer cents)
     const withZero: MetricsInput = { ...INPUT, contacts: INPUT.contacts.map((x) => (x.id === 'og' ? { ...x, monetaryValueCents: 0 } : x)) };
-    expect(glossaryEntry('ltv_cac')!.worked(withZero, A)).toMatchObject({ value: null, reason: '1 new client has no contract value (OG)' });
+    const w = glossaryEntry('ltv_cac')!.worked(withZero, A);
+    expect(w.value).toBeCloseTo(500_000 / 33_333, 2); // avg (600,000 + 400,000) ÷ 2 ÷ (100,000 ÷ 3)
+    expect(w.text).toContain('Based on 2 of 3 new clients · 1 missing contract value');
+    expect(w.coverage).toMatchObject({ used: 2, total: 3, missing: [{ name: 'OG' }] });
+    const none: MetricsInput = { ...INPUT, contacts: INPUT.contacts.map((x) => ({ ...x, monetaryValueCents: 0 })) };
+    expect(glossaryEntry('ltv_cac')!.worked(none, A)).toMatchObject({ value: null, reason: expect.stringMatching(/^not available: no new client has a contract value/) });
   });
 });

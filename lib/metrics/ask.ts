@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { trimArray } from '../anthropic/strictSchema';
 import type { ScorecardResult } from './service';
 import { buildInsightInput, type InsightInput } from './insights';
-import type { CampaignRow, Currency, Funnel, MarketingMetrics, TrendPoint } from './index';
+import { coverageOf, type CampaignRow, type Currency, type Funnel, type MarketingMetrics, type TrendPoint } from './index';
 import { dataCaveats } from './maturity';
 
 export interface AskContext {
@@ -153,9 +153,11 @@ export function buildAskContext(result: ScorecardResult): AskContext {
   }
   if (scorecard.revenue.awaitingStripe) dataHealth.push('Stripe is not connected: no revenue, initial cash or ROAS exists.');
   if (m.noSpendData) dataHealth.push('No ad spend recorded for the period: every cost metric and ROAS is unavailable.');
-  if (m.contractValueMissing.length) dataHealth.push(`LTV:CAC withheld: ${m.contractValueMissing.length} new client(s) have no contract value in GHL (${m.contractValueMissing.map((p) => p.name).join(', ')}).`);
-  if (m.unattributedEnrollments) dataHealth.push(`${m.unattributedEnrollments} enrollment(s) have no paid/organic class and are excluded from Paid CAC.`);
-  if (m.unattributedInitialCount) dataHealth.push(`${m.unattributedInitialCount} initial payment(s) are unmatched/unclassified and excluded from ROAS.`);
+  // Partial-data rule: the metric is computed from the records that have the input; the note says so.
+  if (m.ltvCoverage.partial) dataHealth.push(`LTV:CAC is partial — ${m.ltvCoverage.note} (${m.contractValueMissing.map((p) => p.name).join(', ')}); say "based on ${m.ltvCoverage.used} of ${m.ltvCoverage.total} new clients" when you cite it.`);
+  if (m.ltvToCac === null && m.enrollments > 0 && m.ltvCoverage.used === 0) dataHealth.push('LTV:CAC not available: no new client has a contract value in GHL.');
+  if (m.paidCacCoverage.partial) dataHealth.push(`Paid CAC is partial — ${m.paidCacCoverage.note} (${m.paidCacCoverage.missing.map((p) => p.name).join(', ')}); the unclassified enrollments are excluded from Paid CAC (still in Blended CAC).`);
+  if (m.roasCoverage.partial) dataHealth.push(`ROAS is partial — ${m.roasCoverage.note}; that cash is excluded from ROAS.`);
   if (scorecard.revenue.unclassifiedCount) dataHealth.push(`${scorecard.revenue.unclassifiedCount} succeeded payment(s) have no payment class.`);
   for (const r of scorecard.showRates) if (r.withheld) dataHealth.push(`${r.type} show rate unavailable: ${r.withheld}. Do not state a ${r.type.toLowerCase()} show rate or any "0%" for it.`);
   const h = result.inputHealth;
@@ -214,6 +216,9 @@ function previousMarketing(result: ScorecardResult): MarketingMetrics {
     contractValueCents: 0,
     contractValueMissing: [],
     ltvToCac: k.ltvToCac.previous,
+    ltvCoverage: coverageOf(0, 0, 'new clients', 'missing contract value'),
+    paidCacCoverage: coverageOf(0, 0, 'enrollments', 'unclassified'),
+    roasCoverage: coverageOf(0, 0, 'initial payments', 'unmatched or unclassified'),
   };
 }
 

@@ -160,7 +160,9 @@ describe('the engine in CAD (the default reporting currency)', () => {
     expect(m.blendedCacCents).toBe(45_333); // 136,000 ÷ 3
     expect(m.costPerRoadmapCents).toBe(68_000); // 136,000 ÷ 2 roadmaps
     expect(m.contractValueCents).toBe(1_500_000); // CAD contracts, no conversion
-    expect(m.ltvToCac).toBeCloseTo(1_500_000 / 136_000, 10); // 11.03
+    // Partial-data rule: avg contract value (3 clients, all valued) ÷ Blended CAC in integer cents (136,000 ÷ 3 = 45,333).
+    expect(m.ltvCoverage).toMatchObject({ used: 3, total: 3, partial: false });
+    expect(m.ltvToCac).toBeCloseTo(500_000 / 45_333, 10); // 11.03
   });
 
   it('each payment converts at ITS date: the September USD charge uses 1.40', () => {
@@ -189,7 +191,7 @@ describe('the same fixture in USD (the toggle)', () => {
     expect(m.blendedCacCents).toBe(33_333);
     // 600,000 → 441,176 · 400,000 → 294,118 · 500,000 → 367,647 (each ÷ 1.36, rounded)
     expect(m.contractValueCents).toBe(1_102_941);
-    expect(m.ltvToCac).toBeCloseTo(11.02941, 10);
+    expect(m.ltvToCac).toBeCloseTo(1_102_941 / 3 / m.blendedCacCents!, 10); // avg contract value ÷ Blended CAC (integer cents) ≈ 11.03
     const r = computeRevenue(inUsd, R);
     expect(r).toMatchObject({ currency: 'USD', initialCents: 470_588, recurringCents: 19_900, refundedCents: 50_000 });
   });

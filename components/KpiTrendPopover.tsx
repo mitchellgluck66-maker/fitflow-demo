@@ -131,7 +131,17 @@ export const KpiTrendPopover: React.FC<{
             <div id={titleId} className="flex items-center gap-2 text-[11.5px] font-medium uppercase tracking-[0.045em]" style={{ color: 'var(--text-tertiary)' }}>
               {trend?.label ?? label}
               {trend?.maturing && <MaturingBadge maturity={trend.maturity} />}
+              {trend?.coverage.window?.partial && (
+                <span className="inline-flex items-center h-[16px] px-1 rounded-[4px] text-[10px] font-semibold" style={{ background: 'var(--warning-muted)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }} title={trend.coverage.window.note ?? ''}>
+                  partial
+                </span>
+              )}
             </div>
+            {trend?.coverage.window?.partial && (
+              <div className="text-[11px] mt-0.5" style={{ color: 'var(--warning)' }} data-testid="trend-partial-note">
+                {trend.coverage.window.note} (this window){trend.coverage.card?.partial && trend.coverage.card.note !== trend.coverage.window.note ? ` · card: ${trend.coverage.card.note}` : ''}
+              </div>
+            )}
             {trend ? (
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-[20px] font-semibold tabular tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>

@@ -129,7 +129,7 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
     ]);
     expect(view.sourceRows[0]).toEqual(['Facebook', '2', '2', '2', '100%']);
     expect(view.cacLine).toContain('Paid CAC: $1,000 CAD spend ÷ 2 paid-attributed enrollments = $500 CAD.');
-    expect(view.cacLine).toContain('LTV:CAC: $10,000 CAD contract value ÷ $1,000 CAD spend = 10.0×.');
+    expect(view.cacLine).toContain('LTV:CAC: $10,000 CAD contract value of 2 new clients (avg $5,000 CAD) ÷ Blended CAC $500 CAD = 10.0×.');
     expect(view.empty).toBe(false);
   });
 
@@ -140,10 +140,19 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
     expect(noStripe.sections.money.find((s) => s.key === 'roas')!.empty).toBeTruthy();
     expect(noStripe.notes[0].text).toMatch(/Stripe is connected/);
 
+    // Partial-data rule: LTV:CAC over the clients with a value, the note on the stat and Bob one click away.
     const missingValue = assembleScorecard({ ...result, scorecard: computeScorecard({ ...INPUT, contacts: INPUT.contacts.map((c) => (c.id === 'a2' ? { ...c, monetaryValueCents: 0 } : c)) }, result.range, result.comparison.range, null) }, null);
     const ltv = missingValue.sections.money.find((s) => s.key === 'ltv_cac')!;
-    expect(ltv.value).toBe('—');
-    expect(ltv.empty?.description).toContain('Bob');
+    expect(ltv.value).not.toBe('—');
+    expect(ltv.empty).toBeUndefined();
+    expect(ltv.partial).toMatchObject({ note: expect.stringMatching(/^Based on \d+ of \d+ new clients · 1 missing contract value$/), people: [{ name: 'Bob' }] });
+    expect(missingValue.cacLine).toContain('Based on');
+    // 0 usable records → not available, with the reason.
+    const none = assembleScorecard({ ...result, scorecard: computeScorecard({ ...INPUT, contacts: INPUT.contacts.map((c) => ({ ...c, monetaryValueCents: 0 })) }, result.range, result.comparison.range, null) }, null);
+    const ltv0 = none.sections.money.find((s) => s.key === 'ltv_cac')!;
+    expect(ltv0.value).toBe('—');
+    expect(ltv0.sub).toBe('not available: no new client has a contract value');
+    expect(ltv0.empty?.title).toBe('Not available');
   });
 
   it('monthly and custom kinds', () => {

@@ -158,6 +158,7 @@ function AdsTab() {
               icon={Target}
               accent="warning"
               subtext={kpis.paidCacCents === null ? 'no paid-attributed enrollments' : 'spend ÷ paid-attributed enrolled'}
+              partial={kpis.paidCacCents !== null && kpis.paidCacCoverage.partial ? { note: kpis.paidCacCoverage.note!, people: kpis.paidCacCoverage.missing } : null}
             />
           )}
           {show('cost_client') && (
@@ -187,6 +188,7 @@ function AdsTab() {
               icon={TrendingUp}
               accent="success"
               subtext="paid initial cash ÷ ad spend"
+              partial={kpis.roas !== null && kpis.roasCoverage.partial ? { note: kpis.roasCoverage.note! } : null}
               empty={kpis.awaitingStripe ? { title: 'Awaiting Stripe', description: 'ROAS needs real revenue. Connect Stripe in Setup.' } : undefined}
             />
           )}

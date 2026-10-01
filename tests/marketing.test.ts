@@ -87,12 +87,30 @@ describe('computeMarketing', () => {
     expect(m.ltvToCac).toBeCloseTo(15); // 1,500,000 ÷ 100,000; avg 500,000 ÷ blended 33,333 ≈ 15
   });
 
-  it('LTV:CAC is withheld and the missing clients listed when any new client has no contract value', () => {
+  it('partial-data rule: LTV:CAC is computed over the clients WITH a contract value, with the coverage note and the missing names', () => {
     const input: MetricsInput = { ...BASE, contacts: [c('pa', 'paid', 600_000), c('pb', 'paid', 0), c('og', 'organic', 500_000)] };
     const mm = computeMarketing(input, R);
-    expect(mm.ltvToCac).toBeNull();
+    // Hand calculation over the complete subset: avg (600,000 + 500,000) ÷ 2 = 550,000 ÷ Blended CAC (100,000 ÷ 3 = 33,333) = 16.5.
+    expect(mm.ltvToCac).toBeCloseTo(550_000 / 33_333, 2);
     expect(mm.contractValueMissing).toEqual([{ contactId: 'pb', name: 'PB' }]);
-    expect(mm.contractValueCents).toBe(1_100_000); // still reported for the warning text
+    expect(mm.contractValueCents).toBe(1_100_000);
+    expect(mm.ltvCoverage).toEqual({ used: 2, total: 3, unit: 'new clients', missingLabel: 'missing contract value', missing: [{ contactId: 'pb', name: 'PB' }], partial: true, note: 'Based on 2 of 3 new clients · 1 missing contract value' });
+    expect(m.ltvCoverage).toMatchObject({ used: 3, total: 3, partial: false, note: null });
+  });
+
+  it('partial-data rule: 0 usable records → not available (null), never a number', () => {
+    const input: MetricsInput = { ...BASE, contacts: [c('pa', 'paid', 0), c('pb', 'paid', 0), c('og', 'organic', 0)] };
+    const mm = computeMarketing(input, R);
+    expect(mm.ltvToCac).toBeNull();
+    expect(mm.ltvCoverage).toMatchObject({ used: 0, total: 3, partial: true, note: 'Based on 0 of 3 new clients · 3 missing contract value' });
+  });
+
+  it('partial-data rule: Paid CAC and ROAS carry their coverage (unclassified enrollments by name; unmatched initial cash by count)', () => {
+    const input: MetricsInput = { ...BASE, contacts: [c('pa', 'paid', 600_000), c('pb', null, 400_000), c('og', 'organic', 500_000)] };
+    const mm = computeMarketing(input, R);
+    expect(mm.paidCacCoverage).toMatchObject({ used: 2, total: 3, unit: 'enrollments', partial: true, note: 'Based on 2 of 3 enrollments · 1 unclassified', missing: [{ contactId: 'pb', name: 'PB' }] });
+    expect(mm.roasCoverage).toMatchObject({ used: 2, total: 3, unit: 'initial payments', partial: true, note: 'Based on 2 of 3 initial payments · 1 unmatched or unclassified' });
+    expect(m.paidCacCoverage.partial).toBe(false);
   });
 
   it('unclassified contacts and unmatched initial cash are surfaced as data-health, excluded from paid math', () => {

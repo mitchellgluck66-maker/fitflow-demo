@@ -36,12 +36,15 @@ describe('contract', () => {
 });
 
 describe('calculate (pure)', () => {
-  const resolve = (r: string) => ({ 'r1:data.marketing.spendCents': 369_768, 'r1:data.marketing.enrollments': 8, 'r2:data.marketing.spendCents': 300_000, 'r1:data.showRates[0].rate': 0.6, 'r2:data.showRates[0].rate': 0.5, 'r1:data.marketing.roas': null } as Record<string, number | null>)[r];
+  const resolve = (r: string) => ({ 'r1:data.marketing.spendCents': 369_768, 'r1:data.marketing.enrollments': 8, 'r2:data.marketing.spendCents': 300_000, 'r1:data.showRates[0].rate': 0.6, 'r2:data.showRates[0].rate': 0.5, 'r1:data.marketing.roas': null, 'r1:data.marketing.ltvCoverage.used': 21, 'r1:data.marketing.ltvCoverage.total': 24 } as Record<string, number | null>)[r];
   it('money stays in cents; percent change is a ratio; per_unit rounds to cents', () => {
     expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toEqual({ value: 69_768, unit: 'cents', text: '$697.68' });
     expect(calculate('percent_change', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r2:data.marketing.spendCents', value: 0 }, resolve)).toMatchObject({ value: 0.23256, unit: 'ratio', text: '23.3%' });
     expect(calculate('per_unit', { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 }, resolve)).toEqual({ value: 46_221, unit: 'cents', text: '$462.21' });
     expect(calculate('product', { kind: 'value', ref: '', value: 3 }, { kind: 'value', ref: '', value: 4 }, resolve)).toEqual({ value: 12, unit: 'number', text: '12' });
+  });
+  it('partial-data rule: a coverage block\'s used / total are counts (a "coverage" path is a ratio only for show-rate attendance)', () => {
+    expect(calculate('difference', { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.total', value: 0 }, { kind: 'ref', ref: 'r1:data.marketing.ltvCoverage.used', value: 0 }, resolve)).toEqual({ value: 3, unit: 'number', text: '3' });
   });
   it('refuses to add or average ratios, unknown refs, null refs and division by zero', () => {
     expect(() => calculate('sum', { kind: 'ref', ref: 'r1:data.showRates[0].rate', value: 0 }, { kind: 'ref', ref: 'r2:data.showRates[0].rate', value: 0 }, resolve)).toThrow(/recompute from the totals/);
@@ -72,6 +75,10 @@ describe('parity with the page functions on the demo database', () => {
     }
     expect(d.marketing.paidCacCents).toBe(page.scorecard.marketing.paidCacCents);
     expect(d.marketing.roas).toBe(page.scorecard.marketing.roas);
+    // Partial-data rule: the tool result carries the engine's coverage (names only), so the model can say "based on X of Y".
+    const pc = page.scorecard.marketing.ltvCoverage;
+    expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, unit: pc.unit, partial: pc.partial, note: pc.note, missing: pc.missing.map((m) => m.name) });
+    expect(d.marketing.paidCacCoverage).toMatchObject({ partial: page.scorecard.marketing.paidCacCoverage.partial, note: page.scorecard.marketing.paidCacCoverage.note });
     expect(d.funnelCohort.stages.map((s) => s.count)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => (s.withheld ? null : s.count)));
     expect(d.appliedCaveat.text).toBe(page.scorecard.appliedCaveat.text);
     expect(tool.range).toEqual({ start: page.range.start, end: page.range.end, label: `${page.range.presetLabel} · ${page.range.resolvedLabel}` });
@@ -106,6 +113,10 @@ describe('parity with the page functions on the demo database', () => {
     const worked = glossaryEntry('blended_cac')!.worked(await loadMetricsInput({ start: range.start, end: range.end, timezone: tz }), range);
     expect(metric.value).toBe(worked.value);
     expect(metric.worked).toBe(worked.text);
+    const ltv = (await runAnalystTool('get_metric', { key: 'ltv_cac', range: LAST_WEEK, mode: 'period' }, ctx('r7b'))).data as { value: number | null; worked: string; coverage: { used: number; total: number; partial: boolean; note: string | null } | null };
+    const ltvWorked = glossaryEntry('ltv_cac')!.worked(await loadMetricsInput({ start: range.start, end: range.end, timezone: tz }), range);
+    expect(ltv.value).toBe(ltvWorked.value);
+    expect(ltv.coverage).toEqual(ltvWorked.coverage ? { used: ltvWorked.coverage.used, total: ltvWorked.coverage.total, unit: ltvWorked.coverage.unit, partial: ltvWorked.coverage.partial, note: ltvWorked.coverage.note, missing: ltvWorked.coverage.missing.map((m) => m.name) } : null);
 
     const clients = (await runAnalystTool('list_clients', { query: '', attribution: 'paid', from: '', to: '', page: 1 }, ctx('r8'))).data as { total: number; rows: Array<{ id: string; name: string }>; dateBasis: string };
     const page = await listClients({ attribution: 'paid', limit: 25, offset: 0 });

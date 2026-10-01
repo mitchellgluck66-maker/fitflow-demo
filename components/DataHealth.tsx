@@ -14,20 +14,21 @@ import { formatCents } from '@/lib/metrics';
 export function marketingWarnings(m: MarketingMetrics, r: Revenue): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   if (m.contractValueMissing.length > 0) {
+    const partial = m.ltvCoverage.used > 0;
     out.push(
-      <span key="ltv">
-        <strong>LTV:CAC withheld</strong> — {m.contractValueMissing.length} new client{m.contractValueMissing.length === 1 ? ' has' : 's have'} no contract value on
-        the GoHighLevel opportunity:{' '}
+      <>
+        <strong>{partial ? `LTV:CAC is partial — ${m.ltvCoverage.note}` : 'LTV:CAC not available'}</strong>
+        {partial ? ' — no contract value on the GHL opportunity for ' : ' — no new client has a contract value on the GHL opportunity: '}
         {m.contractValueMissing.slice(0, 6).map((p, i) => (
           <React.Fragment key={p.contactId}>
             {i > 0 && ', '}
-            <Link href={`/clients/${p.contactId}`} className="underline">
+            <Link href={`/clients/${p.contactId}`} className="underline decoration-dotted">
               {p.name}
             </Link>
           </React.Fragment>
         ))}
         {m.contractValueMissing.length > 6 && ` and ${m.contractValueMissing.length - 6} more`}. Set the opportunity value in GHL; it appears on the next sync.
-      </span>,
+      </>,
     );
   }
   if (m.unattributedEnrollments > 0) {

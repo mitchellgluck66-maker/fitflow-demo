@@ -47,6 +47,10 @@ export interface InsightInput {
     ltvToCac: number | null;
     contractValueCents: number;
     contractValueMissingCount: number;
+    /** Partial-data rule notes (null when complete): "Based on 21 of 24 new clients · 3 missing contract value". */
+    ltvCoverage: string | null;
+    paidCacCoverage: string | null;
+    roasCoverage: string | null;
     costPerRoadmapCents: number | null;
     definitions: string;
     revenue:
@@ -120,6 +124,10 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
       organicEnrollments: scorecard.marketing.organicEnrollments,
       unattributedEnrollments: scorecard.marketing.unattributedEnrollments,
       ltvToCac: round(scorecard.marketing.ltvToCac, 2),
+      /** Partial-data rule: LTV:CAC is over the clients with a value; cite it as "based on used of total new clients". */
+      ltvCoverage: scorecard.marketing.ltvCoverage.note,
+      paidCacCoverage: scorecard.marketing.paidCacCoverage.note,
+      roasCoverage: scorecard.marketing.roasCoverage.note,
       contractValueCents: scorecard.marketing.contractValueCents,
       contractValueMissingCount: scorecard.marketing.contractValueMissing.length,
       costPerRoadmapCents: scorecard.marketing.costPerRoadmapCents,

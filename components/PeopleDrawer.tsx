@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { X, Users, ChevronRight } from 'lucide-react';
 import { Badge } from './Badge';
@@ -63,12 +64,13 @@ export const PeopleDrawer: React.FC<{
     };
   }, [open, key]);
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
   const fmtDate = (iso: string | null) =>
     iso ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso)) : '—';
 
-  return (
+  // Portalled to <body> (Phase K overlay rule): a tile or card with a transform / overflow would otherwise clip the fixed panel.
+  return createPortal(
     <div className="fixed inset-0" style={{ zIndex: 'var(--z-overlay)' as unknown as number }}>
       <div
         onClick={onClose}
@@ -173,6 +175,7 @@ export const PeopleDrawer: React.FC<{
           {people ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Loading…'} · read from GoHighLevel
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 };

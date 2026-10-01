@@ -1066,3 +1066,15 @@ From now on:
    - what was NOT verified.
 
    Never report "done" on unit tests alone.
+6. **The partial-data rule (Mitchell, 2026-09-30).** When SOME records lack an input, compute the
+   metric from the records that have it — the rest are out of BOTH numerator and denominator — and
+   show it with the amber note `Based on 21 of 24 new clients · 3 missing contract value`
+   (`lib/metrics#coverageOf` → `Coverage`; the names one click away; the tile marked `partial`).
+   The same note travels with the number everywhere: trend popovers (`MetricTrend.coverage`
+   window + card), tables, digests (`ScorecardStat.partial`), the glossary's `worked()`
+   (`Worked.coverage`) and every Analyst tool RESULT (a `coverage` block — the contract makes the
+   model say "based on X of Y"). 0 usable records → "not available: <reason>", never a number.
+   Show rates keep their own ≥ 90 % attendance-coverage rule. A metric is never withheld because
+   SOME of its records are incomplete; a withheld figure means NONE were usable or an input is
+   missing wholesale (no spend, no enrollments). Tests: the partial value is the hand calculation
+   over the complete subset, with the coverage count.

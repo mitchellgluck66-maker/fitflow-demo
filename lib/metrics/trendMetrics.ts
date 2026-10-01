@@ -18,6 +18,7 @@ import {
   computeShowRates,
   funnelMembership,
   inReportingCurrency,
+  type Coverage,
   type Currency,
   type MetricsInput,
   type Range,
@@ -36,6 +37,8 @@ export interface TrendMetric {
   /** Where a fuller view lives. */
   openIn: string;
   compute: (input: MetricsInput, range: Range) => number | null;
+  /** The partial-data rule: what the value over a range is based on (LTV:CAC, Paid CAC, ROAS). */
+  coverage?: (input: MetricsInput, range: Range) => Coverage;
 }
 
 const rate = (type: string) => (input: MetricsInput, range: Range) => computeShowRates(input, range).find((r) => r.type === type)?.rate ?? null;
@@ -64,11 +67,11 @@ export const TREND_METRICS: readonly TrendMetric[] = [
   M('spend', 'Spend', 'cents', true, '/ads', (i, r) => computeAdsKpis(i, r).spendCents),
 
   // ---- rates / CAC (recomputed from the range's totals) ----
-  M('paid_cac', 'Paid CAC', 'cents', true, '/ads', (i, r) => computeMarketing(i, r).paidCacCents),
+  { ...M('paid_cac', 'Paid CAC', 'cents', true, '/ads', (i, r) => computeMarketing(i, r).paidCacCents), coverage: (i, r) => computeMarketing(i, r).paidCacCoverage },
   M('blended_cac', 'Blended CAC', 'cents', true, '/ads', (i, r) => computeMarketing(i, r).blendedCacCents),
   M('cost_client', 'Cost per client', 'cents', true, '/ads', (i, r) => computeMarketing(i, r).blendedCacCents),
-  M('roas', 'ROAS', 'ratio', false, '/ads', (i, r) => computeMarketing(i, r).roas),
-  M('ltv_cac', 'LTV:CAC', 'ratio', false, '/', (i, r) => computeMarketing(i, r).ltvToCac),
+  { ...M('roas', 'ROAS', 'ratio', false, '/ads', (i, r) => computeMarketing(i, r).roas), coverage: (i, r) => computeMarketing(i, r).roasCoverage },
+  { ...M('ltv_cac', 'LTV:CAC', 'ratio', false, '/', (i, r) => computeMarketing(i, r).ltvToCac), coverage: (i, r) => computeMarketing(i, r).ltvCoverage },
   M('cost_roadmap', 'Cost per roadmap booked', 'cents', true, '/ads', (i, r) => computeMarketing(i, r).costPerRoadmapCents),
   M('cpl', 'Cost per lead', 'cents', true, '/ads', (i, r) => computeAdsKpis(i, r).costPerLeadCents),
   M('cost_consult', 'Cost per consult', 'cents', true, '/ads', (i, r) => computeAdsKpis(i, r).costPerConsultCents),
@@ -176,6 +179,8 @@ export interface MetricTrend {
   maturity: DataMaturity | null;
   /** True when this metric carries the badge for the window. */
   maturing: boolean;
+  /** The partial-data rule over the window (and the card's range when given): "Based on 21 of 24 new clients · …". */
+  coverage: { window: Coverage | null; card: Coverage | null };
 }
 
 /** Compute a metric's trend from already-loaded rows (pure). `card` = the tile's selected range. */
@@ -207,6 +212,7 @@ export function computeMetricTrend(metric: TrendMetric, raw: MetricsInput, today
       : null,
     maturity: null,
     maturing: false,
+    coverage: { window: metric.coverage?.(input, cur) ?? null, card: card && metric.coverage ? metric.coverage(input, card) : null },
   };
 }
 

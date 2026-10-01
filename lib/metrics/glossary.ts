@@ -30,6 +30,7 @@ import {
   FUNNEL_STAGES,
   inReportingCurrency,
   SHOW_RATE_MIN_COVERAGE,
+  type Coverage,
   type Currency,
   type FunnelMode,
   type FunnelStageKey,
@@ -55,6 +56,8 @@ export interface Worked {
   currency: Currency;
   /** The inputs the formula used, by name — the Analyst cites these. */
   inputs: Record<string, number | null>;
+  /** The partial-data rule: present when the metric was computed from the records that have the input. */
+  coverage?: Coverage;
 }
 
 export interface GlossaryEntry {
@@ -373,7 +376,7 @@ const marketingEntries: GlossaryEntry[] = [
       const m = computeMarketing(input, range);
       if (m.spendCents === 0) return withheld('no spend in the period', m.currency, { spendCents: 0, paidEnrollments: m.paidEnrollments });
       if (m.paidEnrollments === 0) return withheld(`no paid-attributed enrollments in the period (${m.enrollments} enrollment${m.enrollments === 1 ? '' : 's'}, ${m.organicEnrollments} organic, ${m.unattributedEnrollments} unclassified)`, m.currency, { spendCents: m.spendCents, paidEnrollments: 0 });
-      return { value: m.paidCacCents, text: `${money(m.spendCents, m.currency)} spend ÷ ${m.paidEnrollments} paid enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${money(m.paidCacCents, m.currency)}`, reason: null, currency: m.currency, inputs: { spendCents: m.spendCents, paidEnrollments: m.paidEnrollments } };
+      return { value: m.paidCacCents, text: `${money(m.spendCents, m.currency)} spend ÷ ${m.paidEnrollments} paid enrollment${m.paidEnrollments === 1 ? '' : 's'} = ${money(m.paidCacCents, m.currency)}${m.paidCacCoverage.partial ? ` · ${m.paidCacCoverage.note}` : ''}`, reason: null, currency: m.currency, inputs: { spendCents: m.spendCents, paidEnrollments: m.paidEnrollments }, ...(m.paidCacCoverage.partial ? { coverage: m.paidCacCoverage } : {}) };
     },
   },
   {
@@ -407,7 +410,7 @@ const marketingEntries: GlossaryEntry[] = [
       const m = computeMarketing(input, range);
       if (m.awaitingStripe) return withheld(NOT_CONFIGURED_STRIPE, m.currency);
       if (m.spendCents === 0) return withheld('no spend in the period', m.currency, { spendCents: 0, paidInitialCents: m.paidInitialCents });
-      return { value: m.roas, text: `${money(m.paidInitialCents, m.currency)} paid initial cash ÷ ${money(m.spendCents, m.currency)} spend = ${ratioText(m.roas)}`, reason: null, currency: m.currency, inputs: { paidInitialCents: m.paidInitialCents, spendCents: m.spendCents } };
+      return { value: m.roas, text: `${money(m.paidInitialCents, m.currency)} paid initial cash ÷ ${money(m.spendCents, m.currency)} spend = ${ratioText(m.roas)}${m.roasCoverage.partial ? ` · ${m.roasCoverage.note}` : ''}`, reason: null, currency: m.currency, inputs: { paidInitialCents: m.paidInitialCents, spendCents: m.spendCents }, ...(m.roasCoverage.partial ? { coverage: m.roasCoverage } : {}) };
     },
   },
   {
@@ -416,16 +419,17 @@ const marketingEntries: GlossaryEntry[] = [
     group: 'marketing',
     unit: 'ratio',
     lowerIsBetter: false,
-    definition: 'Contract value sold per dollar of spend: the total GoHighLevel opportunity value of the period\'s new clients divided by spend (equal to average contract value ÷ Blended CAC). Withheld, with the clients listed, while any new client has no contract value.',
+    definition: 'Contract value sold per dollar of spend: the average GoHighLevel opportunity value of the period\'s new clients divided by Blended CAC. Partial-data rule: computed over the new clients that HAVE a contract value — the others leave both the value and the client count — and shown with "Based on N of M new clients · K missing contract value", names one click away. Not available when no new client has a value.',
     differsFrom: 'ROAS is cash that actually arrived; LTV:CAC is the value of what was sold.',
-    formula: 'Σ contract value of new clients ÷ spend',
+    formula: 'average contract value (clients with a value) ÷ Blended CAC',
     maturing: false,
     worked: (input, range) => {
       const m = computeMarketing(input, range);
-      if (m.spendCents === 0) return withheld('no spend in the period', m.currency, { contractValueCents: m.contractValueCents, spendCents: 0 });
-      if (m.contractValueMissing.length) return withheld(`${m.contractValueMissing.length} new client${m.contractValueMissing.length === 1 ? ' has' : 's have'} no contract value (${m.contractValueMissing.map((c) => c.name).join(', ')})`, m.currency, { contractValueCents: m.contractValueCents, spendCents: m.spendCents });
       if (m.enrollments === 0) return withheld('no enrollments in the period', m.currency, { contractValueCents: 0, spendCents: m.spendCents });
-      return { value: m.ltvToCac, text: `${money(m.contractValueCents, m.currency)} contract value of ${m.enrollments} new client${m.enrollments === 1 ? '' : 's'} ÷ ${money(m.spendCents, m.currency)} spend = ${ratioText(m.ltvToCac)}`, reason: null, currency: m.currency, inputs: { contractValueCents: m.contractValueCents, enrollments: m.enrollments, spendCents: m.spendCents } };
+      if (m.spendCents === 0) return withheld('no spend in the period', m.currency, { contractValueCents: m.contractValueCents, spendCents: 0 });
+      if (m.ltvCoverage.used === 0) return withheld(`not available: no new client has a contract value (${m.contractValueMissing.map((c) => c.name).join(', ')})`, m.currency, { contractValueCents: 0, enrollments: m.enrollments, spendCents: m.spendCents });
+      const avg = Math.round(m.contractValueCents / m.ltvCoverage.used);
+      return { value: m.ltvToCac, text: `avg ${money(avg, m.currency)} contract value (${m.ltvCoverage.used} client${m.ltvCoverage.used === 1 ? '' : 's'}) ÷ ${money(m.blendedCacCents, m.currency)} Blended CAC = ${ratioText(m.ltvToCac)}${m.ltvCoverage.partial ? ` · ${m.ltvCoverage.note}` : ''}`, reason: null, currency: m.currency, inputs: { contractValueCents: m.contractValueCents, valuedClients: m.ltvCoverage.used, enrollments: m.enrollments, blendedCacCents: m.blendedCacCents, spendCents: m.spendCents }, ...(m.ltvCoverage.partial ? { coverage: m.ltvCoverage } : {}) };
     },
   },
   {

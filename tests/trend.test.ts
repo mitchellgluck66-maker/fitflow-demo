@@ -171,3 +171,22 @@ describe('highlight = the card', () => {
     expect(t.current.some((b) => b.inCard)).toBe(false);
   });
 });
+
+describe('partial-data rule in the trend', () => {
+  it('ltv_cac carries the window and card coverage; a client without a contract value is named and excluded from the average', () => {
+    const input: MetricsInput = { ...INPUT, contacts: INPUT.contacts.map((c) => (c.id === 'b' ? { ...c, monetaryValueCents: 0 } : c)) };
+    const r = resolvePreset('this_week', TODAY); // Sep 13–19: enrollment b, spend $1,400
+    const t = computeMetricTrend(trendMetric('ltv_cac')!, input, TODAY, '3m', r);
+    // Card: 1 new client (b) with no value → 0 usable → not available.
+    expect(t.highlight?.value).toBeNull();
+    expect(t.coverage.card).toMatchObject({ used: 0, total: 1, partial: true, note: 'Based on 0 of 1 new clients · 1 missing contract value', missing: [{ contactId: 'b', name: 'B' }] });
+    // Window (3 months, to Sep 17): a (500,000) + b (0) enrolled; spend 70,000 + 5/7 × 140,000 = 170,000 → blended CAC 85,000;
+    // avg over the valued = 500,000 → 5.88×.
+    expect(t.spanValue).toBeCloseTo(500_000 / 85_000, 6);
+    expect(t.coverage.window).toMatchObject({ used: 1, total: 2, partial: true, note: 'Based on 1 of 2 new clients · 1 missing contract value' });
+    // Complete data → no note.
+    expect(computeMetricTrend(trendMetric('ltv_cac')!, INPUT, TODAY, '3m', r).coverage.window).toMatchObject({ partial: false, note: null });
+    // Metrics without the rule carry null.
+    expect(computeMetricTrend(trendMetric('enrollments')!, INPUT, TODAY, '3m', r).coverage).toEqual({ window: null, card: null });
+  });
+});

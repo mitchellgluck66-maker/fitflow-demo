@@ -7,6 +7,7 @@ import type { Currency, Delta } from '@/lib/metrics';
 import { formatDelta } from '@/lib/metrics';
 import { RadialRing } from './RadialRing';
 import { KpiTrendPopover } from './KpiTrendPopover';
+import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
 import type { DataMaturity } from '@/lib/metrics/maturity';
 
@@ -36,6 +37,12 @@ type KpiDeltaTileProps = {
   /** Maturing-data disclaimer state; the badge shows only when `maturing` is true AND it is active. */
   maturity?: DataMaturity | null;
   maturing?: boolean;
+  /**
+   * The partial-data rule (2026-09-30): the number was computed from the records that have the input. Renders an
+   * amber "partial" badge and the note ("Based on 21 of 24 new clients · 3 missing contract value"); `people` opens
+   * the names one click away.
+   */
+  partial?: { note: string; people?: Array<{ contactId: string | null; name: string }> } | null;
   className?: string;
 } & (
   /** Key in lib/metrics/trendMetrics — enables the click-to-trend drop-down; `trendRange` = the card's range, highlighted there. */
@@ -46,7 +53,9 @@ type KpiDeltaTileProps = {
   | { deltaKind?: 'count' | 'pct' | 'ratio'; currency?: Currency }
 );
 
-export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, trendRange, maturity, maturing, className }) => {
+export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, trendRange, maturity, maturing, partial, className }) => {
+  const [namesOpen, setNamesOpen] = useState(false);
+  const partialPeople = partial?.people?.filter((p) => p.contactId) ?? [];
   const [open, setOpen] = useState(false);
   const tileRef = useRef<HTMLDivElement>(null);
   const clickable = Boolean(trendMetric);
@@ -114,6 +123,11 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
             {label}
           </span>
           {maturing && <MaturingBadge maturity={maturity} compact className="shrink-0" />}
+          {partial && !empty && (
+            <span className="inline-flex items-center h-[16px] px-1 rounded-[4px] text-[10px] font-semibold uppercase tracking-[0.04em] shrink-0" style={{ background: 'var(--warning-muted)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }} title={partial.note} data-testid="partial-badge">
+              partial
+            </span>
+          )}
         </div>
         {!empty && delta.direction !== 'none' && (
           <span
@@ -147,11 +161,34 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
                 {subtext}
               </div>
             )}
+            {partial && (
+              <div className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--warning)' }} data-testid="partial-note">
+                {partial.note}
+                {partialPeople.length > 0 && (
+                  <>
+                    {' · '}
+                    <button
+                      type="button"
+                      className="underline decoration-dotted focus-ring"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNamesOpen(true);
+                      }}
+                    >
+                      names
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {ring !== undefined ? <RadialRing value={ring} size={44} stroke={5} /> : sparkline && sparkline.length > 1 && <Spark data={sparkline} color={color} />}
         </div>
       )}
       {clickable && open && trendMetric && <KpiTrendPopover metric={trendMetric} label={label} cardRange={trendRange} anchorRef={tileRef} onClose={() => setOpen(false)} />}
+      {partial && partialPeople.length > 0 && (
+        <PeopleDrawer open={namesOpen} onClose={() => setNamesOpen(false)} title={`${label} · ${partial.note}`} subtitle="excluded from this number — the record lacks the input" contactIds={partialPeople.map((p) => p.contactId!)} />
+      )}
     </div>
   );
 };

@@ -51,6 +51,7 @@ const StatTile: React.FC<{ stat: ScorecardStat; comparisonLabel: string | null; 
     trendRange={range}
     maturity={maturity}
     maturing={stat.maturing}
+    partial={stat.partial ?? null}
   />
 );
 

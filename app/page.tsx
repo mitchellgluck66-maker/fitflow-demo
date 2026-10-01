@@ -145,6 +145,7 @@ function CommandCenter() {
             comparisonLabel={cmpLabel}
             icon={Target}
             accent="warning"
+            partial={marketing.paidCacCents !== null && marketing.paidCacCoverage.partial ? { note: marketing.paidCacCoverage.note!, people: marketing.paidCacCoverage.missing } : null}
             subtext={
               marketing.noSpendData ? (
                 <Link href="/ads" style={{ color: 'var(--accent)' }}>
@@ -191,6 +192,7 @@ function CommandCenter() {
             comparisonLabel={cmpLabel}
             icon={TrendingUp}
             accent="success"
+            partial={marketing.roas !== null && marketing.roasCoverage.partial ? { note: marketing.roasCoverage.note! } : null}
             subtext={
               marketing.roas === null
                 ? marketing.noSpendData
@@ -220,19 +222,17 @@ function CommandCenter() {
             accent="accent"
             subtext={
               marketing.ltvToCac !== null
-                ? `${formatCents(marketing.contractValueCents, ccy, { compact: true })} contract value of ${marketing.enrollments} new client${marketing.enrollments === 1 ? '' : 's'} ÷ ${formatCents(marketing.spendCents, ccy, { compact: true })} spend`
+                ? `avg ${formatCents(Math.round(marketing.contractValueCents / Math.max(1, marketing.ltvCoverage.used)), ccy, { compact: true })} contract value (${marketing.ltvCoverage.used} new client${marketing.ltvCoverage.used === 1 ? '' : 's'}) ÷ ${formatCents(marketing.blendedCacCents, ccy, { compact: true })} blended CAC`
                 : 'avg contract value ÷ blended CAC'
             }
+            partial={marketing.ltvCoverage.partial ? { note: marketing.ltvCoverage.note!, people: marketing.ltvCoverage.missing } : null}
             empty={
-              marketing.contractValueMissing.length > 0
-                ? {
-                    title: 'Contract value missing',
-                    description: `${marketing.contractValueMissing.length} new client${marketing.contractValueMissing.length === 1 ? ' has' : 's have'} no opportunity value in GHL — see the notice above.`,
-                  }
-                : marketing.enrollments === 0
-                  ? { title: 'No new clients', description: 'LTV:CAC needs at least one enrollment in the period.' }
-                  : marketing.noSpendData
-                    ? { title: 'No spend', description: 'LTV:CAC needs ad spend for the period.' }
+              marketing.enrollments === 0
+                ? { title: 'No new clients', description: 'LTV:CAC needs at least one enrollment in the period.' }
+                : marketing.noSpendData || marketing.spendCents === 0
+                  ? { title: 'No spend', description: 'LTV:CAC needs ad spend for the period.' }
+                  : marketing.ltvCoverage.used === 0
+                    ? { title: 'Not available', description: `No new client has a contract value in GHL (${marketing.contractValueMissing.map((p) => p.name).join(', ')}) — set the opportunity value; it appears on the next sync.` }
                     : undefined
             }
           />

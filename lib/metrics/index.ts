@@ -890,6 +890,34 @@ export function computeRevenue(raw: MetricsInput, range: Range): Revenue {
 // Marketing economics (Phase G item 3): Paid CAC, Blended CAC, ROAS, LTV:CAC
 // ---------------------------------------------------------------------------
 
+/**
+ * The partial-data rule (Mitchell, 2026-09-30, Definition of done): when some records lack an input, the metric is
+ * computed from the records that have it — the rest leave BOTH numerator and denominator — and the number is shown
+ * with an amber note ("Based on 21 of 24 new clients · 3 missing contract value"), the names one click away. Zero
+ * usable records → not available with the reason. Show rates keep their own ≥ 90% attendance-coverage rule.
+ */
+export interface Coverage {
+  /** Records with the input. */
+  used: number;
+  /** Records the metric covers. */
+  total: number;
+  /** "new clients" | "enrollments" | "initial payments" … */
+  unit: string;
+  /** What the missing records lack: "missing contract value" | "unclassified" | "unmatched or unclassified". */
+  missingLabel: string;
+  /** The missing records, by name when the record is a person (empty for payments). */
+  missing: Array<{ contactId: string | null; name: string }>;
+  /** used < total. */
+  partial: boolean;
+  /** "Based on 21 of 24 new clients · 3 missing contract value" — null when complete. */
+  note: string | null;
+}
+
+export function coverageOf(used: number, total: number, unit: string, missingLabel: string, missing: Coverage['missing'] = []): Coverage {
+  const partial = used < total;
+  return { used, total, unit, missingLabel, missing, partial, note: partial ? `Based on ${used} of ${total} ${unit} · ${total - used} ${missingLabel}` : null };
+}
+
 export interface MarketingMetrics {
   /** Currency of every *Cents field (spend, cash, CACs, contract value). */
   currency: Currency;
@@ -923,10 +951,16 @@ export interface MarketingMetrics {
   /** spend ÷ roadmap_booked reached in range. */
   costPerRoadmapCents: number | null;
 
-  /** Σ GHL opportunity value of the period's new clients (cents). */
+  /** Σ GHL opportunity value of the period's new clients that HAVE one (cents). */
   contractValueCents: number;
-  /** Enrolled clients whose opportunity value is missing/zero — LTV:CAC is withheld while any exist. */
+  /** Enrolled clients whose opportunity value is missing/zero — excluded from LTV:CAC (partial-data rule), listed. */
   contractValueMissing: Array<{ contactId: string; name: string }>;
+  /** LTV:CAC over the new clients WITH a contract value (partial when some lack it). */
+  ltvCoverage: Coverage;
+  /** Paid CAC over the enrollments with a paid/organic class (unclassified ones are neither; they are named). */
+  paidCacCoverage: Coverage;
+  /** ROAS over the initial payments matched to a classified contact (unmatched / unclassified cash is excluded). */
+  roasCoverage: Coverage;
   /**
    * LTV:CAC = average contract value per new client ÷ blended CAC, which is
    * algebraically total contract value ÷ spend. null when spend, enrollments
@@ -952,6 +986,7 @@ export function computeMarketing(raw: MetricsInput, range: Range): MarketingMetr
   let paidEnrollments = 0;
   let organicEnrollments = 0;
   let unattributedEnrollments = 0;
+  const unattributedNames: Coverage['missing'] = [];
   const contract = new CentsTally(ccy);
   const contractValueMissing: Array<{ contactId: string; name: string }> = [];
   for (const id of members.enrolled) {
@@ -959,7 +994,10 @@ export function computeMarketing(raw: MetricsInput, range: Range): MarketingMetr
     const att = c?.attribution ?? null;
     if (att === 'paid') paidEnrollments += 1;
     else if (att === 'organic') organicEnrollments += 1;
-    else unattributedEnrollments += 1;
+    else {
+      unattributedEnrollments += 1;
+      unattributedNames.push({ contactId: id, name: c?.name ?? id });
+    }
     const value = c?.monetaryValueCents ?? 0;
     if (c && value > 0) contract.add(value, c.contractCurrency ?? input.money.contractCurrency);
     else contractValueMissing.push({ contactId: id, name: c?.name ?? id });
@@ -989,7 +1027,16 @@ export function computeMarketing(raw: MetricsInput, range: Range): MarketingMetr
 
   const per = (n: number) => (n > 0 && spendCents > 0 ? Math.round(spendCents / n) : null);
   const blendedCacCents = per(enrollments);
-  const ltvOk = enrollments > 0 && spendCents > 0 && contractValueMissing.length === 0 && contractValueCents > 0;
+  // Partial-data rule: LTV:CAC = average contract value over the new clients WITH a value ÷ Blended CAC — the clients
+  // without a value leave both the numerator (their value) and the denominator (their share of the clients).
+  const valuedClients = enrollments - contractValueMissing.length;
+  const ltvToCac = valuedClients > 0 && spendCents > 0 && contractValueCents > 0 && blendedCacCents !== null ? contractValueCents / valuedClients / blendedCacCents : null;
+  let initialPaymentsClassified = 0;
+  for (const p of input.payments) {
+    if (p.paymentClass !== 'initial' || p.kind === 'subscription' || !inRange(p.on, range) || netCents(p) <= 0) continue;
+    const att = p.contactId ? (contactById.get(p.contactId)?.attribution ?? null) : null;
+    if (att === 'paid' || att === 'organic') initialPaymentsClassified += 1;
+  }
 
   return {
     currency: ccy,
@@ -1011,7 +1058,10 @@ export function computeMarketing(raw: MetricsInput, range: Range): MarketingMetr
     costPerRoadmapCents: per(members.roadmap_booked.length),
     contractValueCents,
     contractValueMissing,
-    ltvToCac: ltvOk ? contractValueCents / spendCents : null,
+    ltvToCac,
+    ltvCoverage: coverageOf(valuedClients, enrollments, 'new clients', 'missing contract value', contractValueMissing),
+    paidCacCoverage: coverageOf(paidEnrollments + organicEnrollments, enrollments, 'enrollments', 'unclassified', unattributedNames),
+    roasCoverage: coverageOf(initialPaymentsClassified, initialPaymentsClassified + unattributedInitialCount, 'initial payments', 'unmatched or unclassified'),
   };
 }
 
@@ -1500,6 +1550,9 @@ export interface AdsKpis {
   blendedCacCents: number | null;
   /** Paid-attributed initial cash ÷ spend. */
   roas: number | null;
+  /** The partial-data rule: what Paid CAC / ROAS are based on (see MarketingMetrics). */
+  paidCacCoverage: Coverage;
+  roasCoverage: Coverage;
   awaitingStripe: boolean;
   /** No API-origin spend rows at all in range → "connect Meta" state. */
   apiConnected: boolean;
@@ -1671,6 +1724,8 @@ export function computeAdsKpis(raw: MetricsInput, range: Range): AdsKpis {
     paidCacCents: marketing.paidCacCents,
     blendedCacCents: marketing.blendedCacCents,
     roas: marketing.roas,
+    paidCacCoverage: marketing.paidCacCoverage,
+    roasCoverage: marketing.roasCoverage,
     awaitingStripe: marketing.awaitingStripe,
     apiConnected: daily.some((d) => d.from === 'api'),
     byPlatform: Array.from(platforms.entries())

@@ -131,7 +131,8 @@ async function buildScorecard(kind: 'weekly' | 'monthly', today?: string): Promi
 /** Render an assembled scorecard as the email (HTML + plain text). Pure. */
 export function renderScorecardDigest(kind: 'weekly' | 'monthly', view: ScorecardView, r: { start: string; end: string }): Digest {
   // "†" marks a maturing-data stat; the note explaining it is in view.notes.
-  const card = (st: ScorecardStat) => ({ label: st.maturing ? `${st.label} †` : st.label, value: st.value, sub: st.sub, tone: st.tone });
+  // A partial stat (the partial-data rule) carries its coverage note after the delta.
+  const card = (st: ScorecardStat) => ({ label: st.maturing ? `${st.label} †` : st.label, value: st.value, sub: st.partial ? `${st.sub} · ${st.partial.note}` : st.sub, tone: st.tone });
   const campaignLine = view.campaigns.top
     ? `Best cost per client: ${view.campaigns.top.campaignName} (${formatCents(view.campaigns.top.costPerEnrollmentCents, view.currency)}/client, ${view.campaigns.top.enrolled} enrolled from ${formatCents(view.campaigns.top.spendCents, view.currency)}).` +
       (view.campaigns.worst ? ` Worst: ${view.campaigns.worst.campaignName} (${formatCents(view.campaigns.worst.costPerEnrollmentCents, view.currency)}/client, ${view.campaigns.worst.enrolled} enrolled from ${formatCents(view.campaigns.worst.spendCents, view.currency)}).` : '') +
@@ -161,7 +162,7 @@ export function renderScorecardDigest(kind: 'weekly' | 'monthly', view: Scorecar
     sectionTitle('Top sources') +
     table(['Source', 'Applied', 'Consults', 'Enrolled', 'Applied → client'], view.sourceRows, ['left', 'right', 'right', 'right', 'right']);
 
-  const statLines = (stats: ScorecardStat[]) => stats.map((c) => `${(c.maturing ? `${c.label} †` : c.label).padEnd(22)} ${c.value.padEnd(10)} ${c.sub}`);
+  const statLines = (stats: ScorecardStat[]) => stats.map((c) => `${(c.maturing ? `${c.label} †` : c.label).padEnd(22)} ${c.value.padEnd(10)} ${c.partial ? `${c.sub} · ${c.partial.note}` : c.sub}`);
   const text = [
     ...textHeader(DIGEST_LABELS[kind], view.title, view.subtitle),
     ...(view.narrative ? [view.narrative, ''] : []),

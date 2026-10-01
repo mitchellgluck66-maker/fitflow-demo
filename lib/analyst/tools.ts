@@ -22,7 +22,7 @@ import type { BetaTool } from './api';
 import { z } from 'zod';
 import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
-import { computeRevenueSummary, computeSourceBreakdown, formatCents, formatPct, FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, type Currency, type FunnelStageKey } from '../metrics';
+import { computeRevenueSummary, computeSourceBreakdown, formatCents, formatPct, FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, type Coverage, type Currency, type FunnelStageKey } from '../metrics';
 import { loadMetricsInput } from '../metrics/load';
 import { glossaryEntry, GLOSSARY_KEYS } from '../metrics/glossary';
 import { isMaturingMetric, isMaturingStage } from '../metrics/maturity';
@@ -171,6 +171,9 @@ async function namesFor(contactIds: string[]): Promise<Array<{ contactId: string
 
 const money = (cents: number | null, ccy: Currency) => formatCents(cents, ccy);
 
+/** A coverage block for a tool result (names only). */
+const cov = (c: Coverage) => ({ used: c.used, total: c.total, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
+
 function summarizeFunnel(f: { mode: string; stages: Array<{ key: FunnelStageKey; label: string; count: number; shareOfApplied: number | null; conversionFromPrevious: number | null; conversionFrom: FunnelStageKey | null; capped: boolean; dropOff: number; costPerCents: number | null; withheld?: string | null }>; previousLeads: { count: number } }, maturity: { active: boolean } | null) {
   return {
     mode: f.mode,
@@ -246,7 +249,10 @@ const getScorecardTool = tool(
           blendedCacCents: m.blendedCacCents,
           roas: m.roas,
           ltvToCac: m.ltvToCac,
-          ltvWithheldFor: m.contractValueMissing.map((c) => c.name),
+          /** Partial-data rule: what each figure is based on — cite "based on used of total <unit>" and name the missing. */
+          ltvCoverage: cov(m.ltvCoverage),
+          paidCacCoverage: cov(m.paidCacCoverage),
+          roasCoverage: cov(m.roasCoverage),
           contractValueCents: m.contractValueCents,
           costPerRoadmapCents: m.costPerRoadmapCents,
           awaitingStripe: m.awaitingStripe,
@@ -363,7 +369,7 @@ const getCampaignsTool = tool(
       currency: res.money.currency,
       fx: res.money.fx.text,
       data: {
-        kpis: { spendCents: k.spendCents, costPerLeadCents: k.costPerLeadCents, costPerConsultCents: k.costPerConsultCents, costPerRoadmapCents: k.costPerRoadmapCents, paidCacCents: k.paidCacCents, blendedCacCents: k.blendedCacCents, roas: k.roas, apiConnected: k.apiConnected, byPlatform: k.byPlatform },
+        kpis: { spendCents: k.spendCents, costPerLeadCents: k.costPerLeadCents, costPerConsultCents: k.costPerConsultCents, costPerRoadmapCents: k.costPerRoadmapCents, paidCacCents: k.paidCacCents, blendedCacCents: k.blendedCacCents, roas: k.roas, paidCacCoverage: cov(k.paidCacCoverage), roasCoverage: cov(k.roasCoverage), apiConnected: k.apiConnected, byPlatform: k.byPlatform },
         campaigns: res.ads.campaigns.map(row),
         comparison: res.comparison.range ? { ...rangeOut(res.comparison.range), campaigns: (res.ads.previousCampaigns ?? []).map(row) } : null,
         maturityActive: res.maturity.active,
@@ -691,7 +697,7 @@ const getMetricTool = tool(
       range: rangeOut(range),
       currency: w.currency,
       fx: '',
-      data: { key: e.key, label: e.label, unit: e.unit, lowerIsBetter: e.lowerIsBetter, definition: e.definition, differsFrom: e.differsFrom, formula: e.formula, maturing: e.maturing, value: w.value, worked: w.text, reason: w.reason, inputs: w.inputs },
+      data: { key: e.key, label: e.label, unit: e.unit, lowerIsBetter: e.lowerIsBetter, definition: e.definition, differsFrom: e.differsFrom, formula: e.formula, maturing: e.maturing, value: w.value, worked: w.text, reason: w.reason, inputs: w.inputs, coverage: w.coverage ? cov(w.coverage) : null },
     };
   },
 );
@@ -739,6 +745,8 @@ const OPERAND_SCHEMA = {
 export type Operand = { kind: 'ref' | 'value'; ref: string; value: number };
 const CALC_OPS: CalcOp[] = ['difference', 'percent_change', 'ratio', 'product', 'sum', 'per_unit'];
 const RATIO_PATH = /(rate|roas|pct|share|conversion|ltvtocac|frequency|coverage)/i;
+/** A partial-data coverage block's `used` / `total` are record COUNTS, not ratios (ltvCoverage.used), whatever the path says. */
+const COVERAGE_COUNT_PATH = /coverage\.(used|total)$/i;
 const CENTS_PATH = /cents/i;
 
 export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef']): { value: number; unit: 'cents' | 'count' | 'ratio' | 'number'; text: string } {
@@ -748,7 +756,7 @@ export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolConte
       const v = resolve(o.ref);
       if (v === undefined) throw new Error(`${name}: unknown ref "${o.ref}" — cite a number from an earlier tool result in this conversation`);
       if (v === null) throw new Error(`${name}: ref "${o.ref}" is null (withheld) — there is nothing to compute`);
-      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number' };
+      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number' };
     }
     if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number' };
     throw new Error(`${name}: give a ref or a numeric value`);
