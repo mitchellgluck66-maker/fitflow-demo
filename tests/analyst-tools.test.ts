@@ -22,13 +22,13 @@ const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: (r) => 
 const LAST_WEEK = { preset: 'last_week', start: '', end: '' };
 
 describe('contract', () => {
-  it('every tool is strict, its schema passes the strict-mode rules, the list is name-sorted and ≤ 20', () => {
+  it('every tool is NOT strict (the answer schema is the only strict one), its schema passes the rules, the list is name-sorted and ≤ 20', () => {
     const names = ANALYST_TOOL_DEFINITIONS.map((t) => t.name);
     expect(names).toEqual([...names].sort());
     expect(names.length).toBeLessThanOrEqual(20);
     expect(names).toEqual(['calculate', 'compare_periods', 'get_campaigns', 'get_client', 'get_data_health', 'get_funnel', 'get_metric', 'get_notes', 'get_payments', 'get_revenue', 'get_scorecard', 'get_stage_people', 'get_todo', 'get_trend', 'list_clients']);
     for (const t of ANALYST_TOOL_DEFINITIONS) {
-      expect(t.strict, t.name).toBe(true);
+      expect(t.strict, t.name).toBe(false);
       expect(t.description?.length ?? 0, t.name).toBeGreaterThan(40);
       expect(findUnsupportedKeywords(t.input_schema as Record<string, unknown>), t.name).toEqual([]);
     }
@@ -162,10 +162,10 @@ describe('parity with the page functions on the demo database', () => {
   });
 
   it('invalid input or a failing function returns an error RESULT, never a throw and never an empty success', async () => {
-    expect(await runAnalystTool('get_metric', { key: 'nope', range: LAST_WEEK, mode: 'period' }, ctx('r20'))).toMatchObject({ ref: 'r20', data: null, error: 'unknown metric key "nope"' });
+    expect(await runAnalystTool('get_metric', { key: 'nope', range: LAST_WEEK, mode: 'period' }, ctx('r20'))).toMatchObject({ ref: 'r20', data: null, error: expect.stringMatching(/^invalid input for get_metric: key: .*"paid_cac".*fix the input and call again/) });
     expect(await runAnalystTool('get_client', { id: 'missing' }, ctx('r21'))).toMatchObject({ data: null, error: 'no client with id "missing"' });
     expect(await runAnalystTool('no_such_tool', {}, ctx('r22'))).toMatchObject({ data: null, error: 'unknown tool "no_such_tool"' });
-    expect(await runAnalystTool('get_trend', { metric: 'enrollments', window: 'bogus' }, ctx('r23'))).toMatchObject({ error: expect.stringMatching(/get_trend failed|unknown/) });
+    expect(await runAnalystTool('get_trend', { metric: 'enrollments', window: 'bogus' }, ctx('r23'))).toMatchObject({ error: expect.stringMatching(/^invalid input for get_trend: window: /) });
     values.set('r1:data.marketing.spendCents', 100_000);
     values.set('r1:data.marketing.enrollments', 4);
     expect((await runAnalystTool('calculate', { op: 'per_unit', a: { kind: 'ref', ref: 'r1:data.marketing.spendCents', value: 0 }, b: { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 } }, ctx('r24'))).data).toMatchObject({ value: 25_000, unit: 'cents', text: '$250' });

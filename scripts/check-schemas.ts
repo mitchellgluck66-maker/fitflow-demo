@@ -1,11 +1,11 @@
 /**
- * `npm run check:schemas` — run before any push and after every schema change (2026-09-30). Three steps
- * on the EXACT production Analyst request (contract + current brief + all 15 tools + the answer schema as
- * output_config.format), per model: the static budget (lib/anthropic/schemaBudget.ts — the documented
- * per-request limits, with the offending paths), count_tokens (free, secondary), then ONE real
- * messages.create with max_tokens 64 — the endpoint that actually compiles the schemas (a few cents,
- * reported). PASS/FAIL per model with the exact API message. Needs the stored key (CREDENTIALS_KEY in
- * .env.local) and a built brief (`npm run analyst:brief`); without them it SKIPs and exits 1.
+ * `npm run check:schemas` — run before any push and after every schema change (2026-09-30). It MEASURES
+ * with real messages.create calls on the exact production prompt, per model: the static budget
+ * (lib/anthropic/schemaBudget.ts), count_tokens (secondary), the answer schema alone, the production
+ * request (answer strict + 15 non-strict tools), and — informationally — how many tools could be strict
+ * alongside the answer (binary search). `--quick` skips the capacity search. Each line PASS/FAIL with the
+ * API's exact message and cost. Needs the stored key (CREDENTIALS_KEY in .env.local) and a built brief
+ * (`npm run analyst:brief`); without them it SKIPs and exits 1.
  */
 import { runMigrations } from '../db/migrate';
 import { DATABASE_URL } from '../db';
@@ -31,7 +31,7 @@ async function main() {
   console.log(`check:schemas · database: ${target} · brief ${brief.hash.slice(0, 8)} (${brief.dataThrough}) · models ${config.modelDefault}, ${config.modelDeep}`);
   const budget = auditRequestBudget(productionRequestForBudget(config.answerMode));
   console.log(`${budget.ok ? 'PASS' : 'FAIL'} static budget · ${budget.message}`);
-  const lines = budget.ok ? await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])], answerMode: config.answerMode }) : [];
+  const lines = budget.ok ? await checkAnalystSchemasLive({ key: config.key, brief: brief.text, models: [config.modelDefault, ...(config.modelDeep !== config.modelDefault ? [config.modelDeep] : [])], answerMode: config.answerMode, scope: process.argv.includes('--quick') ? 'probe' : 'full' }) : [];
   for (const l of lines) console.log(formatSchemaLine(l));
   const ok = budget.ok && lines.every((l) => l.ok);
   const usd = lines.reduce((a, l) => a + l.costUsd, 0);

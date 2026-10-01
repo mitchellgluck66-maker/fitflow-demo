@@ -900,7 +900,8 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   `block_binding.prefix_mismatch_behavior: "drop_block"` (betas `thinking-display-updates-2026-08-18`,
   `thinking-binding-controls-2026-08-01`), `tool_choice: auto` (a forced choice is a 400 on both
   models), two system cache breakpoints (contract, brief; 5-minute TTL, nothing else), name-sorted
-  strict tools, the answer as `output_config.format` — or the strict `submit_answer` tool when the
+  NON-strict tools (Zod-validated server-side — see Schemas), the answer as `output_config.format`
+  (the one strict schema) — or the strict `submit_answer` tool when the
   probe shows format fails with tools (`settings.analyst_answer_mode`). On-demand compaction
   (`compact-2026-09-04`, `compaction: {type: 'summarize'}`) shares system + tools and carries no
   output format. `askClaude` / `MODEL_OPTIONS` are untouched for the small features.
@@ -926,7 +927,8 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
 - **Owner profile + notes** (`notes.ts`): `settings.analyst_owner_profile`; `analyst_notes` rows
   `active` / `proposed` / `rejected` — a proposal never reaches a prompt until approved. Gaps:
   "Withheld until filled: CAC payback, pace to target, funnel-leak $" (Setup, brief, `get_notes`).
-- **Tools** (`tools.ts`, 15, read-only, over the page functions): calculate, compare_periods,
+- **Tools** (`tools.ts`, 15, read-only, over the page functions, `strict: false` + Zod-validated —
+  see Schemas): calculate, compare_periods,
   get_campaigns, get_client, get_data_health, get_funnel, get_metric, get_notes, get_payments,
   get_revenue, get_scorecard, get_stage_people, get_todo, get_trend, list_clients. Names only —
   `scrubContact` drops every email/phone. Errors are error RESULTS. Freshness comes from
@@ -945,27 +947,30 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
 - **Setup → Analyst** card: models, effort, answer mode, caps, brief + Rebuild, Verify (a real
   streamed tool turn — "Connected · verified with a streamed tool call · <model> · …" or
   "Verification failed: <exact reason>"), owner profile with the gaps checklist, notes.
-- **Schemas — every request to Anthropic is checked against the documented limits IN CODE before it
-  is sent, and every schema change runs `npm run check:schemas` (2026-09-30, two 400s).** The limits
-  (docs → Structured outputs, re-checked 2026-09-30) are PER REQUEST across every strict tool plus
-  `output_config.format`: ≤ 20 strict tools, ≤ 24 optional parameters (not in `required`, any
-  depth), ≤ 16 union-typed parameters (`anyOf` or a `type` array, any depth), no `oneOf`, no
-  recursion, `additionalProperties: false` everywhere, plus the keyword rules. `count_tokens` does
-  NOT enforce them (it accepted a 40-union request that `messages.create` rejected).
-  `lib/anthropic/schemaBudget.ts#auditRequestBudget` counts them with the offending paths;
-  `assertRequestBudget` runs inside `buildTurnRequest` (the Analyst) and `askClaude`, so an
-  over-budget request is refused with "Request not sent: schema budget exceeded · 15/20 strict
-  tools · 0/24 optional · 40/16 unions — …" and never sent. The production Analyst request is
-  **15 strict tools · 0 optional · 0 unions** (`tests/schema-budget.test.ts` fails if that grows
-  past a limit): no nullables anywhere — every field is required and "not used" is a sentinel
-  (`preset: "custom"` + start/end, `""` for an unused string, `"any"` for an unused filter,
-  `kind: "ref" | "value"` on a calculate operand). A nullable enum, if ever needed, is `anyOf`,
-  never `{type: [...], enum}`. The live check `lib/analyst/schemaCheck.ts` runs three steps on the
-  exact production request: the static budget → `count_tokens` (secondary) → ONE real
-  `messages.create` (max_tokens 64, tool_choice auto — the endpoint that compiles the schemas; a
-  few cents, reported). It is `npm run check:schemas`, the probe's first line per model, and Setup →
-  Analyst → Verify ("Connected · schema budget ok · … · schemas accepted by messages.create …" or
-  "Verification failed: … REJECTED …: <exact API message>").
+- **Schemas — only the ANSWER is strict; the 15 read tools are `strict: false` and Zod-validated
+  server-side; every request to Anthropic is checked against the documented limits IN CODE before
+  it is sent; every schema change runs `npm run check:schemas` (2026-09-30, three 400s).**
+  Why: the first smoke 400'd on a nullable enum (`{type: ["string","null"], enum}` — use `anyOf`,
+  or no nullables at all); the second on the per-request limits (≤ 20 strict tools, ≤ 24 optional,
+  ≤ 16 union-typed parameters across every strict tool + `output_config.format`; `count_tokens`
+  does NOT enforce them); the third, with the budget at 15/0/0, on "The compiled grammar is too
+  large" — a limit with no documented number. So the design changed: the API compiles ONE strict
+  schema per request, the answer (`output_config.format`, or the strict `submit_answer` tool in
+  fallback mode); the tools are shown to the model with their JSON Schemas but not compiled, and
+  `runAnalystTool` validates every input with a Zod validator derived from that same schema
+  (`lib/anthropic/jsonSchemaToZod.ts`) — a bad input is an error RESULT naming the path and the
+  valid options ("invalid input for get_trend: window: Invalid option: expected one of …"), never
+  a throw, never a silent default. The tool schemas still carry no nullables / optionals (every
+  field required; sentinels `preset: "custom"`, `""`, `"any"`, `kind: "ref" | "value"`).
+  `lib/anthropic/schemaBudget.ts#assertRequestBudget` runs inside `buildTurnRequest` and
+  `askClaude` (production counts: 0/20 strict tools · 0/24 optional · 0/16 unions; the submit
+  fallback makes it 1 strict tool). The live check `lib/analyst/schemaCheck.ts` MEASURES with real
+  `messages.create` calls (max_tokens 64, tool_choice auto, cost reported): static budget →
+  `count_tokens` (secondary) → the answer schema alone → the production request (answer strict +
+  15 non-strict tools) → informationally, how many tools could be strict alongside the answer
+  (binary search). `npm run check:schemas` runs all of it (`--quick` skips the capacity search);
+  the probe's first lines run static / answer alone / production; Setup → Analyst → Verify runs
+  static / count_tokens / production. A rejection names the step and the API's exact message.
 - **Live proof** (Mitchell runs; nothing here is verified until they pass): `npm run analyst:brief`,
   `npm run check:schemas` (~$0.20 USD), `npm run smoke:analyst -- --probe` (every API assumption on the
   PRODUCTION wiring — real tools, real brief, real answer schema, two turns per model, ~$1 USD;

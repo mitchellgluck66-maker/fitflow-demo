@@ -60,7 +60,7 @@ describe('verifyAnalystConnection', () => {
     await rebuildBrief({ trigger: 'manual', countTokens: false });
     const ok = await verifyAnalystConnection({ client: scripted([m([{ type: 'tool_use', id: 't1', name: 'get_notes', input: {} }], 'tool_use'), m([{ type: 'text', text: good }])]), countClient: countOk });
     expect(ok.ok).toBe(true);
-    expect(ok.message).toMatch(/^Connected · schema budget ok · 15\/20 strict tools · 0\/24 optional · 0\/16 unions · schemas accepted by messages.create \(24,000 prompt tokens\) · verified with a streamed tool call · claude-opus-5-5 · get_notes · /);
+    expect(ok.message).toMatch(/^Connected · schema budget ok · 0\/20 strict tools · 0\/24 optional · 0\/16 unions · the production request accepted by messages.create \(24,000 prompt tokens\) · verified with a streamed tool call · claude-opus-5-5 · get_notes · /);
     const noTool = await verifyAnalystConnection({ client: scripted([m([{ type: 'text', text: good }])]), countClient: countOk });
     expect(noTool).toMatchObject({ ok: false, message: 'Verification failed: the model answered without calling a tool (tool_choice auto did not produce a call)' });
     const refused = await verifyAnalystConnection({ client: scripted([m([], 'refusal')]), countClient: countOk });
@@ -75,7 +75,7 @@ describe('verifyAnalystConnection', () => {
       return origStream(p);
     };
     const r = await verifyAnalystConnection({ client, countClient: countReject });
-    expect(r).toMatchObject({ ok: false, message: "Verification failed: schema budget ok · 15/20 strict tools · 0/24 optional · 0/16 unions · count_tokens rejected the schemas: Anthropic 400 · invalid_request_error: tools.1.custom: Invalid schema: Enum value 'today' does not match declared type '['string', 'null']' (request_id req_x)" });
+    expect(r).toMatchObject({ ok: false, message: "Verification failed: count_tokens — schema budget ok · 0/20 strict tools · 0/24 optional · 0/16 unions · count_tokens rejected the production prompt: Anthropic 400 · invalid_request_error: tools.1.custom: Invalid schema: Enum value 'today' does not match declared type '['string', 'null']' (request_id req_x)" });
     expect(paid).toBe(0);
   });
   it('the Setup page mounts the Analyst card, which shows the gaps checklist and the answer-mode setting', () => {

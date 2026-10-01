@@ -19,6 +19,8 @@ import { readRatioSummary } from '../reconcile/appliedRatio';
 import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
 import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
+import { z } from 'zod';
+import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
 import { computeRevenueSummary, computeSourceBreakdown, formatCents, formatPct, FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, type Currency, type FunnelStageKey } from '../metrics';
 import { loadMetricsInput } from '../metrics/load';
@@ -66,6 +68,8 @@ export interface ToolResult {
 export interface AnalystTool {
   definition: BetaTool;
   run: (input: Record<string, unknown>, ctx: ToolContext) => Promise<Omit<ToolResult, 'ref' | 'freshness'>>;
+  /** Derived from `definition.input_schema`; runAnalystTool applies it before `run` (derived on the fly when absent). */
+  validate?: z.ZodTypeAny;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +195,13 @@ function summarizeFunnel(f: { mode: string; stages: Array<{ key: FunnelStageKey;
 // Tools
 // ---------------------------------------------------------------------------
 
-const tool = (definition: Omit<BetaTool, 'strict'>, run: AnalystTool['run']): AnalystTool => ({ definition: { ...definition, strict: true }, run });
+/**
+ * Read tools are `strict: false` (2026-09-30, the third 400: "The compiled grammar is too large" with 15 strict
+ * tools beside the answer schema — a limit with no documented number). The ONLY strict schema in a request is the
+ * answer (output_config.format). Every tool input is validated server-side against the same JSON Schema the model
+ * saw (lib/anthropic/jsonSchemaToZod.ts); an invalid input is an error RESULT the model reads and corrects.
+ */
+const tool = (definition: Omit<BetaTool, 'strict'>, run: AnalystTool['run']): AnalystTool => ({ definition: { ...definition, strict: false }, run, validate: zodFromJsonSchema(definition.input_schema, definition.name) });
 
 const getScorecardTool = tool(
   {
@@ -829,7 +839,10 @@ export async function runAnalystTool(name: string, input: unknown, ctx: ToolCont
   const t = tools === ANALYST_TOOLS ? BY_NAME.get(name) : tools.find((x) => x.definition.name === name);
   const base = { ref: ctx.ref, freshness: ctx.freshness };
   if (!t) return { ...base, range: null, currency: 'CAD', fx: '', data: null, error: `unknown tool "${name}"` };
-  const args = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  // Validate against the tool's own JSON Schema (the tools are not strict): a bad input is a readable error result.
+  const parsed = (t.validate ?? zodFromJsonSchema(t.definition.input_schema, name)).safeParse(input && typeof input === 'object' ? input : {});
+  if (!parsed.success) return { ...base, range: null, currency: 'CAD', fx: '', data: null, error: `invalid input for ${name}: ${describeZodIssues(parsed.error)} — fix the input and call again (the schema is in the tool definition)` };
+  const args = parsed.data as Record<string, unknown>;
   let result: Omit<ToolResult, 'ref' | 'freshness'>;
   try {
     result = await t.run(args, ctx);

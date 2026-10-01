@@ -47,14 +47,14 @@ describe('turn request', () => {
     expect((json.match(/"cache_control"/g) ?? []).length).toBeLessThanOrEqual(4);
     expect(json).not.toContain('"ttl"'); // 5-minute TTL only
   });
-  it('tools are name-sorted, strict, ≤ 20, with schemas strict mode accepts', () => {
+  it('tools are name-sorted, NOT strict (only the answer is), with schemas the API accepts', () => {
     const names = (req.tools ?? []).map((t) => (t as BetaTool).name);
     expect(names).toEqual([...names].sort());
-    expect(names.length).toBeLessThanOrEqual(20);
     for (const t of req.tools ?? []) {
-      expect((t as BetaTool).strict).toBe(true);
+      expect((t as BetaTool).strict).toBe(true); // the fixture tools in this test are strict; the production list is checked below
       expect(findUnsupportedKeywords((t as BetaTool).input_schema as Record<string, unknown>)).toEqual([]);
     }
+    expect(ANALYST_TOOL_DEFINITIONS.every((t) => t.strict === false)).toBe(true);
     expect(() => buildTurnRequest({ ...base, tools: [tools[0], tools[0]] })).toThrow('duplicate tool name');
   });
   it('format mode sends output_config.format with the answer schema and no submit tool', () => {

@@ -50,16 +50,16 @@ describe('auditRequestBudget', () => {
 });
 
 describe('the production requests are under budget', () => {
-  it('the Analyst: 15 strict tools, 0 optional, 0 unions, in both answer modes — and buildTurnRequest agrees', () => {
+  it('the Analyst: 0 strict tools (only the answer schema is strict), 0 optional, 0 unions, in both answer modes — and buildTurnRequest agrees', () => {
     const fmt = auditRequestBudget(productionRequestForBudget('format'));
-    expect(fmt).toMatchObject({ ok: true, strictTools: 15, optionalParams: 0, unionParams: 0 });
-    expect(fmt.message).toBe('schema budget ok · 15/20 strict tools · 0/24 optional · 0/16 unions');
+    expect(fmt).toMatchObject({ ok: true, strictTools: 0, optionalParams: 0, unionParams: 0 });
+    expect(fmt.message).toBe('schema budget ok · 0/20 strict tools · 0/24 optional · 0/16 unions');
     const sub = auditRequestBudget(productionRequestForBudget('submit_answer'));
-    expect(sub).toMatchObject({ ok: true, strictTools: 16, optionalParams: 0, unionParams: 0 });
+    expect(sub).toMatchObject({ ok: true, strictTools: 1, optionalParams: 0, unionParams: 0 });
     expect(SCHEMA_LIMITS).toEqual({ strictTools: 20, optionalParams: 24, unionParams: 16 });
     // The builder refuses an over-budget request before it exists.
     const bad: BetaTool[] = [...ANALYST_TOOL_DEFINITIONS, { name: 'zz_bad', description: 'x', strict: true, input_schema: obj(Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`u${i}`, { type: ['string', 'null'] }]))) as BetaTool['input_schema'] }];
-    expect(() => buildTurnRequest({ model: 'claude-opus-5-5', effort: 'high', system: ['c', 'b'], tools: bad, messages: [{ role: 'user', content: 'hi' }], answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode: 'format', maxTokens: 10 })).toThrow(/^Request not sent: schema budget exceeded · 16\/20 strict tools · 0\/24 optional · 17\/16 unions/);
+    expect(() => buildTurnRequest({ model: 'claude-opus-5-5', effort: 'high', system: ['c', 'b'], tools: bad, messages: [{ role: 'user', content: 'hi' }], answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode: 'format', maxTokens: 10 })).toThrow(/^Request not sent: schema budget exceeded · 1\/20 strict tools · 0\/24 optional · 17\/16 unions/);
   });
   it("askClaude's one strict tool per feature is under budget after the sanitizer", () => {
     for (const [name, schema] of [...Object.entries(prompts).filter(([n]) => n.endsWith('_TOOL_SCHEMA')), ['VERIFY_TOOL_SCHEMA', VERIFY_TOOL_SCHEMA]] as Array<[string, Record<string, unknown>]>) {
