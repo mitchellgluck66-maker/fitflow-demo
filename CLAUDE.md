@@ -1010,11 +1010,23 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   URL or any non-demo contact row is refused, nothing written. Guards: every person-shaped string in a
   fixture must be a name the demo seed can produce (`fixtureGuard#nonDemoNames`, in `npm run check`);
   `npm run check:fixtures` searches fixtures for the real contacts table's names / emails / phones.
-- **Units (2026-10-01):** every number a tool returns reaches the verifier with a unit — by name
-  (`…Cents`, `rate`, counts) or by a declared `unit` on the object (calculate rows, compare_periods
-  rows, trend points, get_metric, conversions; `ledger#leafUnit`). `tests/analyst-display` sweeps all
-  15 tools and fails on a new unit-less numeric field. Chat threads run at effort "medium"; report
-  threads and the deep model at the Setup effort (`config#effortForThread`, fixed per thread).
+- **Design review 2026-10-03 (`docs/analyst-design-review.md`) — numbers by reference.** The model NEVER
+  writes a metric's value: prose carries ref tokens (`{r2:data.marketing.paidCacCents}`,
+  `{r7:data.results[1].value|%}`; hints `|%` `|x` `|k`) and the server renders every number from the
+  ledger with ONE formatter (`lib/analyst/render.ts`, sign-free). The answer schema has no `numbers[]` /
+  `ref` fields. Verifier v2 (`verify.ts`): every token resolves; no raw digits outside dates / durations /
+  ordinals / list numbers / the owner's own figure in the question; evidence refs; and the DIRECTION
+  check (`direction.ts`): sign words (fell / rose …) match the delta's sign, judgment words (improved /
+  worse …) match the glossary's `lowerIsBetter`. One repair, then `[no source]`, `[unverified: 8]`,
+  `[check direction] …` — marked, never silent. Units are a CONTRACT (`lib/analyst/units.ts`: Cents
+  suffix → declared `unit` → named parent → explicit catalog → `unknown`; `tests/analyst-units`
+  sweeps all 15 tools, 0 unknown). Ledger entries carry unit, reading, currency, `delta`, `metric`.
+  Chat threads run at effort "medium"; reports and the deep model at the Setup effort
+  (`config#effortForThread`, fixed per thread). The stable prefix is cached 1 hour on Opus
+  (`api#prefixCacheControl`). Each turn stores and the smoke prints the cost split (input · cache read ·
+  cache write · thinking · answer; `cost#splitUsage`) and the FULL rendered answer. The demo tenant
+  carries every data-quality class (`db/seed-demo.ts#applyDataQualityClasses`,
+  `tests/seed-demo-classes`) and the engine has NO sample-data branch — the demo tenant is a tenant.
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
 
