@@ -61,7 +61,7 @@ describe('ledger', () => {
       ['r9:data.a.spendCents', 5, 'cents'],
       ['r9:data.b[0].rate', 0.5, 'ratio'],
       ['r9:data.b[1].count', 3, 'count'],
-      ['r9:data.c', null, 'number'],
+      ['r9:data.c', null, 'unknown'], // no name, no declaration: the sweep test would name it
       ['r9:data.e.roas.current', 2, 'ratio'],
     ]);
     expect(unitForPath('data.kpis.paidCacCents.current')).toBe('cents');
@@ -106,8 +106,8 @@ describe('renders — per-unit rounding', () => {
     expect(renders(e('r1:data.kpis.enrollments.current'), '8')).toBe(true);
     expect(renders(e('r1:data.kpis.enrollments.current'), '9')).toBe(false);
     expect(renders(e('r1:data.timeInStageHours'), '41.6')).toBe(true);
-    expect(renders(e('r1:data.frequency'), '2.37')).toBe(true);
-    expect(renders(e('r1:data.frequency'), '2.4')).toBe(true);
+    expect(renders(e('r1:data.frequency'), '2.4×')).toBe(true); // frequency is a multiple in the catalog
+    expect(renders(e('r1:data.frequency'), '2.37x')).toBe(true);
   });
 });
 

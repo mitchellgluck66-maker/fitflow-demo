@@ -19,7 +19,6 @@ import { readRatioSummary } from '../reconcile/appliedRatio';
 import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
 import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
-import { displayFor, withDisplayStrings } from './display';
 import { z } from 'zod';
 import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
@@ -54,7 +53,7 @@ export interface ToolContext {
   /** `calculate` reads operands from earlier results through this. `undefined` = unknown ref. */
   resolveRef: (ref: string) => number | null | undefined;
   /** The ledger's unit and currency for a ref (the loop passes it; `calculate` uses it so its result has the unit the verifier will check). */
-  resolveInfo?: (ref: string) => { unit: 'cents' | 'count' | 'ratio' | 'number'; currency: string | null } | undefined;
+  resolveInfo?: (ref: string) => { unit: 'cents' | 'count' | 'ratio' | 'number'; currency: string | null; metric: string | null; delta: boolean } | undefined;
 }
 
 export interface ToolResult {
@@ -608,7 +607,7 @@ const getDataHealthTool = tool(
           unresolved: week.unresolved,
           ledgerComputedAt: ledgerSummary.ranAt,
           mirrorAsOf: ledgerSummary.mirrorAsOf,
-          ratio: ratioSummary ? { through: ratioSummary.through, metaDayTz: ratioSummary.metaDayTz, campaigns: ratioSummary.campaigns.map((c) => ({ campaign: c.campaignName, state: c.state, rolling7: c.rolling7, baseline: c.baseline, meta7: c.meta7, fitflow7: c.fitflow7, text: c.text })), unmatchedUtmRows: ratioSummary.unmatchedUtmRows } : null,
+          ratio: ratioSummary ? { through: ratioSummary.through, metaDayTz: ratioSummary.metaDayTz, campaigns: ratioSummary.campaigns.map((c) => ({ campaign: c.campaignName, state: c.state, unit: 'multiple', rolling7: c.rolling7, baseline: c.baseline, meta7: c.meta7, fitflow7: c.fitflow7, text: c.text })), unmatchedUtmRows: ratioSummary.unmatchedUtmRows } : null,
           definitionUnderReview: true,
           deferred: 'docs/deferred.md #1',
           note: 'Counts on the dashboard use the current definition. The candidate is what deferred #1 would count and is NOT in use — never present it as the number.',
@@ -762,31 +761,34 @@ const CENTS_PATH = /cents/i;
 
 export type CalcUnit = 'cents' | 'count' | 'ratio' | 'number';
 /** What the ledger knows about a ref: its unit and the currency of its tool result. */
-export type RefInfo = { unit: CalcUnit; currency: string | null };
+export type RefInfo = { unit: CalcUnit; currency: string | null; metric: string | null; delta: boolean };
 
 /**
  * One operation. Units come from the LEDGER (`info`) — the same unit the verifier will hold the result to —
  * and only fall back to the path's name when no ledger is given (pure tests). The result always carries a
  * unit, and cents carry the currency of their operands (two currencies never mix).
  */
-export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef'], info?: (ref: string) => RefInfo | undefined): { value: number; unit: CalcUnit; text: string; currency: string | null } {
-  const operand = (o: Operand, name: string): { value: number; unit: CalcUnit; currency: string | null } => {
+export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolContext['resolveRef'], info?: (ref: string) => RefInfo | undefined): { value: number; unit: CalcUnit; /** For a ratio: a share (%) or a multiple (×) — cents ÷ cents is a multiple (ROAS-like), everything else a share. */ reading: 'pct' | 'multiple' | null; text: string; currency: string | null; metric: string | null } {
+  const operand = (o: Operand, name: string): { value: number; unit: CalcUnit; currency: string | null; metric: string | null } => {
     if (o.kind === 'ref') {
       if (!o.ref) throw new Error(`${name}: kind is "ref" but ref is empty`);
       const v = resolve(o.ref);
       if (v === undefined) throw new Error(`${name}: unknown ref "${o.ref}" — cite a number from an earlier tool result in this conversation`);
       if (v === null) throw new Error(`${name}: ref "${o.ref}" is null (withheld) — there is nothing to compute`);
       const known = info?.(o.ref);
-      if (known) return { value: v, unit: known.unit, currency: known.unit === 'cents' ? known.currency : null };
-      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number', currency: null };
+      if (known) return { value: v, unit: known.unit, currency: known.unit === 'cents' ? known.currency : null, metric: known.metric };
+      return { value: v, unit: CENTS_PATH.test(o.ref) ? 'cents' : COVERAGE_COUNT_PATH.test(o.ref) ? 'number' : RATIO_PATH.test(o.ref) ? 'ratio' : 'number', currency: null, metric: null };
     }
-    if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number', currency: null };
+    if (typeof o.value === 'number' && Number.isFinite(o.value)) return { value: o.value, unit: 'number', currency: null, metric: null };
     throw new Error(`${name}: give a ref or a numeric value`);
   };
   const x = operand(a, 'a');
   const y = operand(b, 'b');
   if (x.currency && y.currency && x.currency !== y.currency) throw new Error(`refused: ${x.currency} and ${y.currency} amounts cannot be combined — fetch both in the reporting currency`);
   const currency = x.currency ?? y.currency;
+  /** The metric the result belongs to — only for same-thing operations (sum / difference / percent_change): both operands' when they agree, or the named side's when the other is a literal. A ratio or product of two things belongs to neither. */
+  const sameThing = op === 'sum' || op === 'difference' || op === 'percent_change';
+  const metric = !sameThing ? null : x.metric && y.metric ? (x.metric === y.metric ? x.metric : null) : (x.metric ?? y.metric);
   const additive = op === 'sum' || op === 'difference';
   if (additive && x.unit === 'ratio' && y.unit === 'ratio') throw new Error('refused: do not add or average ratios — recompute from the totals (e.g. ratio of the summed numerators and denominators)');
   if (additive && x.unit !== y.unit && x.unit !== 'number' && y.unit !== 'number') throw new Error(`refused: ${op} of ${x.unit} and ${y.unit} mixes units`);
@@ -814,7 +816,8 @@ export function calculate(op: CalcOp, a: Operand, b: Operand, resolve: ToolConte
   function out(value: number, unit: CalcUnit) {
     const v = unit === 'cents' || unit === 'count' ? Math.round(value) : Math.round(value * 1e6) / 1e6;
     const text = unit === 'cents' ? money(v, 'CAD').replace(' CAD', '') : unit === 'ratio' ? (op === 'percent_change' ? formatPct(v, 1) : `${v.toFixed(4)}`) : String(v);
-    return { value: v, unit, text, currency: unit === 'cents' ? currency : null };
+    const reading: 'pct' | 'multiple' | null = unit !== 'ratio' ? null : op === 'ratio' && x.unit === 'cents' && y.unit === 'cents' ? 'multiple' : 'pct';
+    return { value: v, unit, reading, text, currency: unit === 'cents' ? currency : null, metric };
   }
 }
 
@@ -835,7 +838,7 @@ export type CalcOperation = { label: string; op: CalcOp; a: Operand; b: Operand 
  * A result row is a tool result like any other: the number, its `unit` (which the ledger and the verifier read —
  * `results[16].value` says nothing by itself) and the display string to copy. A ratio carries both readings.
  */
-export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: number | null; unit: CalcUnit | null; valueText: string | null; valueMultipleText?: string; error: string | null };
+export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: number | null; /** The declared unit the ledger reads: cents · count · pct · multiple · number. */ unit: 'cents' | 'count' | 'pct' | 'multiple' | 'number' | null; /** A change (difference / percent_change): the direction check holds the sentence to its sign. */ delta: boolean; /** The metric both operands belong to, when they share one. */ metric: string | null; error: string | null };
 
 /**
  * Run a whole batch in order (one calculate call per turn instead of one per number). Each row has its own
@@ -843,7 +846,7 @@ export type CalcResultRow = { label: string; op: CalcOp; ref: string; value: num
  * reason) so the rest still get refs; `#label` chains an earlier row with its unit and currency.
  */
 export function calculateBatch(operations: CalcOperation[], callRef: string, resolve: ToolContext['resolveRef'], info?: (ref: string) => RefInfo | undefined): CalcResultRow[] {
-  const byLabel = new Map<string, { value: number | null; unit: CalcUnit | null; currency: string | null }>();
+  const byLabel = new Map<string, { value: number | null; unit: CalcUnit | null; currency: string | null; metric: string | null }>();
   const resolveWithBatch: ToolContext['resolveRef'] = (ref) => {
     if (ref.startsWith('#')) {
       const label = ref.slice(1);
@@ -855,7 +858,7 @@ export function calculateBatch(operations: CalcOperation[], callRef: string, res
   const infoWithBatch = (ref: string): RefInfo | undefined => {
     if (!ref.startsWith('#')) return info?.(ref);
     const row = byLabel.get(ref.slice(1));
-    return row?.unit ? { unit: row.unit, currency: row.currency } : undefined;
+    return row?.unit ? { unit: row.unit, currency: row.currency, metric: row.metric, delta: false } : undefined;
   };
   return operations.map((o, i) => {
     const ref = `${callRef}:data.results[${i}].value`;
@@ -864,18 +867,12 @@ export function calculateBatch(operations: CalcOperation[], callRef: string, res
       const r = calculate(o.op, o.a, o.b, resolveWithBatch, infoWithBatch);
       // No silent currency: a money result whose operands' currency is unknown is an error, never "$… CAD" by default.
       if (r.unit === 'cents' && !r.currency) throw new Error('the result is money but its currency is unknown — use refs from tool results in this conversation (their result names the currency)');
-      byLabel.set(o.label, { value: r.value, unit: r.unit, currency: r.currency });
-      const abs = Math.abs(r.value);
-      const row: CalcResultRow = { label: o.label, op: o.op, ref, value: r.value, unit: r.unit, valueText: null, error: null };
-      if (r.unit === 'cents') row.valueText = displayFor('data.valueCents', r.value, r.currency!);
-      else if (r.unit === 'ratio') {
-        row.valueText = `${(Math.round(abs * 1000) / 10).toFixed(1)}%`;
-        row.valueMultipleText = `${(Math.round(abs * 10) / 10).toFixed(1)}×`;
-      } else row.valueText = String(abs);
-      return row;
+      const metric = r.metric;
+      byLabel.set(o.label, { value: r.value, unit: r.unit, currency: r.currency, metric });
+      return { label: o.label, op: o.op, ref, value: r.value, unit: r.unit === 'ratio' ? (r.reading ?? 'pct') : r.unit, delta: o.op === 'difference' || o.op === 'percent_change', metric, error: null };
     } catch (err) {
-      byLabel.set(o.label, { value: null, unit: null, currency: null });
-      return { label: o.label, op: o.op, ref, value: null, unit: null, valueText: null, error: err instanceof Error ? err.message : String(err) };
+      byLabel.set(o.label, { value: null, unit: null, currency: null, metric: null });
+      return { label: o.label, op: o.op, ref, value: null, unit: null, delta: false, metric: null, error: err instanceof Error ? err.message : String(err) };
     }
   });
 }
@@ -884,7 +881,7 @@ const calculateTool = tool(
   {
     name: 'calculate',
     description:
-      'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so every result has a ref you can cite. Send ALL the arithmetic a turn needs as ONE batch of operations (one call, not one call per number); an operation may read an earlier one of the same batch with ref "#<label>". Each result row carries its own ref ("r7:data.results[0].value"), its unit (cents / count / ratio / number) and the display string to copy ("valueText": "$4,937.50 CAD" or "41.2%"; a ratio also has "valueMultipleText": "2.1×"); a failing operation fails only its row. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
+      'Arithmetic over numbers you already fetched, by ref (e.g. "r2:data.marketing.spendCents"), so every result has a ref you can cite. Send ALL the arithmetic a turn needs as ONE batch of operations (one call, not one call per number); an operation may read an earlier one of the same batch with ref "#<label>". Each result row carries its own ref ("r7:data.results[0].value") and its unit (cents / count / ratio / number) — cite the ref and the server prints the number; a failing operation fails only its row. Money stays in integer cents. Ops: difference (a−b), percent_change ((a−b)÷|b|), ratio (a÷b), product, sum, per_unit (a÷b rounded to cents). It refuses to add or average ratios: recompute from totals.',
     input_schema: {
       type: 'object',
       properties: {
@@ -947,8 +944,7 @@ export async function runAnalystTool(name: string, input: unknown, ctx: ToolCont
     return { ...base, range: null, currency: 'CAD', fx: '', data: null, error: `${name} failed: ${err instanceof Error ? err.message : String(err)}` };
   }
   const scrubbed = scrubContact(result);
-  // Item 3: every money / ratio leaf gets its `<key>Text` display string (lib/analyst/display.ts) so the model copies, never renders.
-  const full: ToolResult = { ...base, ...scrubbed, data: scrubbed.data === null ? null : withDisplayStrings(scrubbed.data, scrubbed.currency) };
+  const full: ToolResult = { ...base, ...scrubbed };
   const json = JSON.stringify(full);
   if (json.length <= MAX_RESULT_CHARS) return full;
   return truncateResult(full);

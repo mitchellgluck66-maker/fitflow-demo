@@ -71,7 +71,7 @@ describe('the harness (synthetic recording)', () => {
   it('a recorded turn replays through the real loop with the same outcome, repairs, cost and byte-identical log rows', async () => {
     const fixture = await recordSynthetic();
     expect(fixture.turns[0].outcome).toMatchObject({ status: 'done', headline: 'Spend was $3,697.68 CAD.', repairs: 1, rounds: 2 });
-    expect(recordedToolResults(fixture).get('r1')?.data).toMatchObject({ marketing: { spendCents: 369_768, spendCentsText: '$3,697.68 CAD' } });
+    expect(recordedToolResults(fixture).get('r1')?.data).toMatchObject({ marketing: { spendCents: 369_768 } });
     const [replayed] = await replayFixture(fixture);
     expect(compareReplay(fixture.turns[0], replayed)).toEqual([]);
     expect(replayed.outcome.costUsd).toBeCloseTo(fixture.turns[0].outcome.costUsd, 8);
