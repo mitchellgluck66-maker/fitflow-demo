@@ -6,12 +6,14 @@
  * means something before the first `npm run smoke:analyst -- --record`.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
+import { sql } from 'drizzle-orm';
 import type Anthropic from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
-import { analystWireHash, compareReplay, readFixtures, recordedToolResults, recordingClient, replayFixture, replayTools, REPLAY_DIR, scrubFixture, STALE_MESSAGE, UNSCRUBBED_MESSAGE, type RecordedTurn, type ReplayFixture } from '@/lib/analyst/replay';
-import { buildScrubber, findLeaks, scrubJson, type Person } from '@/lib/analyst/scrub';
-import { loadPeople } from '@/lib/analyst/scrubPeople';
+import { analystWireHash, compareReplay, readFixtures, recordedToolResults, recordingClient, replayFixture, replayTools, REPLAY_DIR, STALE_MESSAGE, NOT_DEMO_MESSAGE, type RecordedTurn, type ReplayFixture } from '@/lib/analyst/replay';
+import { findLeaks, nonDemoNames, recordTenantCheck, type Person } from '@/lib/analyst/fixtureGuard';
+import { DEMO_PEOPLE } from '@/db/seed-demo';
+import { db, contacts } from '@/db';
 import { runMigrations } from '@/db/migrate';
 import { seedDemo } from '@/db/seed-demo';
 import { runAnalystTurn, type AnalystClient, type AnalystEvent } from '@/lib/analyst/run';
@@ -64,7 +66,7 @@ async function recordSynthetic(): Promise<ReplayFixture> {
     rows,
     outcome: { status: out.status, headline: out.answer?.headline.text ?? null, flagged: out.flagged, repairs: events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length, rounds: out.rounds, costUsd: out.costUsd, usage: out.usage, sections: out.answer?.sections.map((s) => s.key) ?? [], proposals: [] },
   };
-  return { version: 1, recordedAt: '2026-09-30T00:00:00.000Z', wireHash: analystWireHash('format'), model: 'claude-opus-5-5', effort: 'high', answerMode: 'format', database: 'synthetic', turns: [recorded] };
+  return { version: 1, recordedAt: '2026-09-30T00:00:00.000Z', wireHash: analystWireHash('format'), model: 'claude-opus-5-5', effort: 'high', answerMode: 'format', database: 'synthetic', tenant: 'demo', turns: [recorded] };
 }
 
 describe('the harness (synthetic recording)', () => {
@@ -98,70 +100,48 @@ describe('the harness (synthetic recording)', () => {
   });
 });
 
-describe('scrubbing (2026-10-01: a fixture never holds real people)', () => {
-  it('names (any case, bare first / last names), emails and phones become stable placeholders; ordinary words and numbers are untouched', () => {
-    const text = 'Ravi Brown enrolled; Ravi paid $3,697.68 CAD on Sep 3. MARCUS JACKSON and Jackson\'s partner (marcus.j@realmail.com, +15033249931, other@x.io). Will it hold in May? Brown bread.';
-    const s = buildScrubber(PEOPLE, text);
-    expect(s.scrub(text)).toBe('Client A enrolled; Client A paid $3,697.68 CAD on Sep 3. Client B and Client B\'s partner (client-a@example.invalid, +15550000001, client-b@example.invalid). Will it hold in May? Brown bread.');
-    expect(s.placeholders).toEqual(['Client A', 'Client B']); // by first appearance; people not in the file get none
-    expect(s.stats).toMatchObject({ people: 2, emails: 2, phones: 1 });
-    expect(s.scrub('Ravi Brown')).toBe('Client A'); // the same person, the same placeholder, in every string
-    expect(findLeaks(s.scrub(text), PEOPLE)).toEqual([]);
-    expect(findLeaks(text, PEOPLE)).toEqual([{ kind: 'name', count: 2 }, { kind: 'email', count: 1 }, { kind: 'phone', count: 1 }]);
+describe('B: fixtures come from the demo tenant only — no scrubbing, two guards', () => {
+  it('recordTenantCheck refuses a database URL or any non-demo contact; allows an embedded demo-only database', () => {
+    expect(recordTenantCheck({ databaseUrl: 'postgres://x', nonDemoContacts: 0 })).toEqual({ ok: false, reason: expect.stringMatching(/DATABASE_URL is set/) });
+    expect(recordTenantCheck({ databaseUrl: null, nonDemoContacts: 1204 })).toEqual({ ok: false, reason: 'recording runs only against the demo tenant — this database holds 1,204 non-demo contacts' });
+    expect(recordTenantCheck({ databaseUrl: null, nonDemoContacts: 0 })).toEqual({ ok: true });
   });
-  it('a string that is itself JSON is scrubbed structurally, identically to the object form (rows are compared byte for byte)', () => {
-    const obj = { content: [{ type: 'text', text: 'Line one\nRavi booked. Ravi Brown paid.' }] };
-    const s = buildScrubber(PEOPLE, JSON.stringify(obj));
-    const out = scrubJson({ asObject: obj, asString: JSON.stringify(obj), nested: JSON.stringify({ inner: JSON.stringify(obj) }) }, s.scrub);
-    expect(out.asObject.content[0].text).toBe('Line one\nClient A booked. Client A paid.');
-    expect(out.asString).toBe(JSON.stringify(out.asObject));
-    expect(JSON.parse((JSON.parse(out.nested) as { inner: string }).inner)).toEqual(out.asObject);
-  });
-  it('a recorded turn with names in the tool results and the prose is scrubbed, has no leak, and still replays to its recording', async () => {
+  it('nonDemoNames: every person-shaped string in the tool results must be a name the demo seed can produce (a planted real-looking name fails with its path)', async () => {
     const raw = await recordSynthetic();
-    expect(findLeaks(JSON.stringify(raw), PEOPLE).map((l) => l.kind)).toEqual(['name', 'email', 'phone']);
-    const fixture = await scrubFixture(raw, PEOPLE);
-    const text = JSON.stringify(fixture);
-    expect(findLeaks(text, PEOPLE)).toEqual([]);
-    expect(text).not.toMatch(/Ravi|Marcus|Jackson|realmail|15033249931/);
-    expect(text).toContain('Client A');
-    expect(text).toContain('Will it hold in May?'); // ordinary words survive
-    expect(fixture.scrub).toMatchObject({ people: 2, checkedAgainst: PEOPLE.length });
-    expect(recordedToolResults(fixture).get('r1')?.data).toMatchObject({ people: [{ name: 'Client A', link: '/clients/c1' }, { name: 'Client B', link: '/clients/c2' }] });
-    const [replayed] = await replayFixture(fixture);
-    expect(compareReplay(fixture.turns[0], replayed)).toEqual([]);
+    const strangers = nonDemoNames(raw);
+    // The synthetic recording's tool result names "Ravi Brown" and "Marcus Jackson" — both in the demo pool.
+    expect(DEMO_PEOPLE.allNames().has('Ravi Brown')).toBe(true);
+    expect(strangers).toEqual([]);
+    const planted: ReplayFixture = JSON.parse(JSON.stringify(raw));
+    const row = planted.turns[0].rows.find((r) => r.role === 'tool_results')!;
+    row.apiJson = row.apiJson.replace('Ravi Brown', 'Zoe Quinn');
+    expect(nonDemoNames(planted)).toEqual([{ path: expect.stringMatching(/^turns\[0\]\.rows\[\d+\]\.content\[0\]\.data\.people\[0\]\.name$/), value: 'Zoe Quinn' }]);
+    expect(DEMO_PEOPLE.allNames().size).toBeGreaterThan(1000);
   });
-  it('the recorder refuses to write when anyone from the people list is still in the file', async () => {
-    const raw = await recordSynthetic();
-    // Object KEYS are not rewritten by the scrubber; a name there is exactly what the guard is the backstop for.
-    const sneaky = JSON.parse(JSON.stringify(raw)) as ReplayFixture;
-    (sneaky.turns[0].outcome as unknown as Record<string, unknown>)['Zoe Quinn'] = 1;
-    await expect(scrubFixture(sneaky, [...PEOPLE, { firstName: 'Zoe', lastName: 'Quinn', email: null, phone: null }])).rejects.toThrow(/still contains 1 name from the contacts table — nothing written/);
+  it('findLeaks (the check:fixtures guard against a real contacts table) finds full names, emails and phones', () => {
+    const text = JSON.stringify({ a: 'MARCUS JACKSON paid (marcus.j@realmail.com, +15033249931)' });
+    expect(findLeaks(text, PEOPLE)).toEqual([{ kind: 'name', count: 1 }, { kind: 'email', count: 1 }, { kind: 'phone', count: 1 }]);
+    expect(findLeaks('nothing here', PEOPLE)).toEqual([]);
   });
 });
 
 const fixtures = readFixtures();
 
 describe('recorded fixtures (tests/fixtures/analyst-replay/)', () => {
-  let people: Person[] = [];
   beforeAll(async () => {
     await runMigrations();
     await seedDemo();
-    people = await loadPeople();
   }, 120_000);
-  it(`${fixtures.length} fixture(s) found${fixtures.length ? '' : ' — none recorded yet: npm run smoke:analyst -- --record'}`, () => {
+  it(`${fixtures.length} fixture(s) found${fixtures.length ? '' : ' — none recorded yet: npm run smoke:analyst -- --record'}`, async () => {
     expect(Array.isArray(fixtures)).toBe(true);
-    expect(people.length).toBeGreaterThan(50); // the contacts table the guard reads
-  });
-  it('the guard catches a contact from the contacts table in a fixture-shaped file', () => {
-    const someone = people.find((p) => p.firstName && p.lastName)!;
-    expect(findLeaks(JSON.stringify({ turns: [{ rows: [{ apiJson: `{"name":"${someone.firstName} ${someone.lastName}"}` }] }] }), people)).toEqual([{ kind: 'name', count: expect.any(Number) }]);
+    const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(contacts).where(sql`${contacts.origin} <> 'demo'`);
+    expect(Number(n)).toBe(0); // the test database IS the demo tenant
   });
   for (const { name, fixture } of fixtures) {
-    it(`${name}: scrubbed, and no name / email / phone from the contacts table appears in it`, () => {
-      expect(fixture.scrub, UNSCRUBBED_MESSAGE).toBeDefined();
-      const text = fs.readFileSync(path.join(REPLAY_DIR, `${name}.json`), 'utf8');
-      expect(findLeaks(text, people), `${name}: people from the contacts table found in the fixture`).toEqual([]);
+    it(`${name}: from the demo tenant, and every person in it is a demo person`, () => {
+      expect(fixture.tenant, NOT_DEMO_MESSAGE).toBe('demo');
+      expect(nonDemoNames(fixture), `${name}: names the demo tenant cannot produce`).toEqual([]);
+      expect(fs.existsSync(path.join(REPLAY_DIR, `${name}.json`))).toBe(true);
     });
     it(`${name}: recorded by the current wire contract (else "${STALE_MESSAGE}")`, () => {
       expect(fixture.wireHash, STALE_MESSAGE).toBe(analystWireHash(fixture.answerMode));

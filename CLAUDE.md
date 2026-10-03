@@ -1004,11 +1004,12 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   "TOTAL $X of $Y budget". `--record` writes the run to `tests/fixtures/analyst-replay/` and
   `tests/analyst-replay.test.ts` (in `npm run check`) replays every fixture through the real loop at $0 —
   a fixture recorded by other code (contract / tools / answer schema / request shape — `replay#analystWireHash`)
-  fails with "fixtures stale: re-record". **A fixture never holds real people:** `--record` replaces every
-  name, email and phone with stable placeholders (Client A, B… — `lib/analyst/scrub.ts`) BEFORE writing,
-  checks the result against the contacts table + Stripe customer names and that it still replays, and
-  writes nothing otherwise; an unscrubbed fixture fails the suite; `npm run check:fixtures` runs the
-  guard against the real database before a push.
+  fails with "fixtures stale: re-record". **A fixture never holds customer data — by construction** (design
+  review 2026-10-03, B): `--record` runs ONLY on the demo tenant (a child process on an in-memory
+  embedded database, migrated + seeded by the run, the configured key in its environment); a database
+  URL or any non-demo contact row is refused, nothing written. Guards: every person-shaped string in a
+  fixture must be a name the demo seed can produce (`fixtureGuard#nonDemoNames`, in `npm run check`);
+  `npm run check:fixtures` searches fixtures for the real contacts table's names / emails / phones.
 - **Units (2026-10-01):** every number a tool returns reaches the verifier with a unit — by name
   (`…Cents`, `rate`, counts) or by a declared `unit` on the object (calculate rows, compare_periods
   rows, trend points, get_metric, conversions; `ledger#leafUnit`). `tests/analyst-display` sweeps all

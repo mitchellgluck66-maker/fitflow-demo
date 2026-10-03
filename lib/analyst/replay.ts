@@ -11,8 +11,8 @@
  * suite fails with "fixtures stale: re-record" — a replay of responses to a prompt we no longer send
  * proves nothing.
  *
- * Nothing secret is recorded (responses and tool results carry no credentials; tool results are
- * already contact-scrubbed). Tool results DO carry the names in the database the smoke ran against.
+ * Nothing secret is recorded (responses and tool results carry no credentials). A fixture is recorded
+ * ONLY against the seeded demo tenant, so it never holds customer data (lib/analyst/fixtureGuard.ts).
  */
 
 import { createHash } from 'node:crypto';
@@ -28,7 +28,6 @@ import { runAnalystTurn, type AnalystClient, type AnalystEvent, type TurnOutcome
 import { MemoryAnalystStore, type MessageRow, type NewMessage } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
 import type { Flag } from './verify';
-import { buildScrubber, describeLeaks, findLeaks, scrubJson, type Person } from './scrub';
 
 export const REPLAY_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'analyst-replay');
 export const STALE_MESSAGE = 'fixtures stale: re-record (npm run smoke:analyst -- --record)';
@@ -62,35 +61,12 @@ export interface ReplayFixture {
   answerMode: AnswerMode;
   /** The kind of database the smoke ran against (never the host). */
   database: string;
-  /** Required: what the scrubber replaced before the file was written (lib/analyst/scrub.ts). A fixture without it is refused. */
-  scrub?: { people: number; names: number; emails: number; phones: number; checkedAgainst: number };
+  /** Required: the fixture was recorded against the seeded demo tenant (design review 2026-10-03, B). Anything else is refused. */
+  tenant: 'demo';
   turns: RecordedTurn[];
 }
 
-export const UNSCRUBBED_MESSAGE = 'fixture not scrubbed: re-record (npm run smoke:analyst -- --record) — a fixture never holds real names';
-
-/**
- * Scrub a recorded fixture and PROVE the result: no name, email or phone of anyone in `people` remains, and the
- * scrubbed fixture still replays to its own recording. Throws (nothing is written) otherwise.
- */
-export async function scrubFixture(fixture: ReplayFixture, people: Person[]): Promise<ReplayFixture> {
-  const scrubber = buildScrubber(people, JSON.stringify(fixture));
-  const scrubbed = scrubJson(fixture, scrubber.scrub);
-  const leaks = findLeaks(JSON.stringify(scrubbed), people);
-  if (leaks.length) throw new Error(`the scrubbed fixture still contains ${describeLeaks(leaks)} from the contacts table — nothing written`);
-  scrubbed.scrub = { ...scrubber.stats, checkedAgainst: people.length };
-  // Replacing text can change how many prose numbers the verifier flags (a digit inside a real email or name is
-  // gone). That count is re-derived from the scrubbed file itself; everything else — status, rounds, repairs,
-  // cost, the log rows byte for byte — must still equal the recording, or nothing is written.
-  let replayed = await replayFixture(scrubbed);
-  replayed.forEach((r, i) => {
-    if (r.outcome.status === scrubbed.turns[i].outcome.status) scrubbed.turns[i].outcome.flagged = r.outcome.flagged;
-  });
-  replayed = await replayFixture(scrubbed);
-  const diffs = replayed.flatMap((r, i) => compareReplay(scrubbed.turns[i], r).map((d) => `turn ${i + 1}: ${d}`));
-  if (diffs.length) throw new Error(`the scrubbed fixture no longer replays to its recording (${diffs.slice(0, 3).join('; ')}) — nothing written`);
-  return scrubbed;
-}
+export const NOT_DEMO_MESSAGE = 'fixture not from the demo tenant: re-record (npm run smoke:analyst -- --record) — a fixture never holds customer data';
 
 /** Wrap the live client so every response is kept, in order, per turn. */
 export function recordingClient(inner: AnalystClient): AnalystClient & { responses: BetaMessage[]; compactions: BetaMessage[]; reset(): void } {

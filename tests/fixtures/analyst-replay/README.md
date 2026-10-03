@@ -6,9 +6,10 @@ that recorded it. `npm run check` replays each fixture through the real loop at 
 (tests/analyst-replay.test.ts) and fails with "fixtures stale: re-record" when the contract, the tool
 definitions, the answer schema or the request shape have changed since.
 
-**A fixture never holds real people.** Before the file is written, every name, email and phone is
-replaced with a stable placeholder (Client A, B… — `lib/analyst/scrub.ts`), the result is checked
-against everyone in the contacts table and the payments' customer names, and it must still replay;
-otherwise nothing is written. A fixture without its `scrub` block fails the suite ("fixture not
-scrubbed: re-record"). `npm run check:fixtures` runs the same guard against the real database before a
-push. `*.local` files in this folder are ignored by git.
+**A fixture never holds customer data — by construction.** `--record` runs ONLY on the demo tenant: a
+child process on an in-memory embedded database that the run migrates and seeds (`db/seed-demo.ts`),
+with the configured API key handed over in its environment. Recording against a database with a URL or
+any non-demo row is refused. Two guards keep it true: every person-shaped string in a fixture must be a
+name the demo seed can produce (`lib/analyst/fixtureGuard.ts`, in `npm run check`), and
+`npm run check:fixtures` searches every fixture for the real contacts table's names, emails and phones
+before a push. `*.local` files in this folder are ignored by git.

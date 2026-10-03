@@ -73,6 +73,24 @@ const START_DATE = '2026-06-16';
 const FIRST = ['Vanitha', 'August', 'June', 'James', 'Sarah', 'Alex', 'Jordan', 'Casey', 'Morgan', 'Taylor', 'Riley', 'Chris', 'Jamie', 'Kelly', 'Drew', 'Quinn', 'Blake', 'Avery', 'Dakota', 'Phoenix', 'Maya', 'Elena', 'Noah', 'Liam', 'Priya', 'Marcus', 'Sofia', 'Ethan', 'Grace', 'Omar', 'Hannah', 'Leo', 'Nina', 'Caleb', 'Isla', 'Mateo', 'Zoe', 'Ravi', 'Tessa', 'Julian'];
 const LAST = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Moore', 'Jackson', 'White', 'Harris', 'Clark', 'Lewis', 'Patel', 'Nguyen', 'Kim', 'Okafor', 'Silva', 'Chen', 'Murphy', 'Reyes', 'Foster', 'Bennett'];
 const OWNERS = ['Miranda', 'Jake'];
+/** Names of the unmatched Stripe customers (emails FitFlow has never seen). */
+const UNMATCHED_CUSTOMERS: Array<[string, string]> = [['m.okonkwo', 'maria.okonkwo@gmail.com'], ['t.reyes', 'tomas.reyes.fit@outlook.com']];
+const customerNameOf = (email: string) => email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Every person name the demo tenant can produce — the fixture guard allows nothing else (design review 2026-10-03, B). */
+export const DEMO_PEOPLE = {
+  first: FIRST,
+  last: LAST,
+  owners: OWNERS,
+  allNames(): Set<string> {
+    const out = new Set<string>();
+    for (const f of FIRST) for (const l of LAST) out.add(`${f} ${l}`);
+    for (const o of OWNERS) out.add(o);
+    for (const [, email] of UNMATCHED_CUSTOMERS) out.add(customerNameOf(email));
+    out.add('Unknown');
+    return out;
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Pipeline / stages (same ids as the small seed so both can coexist)
@@ -723,7 +741,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     paymentRows.push(payment(l, { status: 'failed', paidAt: null, failedAt: at, description: 'Fit Physician Coaching — card declined' }));
   }
   // Two unmatched payments (emails FitFlow has never seen).
-  for (const [k, email] of [['m.okonkwo', 'maria.okonkwo@gmail.com'], ['t.reyes', 'tomas.reyes.fit@outlook.com']]) {
+  for (const [k, email] of UNMATCHED_CUSTOMERS) {
     paymentRows.push({
       stripeId: `demo_ch_unmatched_${k}`,
       stripeCustomerId: `demo_cus_${k}`,
@@ -737,7 +755,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
       phoneNormalized: null,
       contactId: null,
       matchSource: null,
-      customerName: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      customerName: customerNameOf(email),
       description: 'Fit Physician Coaching — 12 weeks',
       paidAt: new Date(now.getTime() - between(2, 12) * DAY),
       metadata: { demo: true },

@@ -15,8 +15,8 @@ import type { RenderedAnswer } from './render';
 import { formatSplit, formatUsd, type CostSplit } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient } from './api';
-import { analystWireHash, recordingClient, scrubFixture, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
-import { loadPeople } from './scrubPeople';
+import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
+import { nonDemoNames } from './fixtureGuard';
 
 export interface SmokeTurnLine {
   status: 'PASS' | 'FAIL';
@@ -158,7 +158,7 @@ export interface SmokeOptions {
   full?: boolean;
   /** Item 8: the hard USD budget for the whole run (default 1.00). Before every request, spent + the next request's estimate must fit. */
   maxUsd?: number;
-  /** Item 9: keep every API response, tool result and log row as a replay fixture (tests/fixtures/analyst-replay/<name>.json). */
+  /** Item 9: keep every API response, tool result and log row as a replay fixture (tests/fixtures/analyst-replay/<name>.json). Only on the demo tenant. */
   record?: { name: string; database: string } | null;
 }
 
@@ -307,16 +307,15 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   }
   const model = threadId ? ((await store.getThread(threadId))?.model ?? config.modelDefault) : config.modelDefault;
   if (opts.record && recorder && recorded.length > 0 && threadModel && threadEffort) {
-    // A fixture never holds real people: scrub names / emails / phones to stable placeholders, prove nobody from the
-    // contacts table is left and that the scrubbed file still replays, and only then write it.
-    const raw: ReplayFixture = { version: 1, recordedAt: new Date().toISOString(), wireHash: analystWireHash(config.answerMode), model: threadModel as ReplayFixture['model'], effort: threadEffort as ReplayFixture['effort'], answerMode: config.answerMode, database: opts.record.database, turns: recorded };
-    try {
-      const fixture = await scrubFixture(raw, await loadPeople());
-      fixturePath = writeFixture(opts.record.name, fixture);
-      opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (wire hash ${fixture.wireHash.slice(0, 12)}…; scrubbed: ${fixture.scrub!.people} people → Client A…, ${fixture.scrub!.names} name / ${fixture.scrub!.emails} email / ${fixture.scrub!.phones} phone replacements; checked against ${fixture.scrub!.checkedAgainst} people)`);
-    } catch (err) {
-      recordError = err instanceof Error ? err.message : String(err);
+    // Recorded against the demo tenant only (the script refuses anything else); the guard below is the belt and braces.
+    const fixture: ReplayFixture = { version: 1, recordedAt: new Date().toISOString(), wireHash: analystWireHash(config.answerMode), model: threadModel as ReplayFixture['model'], effort: threadEffort as ReplayFixture['effort'], answerMode: config.answerMode, database: opts.record.database, tenant: 'demo', turns: recorded };
+    const strangers = nonDemoNames(fixture);
+    if (strangers.length) {
+      recordError = `the recording holds ${strangers.length} name(s) the demo tenant cannot produce (first at ${strangers[0].path}) — nothing written`;
       opts.log?.(`   FAIL record · ${recordError}`);
+    } else {
+      fixturePath = writeFixture(opts.record.name, fixture);
+      opts.log?.(`   recorded ${recorded.length} turn${recorded.length === 1 ? '' : 's'} → ${fixturePath} (demo tenant; wire hash ${fixture.wireHash.slice(0, 12)}…)`);
     }
   }
   const runLevel = model.startsWith('claude-opus') ? runMisses(lines) : [];
