@@ -10,6 +10,8 @@
 import { executeTurn, prepareTurn, type TurnRequest } from './service';
 import { MemoryAnalystStore } from './store';
 import { costLine, type AnalystEvent, type TurnOutcome } from './run';
+import { SECTION_LABELS } from './schema';
+import type { RenderedAnswer } from './render';
 import { formatUsd } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient } from './api';
@@ -105,6 +107,39 @@ export function formatSmokeTurn(l: SmokeTurnLine): string {
   const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
+}
+
+/**
+ * The full rendered answer as the owner would read it (G, 2026-10-03): headline, every section whole (no
+ * truncation), actions, findings, note proposals — printed on every run so the answer is reviewed for
+ * quality, not just its metrics line.
+ */
+export function formatRenderedAnswer(r: RenderedAnswer, indent = '   '): string {
+  const lines: string[] = [];
+  lines.push(`${indent}┌ ${r.kind.toUpperCase()} · ${r.headline}`);
+  for (const s of r.sections) {
+    lines.push(`${indent}│`);
+    lines.push(`${indent}│ ## ${SECTION_LABELS[s.key] ?? s.key}`);
+    for (const l of s.body_md.split('\n')) lines.push(`${indent}│ ${l}`);
+  }
+  if (r.kind === 'clarify' && r.clarifying_question) lines.push(`${indent}│ ? ${r.clarifying_question}`);
+  if (r.actions.length) {
+    lines.push(`${indent}│`);
+    lines.push(`${indent}│ ## Actions`);
+    r.actions.forEach((a, i) => lines.push(`${indent}│ ${i + 1}. [${a.kind} · ${a.owner} · ${a.confidence}] ${a.action} — ${a.why} · impact: ${a.expected_impact} · watch ${a.metric} on ${a.check_date}`));
+  }
+  if (r.findings.length) {
+    lines.push(`${indent}│`);
+    lines.push(`${indent}│ ## Findings`);
+    for (const f of r.findings) lines.push(`${indent}│ • [${f.area} · ${f.metric} · ${f.direction} · ${f.severity}] ${f.finding}${f.evidence_refs.length ? ` (${f.evidence_refs.join(', ')})` : ''}`);
+  }
+  if (r.note_proposals.length) {
+    lines.push(`${indent}│`);
+    lines.push(`${indent}│ ## Note proposals`);
+    for (const n of r.note_proposals) lines.push(`${indent}│ ○ ${n}`);
+  }
+  lines.push(`${indent}└`);
+  return lines.join('\n');
 }
 
 export interface SmokeOptions {
@@ -209,6 +244,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       break;
     }
     const seconds = Math.round((Date.now() - started) / 1000);
+    if (out.rendered) opts.log?.(formatRenderedAnswer(out.rendered));
     const turn = await store.getTurn(prepared.turn.id);
     spentUsd += out.costUsd;
     if (out.status === 'needs_confirmation') {

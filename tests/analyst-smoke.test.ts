@@ -72,3 +72,26 @@ describe('2026-10-01: chat effort medium, and cheaper must not mean thinner', ()
     expect(sectionsMiss(undefined, [])).toBeNull();
   });
 });
+
+describe('G: the smoke prints the full rendered answer', () => {
+  it('headline, every section whole, actions, findings and proposals — nothing truncated', async () => {
+    const { formatRenderedAnswer } = await import('@/lib/analyst/smoke');
+    const long = 'x'.repeat(2_000);
+    const text = formatRenderedAnswer({
+      kind: 'answer',
+      headline: 'Enrollments doubled to 8.',
+      sections: [{ key: 'what_happened', body_md: `**8** enrollments.\nSecond line.` }, { key: 'do_this', body_md: long }],
+      actions: [{ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', expected_impact: '$1,000 CAD', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07' }],
+      findings: [{ area: 'funnel', metric: 'applied', finding: '52 applied', direction: 'flat', severity: 'info', evidence_refs: ['r1:data.stages[0].count'] }],
+      note_proposals: ['2026-10-03: cap $4,000 CAD'],
+      clarifying_question: '',
+    });
+    expect(text).toContain('┌ ANSWER · Enrollments doubled to 8.');
+    expect(text).toContain('│ ## What happened\n   │ **8** enrollments.\n   │ Second line.');
+    expect(text).toContain(long);
+    expect(text).toContain('1. [spend · Jake · medium] Shift budget — because · impact: $1,000 CAD · watch paid_cac on 2026-10-07');
+    expect(text).toContain('• [funnel · applied · flat · info] 52 applied (r1:data.stages[0].count)');
+    expect(text).toContain('○ 2026-10-03: cap $4,000 CAD');
+    expect(text.trim().endsWith('└')).toBe(true);
+  });
+});
