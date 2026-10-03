@@ -1,6 +1,6 @@
 /**
  * Live conversation smoke (plan item 8): ONE question by default (item 7 — the
- * cheap check, target ≤ $0.40 USD); `--full` runs the whole conversation (a
+ * cheap check, target ≤ $0.50 USD); `--full` runs the whole conversation (a
  * follow-up, a budget question, the memory check, an explain) before a release.
  * Real API, real tools, in-memory store (nothing written). Prints per turn:
  *   PASS turn 1 · 3 tools · 18.2K in (15.9K cached) · 2.4K out · $0.19 USD · 21 s · estimate $0.31 USD
@@ -40,8 +40,8 @@ export interface SmokeTurnLine {
   misses: string[];
 }
 
-/** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30). The deep model is reported, not judged. */
-export const SMOKE_TARGETS = { p50Seconds: 45, maxUsd: 0.4, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
+/** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30; cost target raised to $0.50 on 2026-10-03). The deep model is reported, not judged. */
+export const SMOKE_TARGETS = { p50Seconds: 45, maxUsd: 0.5, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
 
 /** The per-turn misses (pure): cost, cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
 export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'>): string[] {
@@ -99,7 +99,7 @@ const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l
 /**
  *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (-20%) · sections …
  *        ↳ headline
- *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.40 USD; cache round 2 71% < 80%
+ *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.50 USD; cache round 2 71% < 80%
  */
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
@@ -109,7 +109,7 @@ export function formatSmokeTurn(l: SmokeTurnLine): string {
 
 export interface SmokeOptions {
   log?: (line: string) => void;
-  /** Item 7: the default run is ONE turn (target ≤ $0.40 USD); `full` runs the whole conversation — before a release only. */
+  /** Item 7: the default run is ONE turn (target ≤ $0.50 USD); `full` runs the whole conversation — before a release only. */
   full?: boolean;
   /** Item 8: the hard USD budget for the whole run (default 1.00). Before every request, spent + the next request's estimate must fit. */
   maxUsd?: number;

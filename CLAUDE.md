@@ -993,7 +993,7 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   prior-period table reduced, funnel stages without derivable fields, cap 30K chars); the estimate
   (`cost.ts#RUN_ALLOWANCE`: rounds × thinking + tool tokens written once then read) is multiplied by the
   median actual ÷ estimate of the last 20 completed runs of the kind (`calibrationFactor`, clamped
-  0.5–3, named in `estimate.detail`). Targets per Opus turn: p50 ≤ 45 s, ≤ $0.40 USD, cache ≥ 80 % from
+  0.5–3, named in `estimate.detail`). Targets per Opus turn: p50 ≤ 45 s, ≤ $0.50 USD, cache ≥ 80 % from
   round 2, repairs < 20 %, 0 flagged, estimate within ±25 %. Memory: a finished answer's
   `note_proposals` become `proposed` notes (`notes#saveProposals`, deduped); approval rebuilds the
   brief, so the fact is in the next turn's system prompt and `get_notes`.
@@ -1059,6 +1059,13 @@ Applied under BOTH definitions from the mirror, definition-agnostic, and reports
   nothing manual. Unfollowed-pipeline rows lag until the weekly `ghl.mirrors` pass — the card says so.
 
 ## Working agreements
+
+- **Fix the class, design for any tenant; no tenant-specific logic in `lib/`** (Mitchell, 2026-10-03).
+  FitFlow is a product any company connects its GHL / Meta / Stripe to. A fix found by one live run
+  must remove the failure class for every tenant — prefer "by construction" (the server renders
+  numbers from refs) over "verify and repair"; fixtures come from the seeded demo tenant, never a real
+  database. Design reviews: `docs/analyst-design-review.md` (plan mode, approval first). Analyst cost
+  target: ≤ $0.50 USD per Opus chat question.
 
 - Design system: existing tokens in `app/globals.css` (Linear-style, deep purple accent,
   Inter, dark/light). Reuse `components/` primitives; no new visual languages.

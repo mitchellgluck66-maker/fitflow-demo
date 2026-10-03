@@ -3,7 +3,7 @@
  * stored key (Definition of done §3; plan items 1 and 8).
  *
  *   npm run smoke:analyst -- --probe   every API assumption on the PRODUCTION wiring, both models (~$1 USD)
- *   npm run smoke:analyst              ONE question on the in-memory store (the cheap check; target ≤ $0.40 USD)
+ *   npm run smoke:analyst              ONE question on the in-memory store (the cheap check; target ≤ $0.50 USD)
  *   npm run smoke:analyst -- --full    the whole 5-turn conversation (follow-up, budget, memory check, explain) — before a release
  *   --max-usd 1.50                     the hard budget for the run (default 1.00): nothing is sent past it; a stop is a FAIL
  *   --record                           keep the run as a replay fixture (tests/fixtures/analyst-replay/; `npm run check` replays it at $0);

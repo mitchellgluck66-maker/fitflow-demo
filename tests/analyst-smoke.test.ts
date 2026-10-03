@@ -19,13 +19,13 @@ describe('item 10: the per-turn line and the targets', () => {
   it('prints rounds, tools per round, cache per round, repairs, flagged, seconds, cost vs estimate; a FAIL names what it missed', () => {
     expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened)\n     ↳ Enrollments doubled.');
     expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened) · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
-    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.52, misses: ['cost $0.52 USD > $0.40 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.52 USD vs est $0.21 USD (+148%) · missed: cost $0.52 USD > $0.40 USD');
+    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.50 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.50 USD');
     expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
   });
   it('per-turn targets: cost ≤ $0.40, cache ≥ 80% from round 2, estimate within ±25%; run-level: p50 ≤ 45 s, repairs < 20%, 0 flagged', () => {
-    expect(SMOKE_TARGETS).toEqual({ p50Seconds: 45, maxUsd: 0.4, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 });
+    expect(SMOKE_TARGETS).toEqual({ p50Seconds: 45, maxUsd: 0.5, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 });
     expect(turnMisses(line())).toEqual([]);
-    expect(turnMisses(line({ costUsd: 0.52, estimateUsd: 0.4 }))).toEqual(['cost $0.52 USD > $0.40 USD', 'estimate +30% outside ±25%']);
+    expect(turnMisses(line({ costUsd: 0.62, estimateUsd: 0.4 }))).toEqual(['cost $0.62 USD > $0.50 USD', 'estimate +55% outside ±25%']);
     expect(turnMisses(line({ rounds: [{ toolCalls: 3, cacheSharePct: 0 }, { toolCalls: 0, cacheSharePct: 71.4 }] }))).toEqual(['cache round 2 71.4% < 80%']);
     expect(turnMisses(line({ costUsd: 0.1, estimateUsd: 0.2 }))).toEqual(['estimate -50% outside ±25%']);
     expect(turnMisses(line({ estimateUsd: null }))).toEqual([]);
