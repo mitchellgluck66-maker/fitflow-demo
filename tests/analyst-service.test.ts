@@ -20,7 +20,7 @@ import type { BetaMessage } from '@/lib/analyst/api';
 import type Anthropic from '@anthropic-ai/sdk';
 
 const store = new DbAnalystStore();
-const answer = JSON.stringify({ kind: 'answer', headline: { text: 'Nothing to report yet.', ref: '' }, sections: [{ key: 'what_happened', body_md: 'No data in the period.', numbers: [] }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
+const answer = JSON.stringify({ kind: 'answer', headline: { text: 'Nothing to report yet.' }, sections: [{ key: 'what_happened', body_md: 'No data in the period.' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
 const finalMessage = { id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: answer }], stop_reason: 'end_turn', usage: { input_tokens: 500, output_tokens: 100 } } as unknown as BetaMessage;
 const client: AnalystClient = {
   beta: {
@@ -115,7 +115,7 @@ describe('prepareTurn', () => {
 
   it('item 6 memory: a finished answer\'s note_proposals become PROPOSED notes (deduped); approval puts the note in the next turn\'s brief and in get_notes', async () => {
     const fact = '2026-09-30: Meta spend capped at $4,000 CAD a month from October';
-    const withProposal = JSON.stringify({ kind: 'answer', headline: { text: 'Noted.', ref: '' }, sections: [{ key: 'what_happened', body_md: 'Understood.', numbers: [] }], actions: [], findings: [], note_proposals: [fact, `${fact}.`, 'Price rose to $5,000 on Aug 1'], clarifying_question: '' });
+    const withProposal = JSON.stringify({ kind: 'answer', headline: { text: 'Noted.' }, sections: [{ key: 'what_happened', body_md: 'Understood.' }], actions: [], findings: [], note_proposals: [fact, `${fact}.`, 'Price rose to $5,000 on Aug 1'], clarifying_question: '' });
     const proposing: AnalystClient = { beta: { messages: { stream: () => ({ async *[Symbol.asyncIterator]() { yield { type: 'content_block_stop', index: 0 } as unknown as Anthropic.Beta.Messages.BetaRawMessageStreamEvent; }, finalMessage: async () => ({ ...finalMessage, content: [{ type: 'text', text: withProposal }] }) as BetaMessage }), create: async () => finalMessage } } };
     await addNote('Price rose to $5,000 on Aug 1', { source: 'owner' }); // already known → skipped
     const events: AnalystEvent[] = [];

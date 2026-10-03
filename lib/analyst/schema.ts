@@ -49,14 +49,12 @@ export const CONFIDENCE = ['low', 'medium', 'high'] as const;
 export const DIRECTIONS = ['up', 'down', 'flat'] as const;
 export const SEVERITIES = ['info', 'good', 'warning'] as const;
 
-const numberRef = { type: 'object', properties: { text: { type: 'string', description: 'The number exactly as it appears in the prose, e.g. "$1,605 CAD", "41%", "8".' }, ref: { type: 'string', description: 'Where it came from: "<call ref>:data.<json path>", e.g. "r2:data.kpis.enrollments.current".' } }, required: ['text', 'ref'], additionalProperties: false } as const;
-
 /** JSON Schema — strict-compatible (tests/analyst-wire.test.ts checks it). */
 export const ANSWER_SCHEMA = {
   type: 'object',
   properties: {
     kind: { type: 'string', enum: [...ANSWER_KINDS], description: 'answer = a question; explain = "what does this mean" (3 sections); report = a preset report (8 sections); clarify = ask ONE clarifying question and nothing else.' },
-    headline: { type: 'object', properties: { text: { type: 'string', description: 'One sentence, the answer in brief. At most one number.' }, ref: { type: 'string', description: 'The ref of the headline number, or "" when it has none.' } }, required: ['text', 'ref'], additionalProperties: false },
+    headline: { type: 'object', properties: { text: { type: 'string', description: 'One sentence, the answer in brief. At most one number, written as a ref token: {r2:data.kpis.enrollments.current}.' } }, required: ['text'], additionalProperties: false },
     sections: {
       type: 'array',
       description: 'In the order the kind requires. answer: any of what_happened, why, so_what, do_this, how_we_will_know in that order (skip what does not apply). explain: exactly what_it_is, what_yours_says, what_to_do. report: the 8 report sections. clarify: none.',
@@ -64,10 +62,9 @@ export const ANSWER_SCHEMA = {
         type: 'object',
         properties: {
           key: { type: 'string', enum: SECTION_KEYS },
-          body_md: { type: 'string', description: 'Markdown. Every number in it must also be listed in `numbers` with its ref.' },
-          numbers: { type: 'array', items: numberRef, description: 'Every number that appears in body_md, each with the tool-result ref it came from.' },
+          body_md: { type: 'string', description: 'Markdown. Every metric is a ref token, never a digit: {r2:data.marketing.spendCents}, {r7:data.results[0].value|%}. The server prints the number.' },
         },
-        required: ['key', 'body_md', 'numbers'],
+        required: ['key', 'body_md'],
         additionalProperties: false,
       },
     },
@@ -81,13 +78,12 @@ export const ANSWER_SCHEMA = {
           why: { type: 'string' },
           owner: { type: 'string', description: 'Who does it (a role or a name from the team).' },
           kind: { type: 'string', enum: [...ACTION_KINDS] },
-          expected_impact_ref: { type: 'string', description: 'The ref of the number the impact is based on, or "".' },
-          expected_impact: { type: 'string', description: 'The expected $ impact in words, with its currency, or "unknown".' },
+          expected_impact: { type: 'string', description: 'The expected impact in words; any number as a ref token ({r7:data.results[2].value}), or "unknown".' },
           confidence: { type: 'string', enum: [...CONFIDENCE] },
           metric: { type: 'string', description: 'The metric to watch (a glossary key).' },
           check_date: { type: 'string', description: 'YYYY-MM-DD when to check.' },
         },
-        required: ['action', 'why', 'owner', 'kind', 'expected_impact_ref', 'expected_impact', 'confidence', 'metric', 'check_date'],
+        required: ['action', 'why', 'owner', 'kind', 'expected_impact', 'confidence', 'metric', 'check_date'],
         additionalProperties: false,
       },
     },
@@ -115,18 +111,16 @@ export const ANSWER_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const NumberRef = z.object({ text: z.string(), ref: z.string() });
 export const AnswerSchema = z.object({
   kind: z.enum(ANSWER_KINDS),
-  headline: z.object({ text: z.string(), ref: z.string() }),
-  sections: z.array(z.object({ key: z.enum(SECTION_KEYS as [SectionKey, ...SectionKey[]]), body_md: z.string(), numbers: z.array(NumberRef) })),
+  headline: z.object({ text: z.string() }),
+  sections: z.array(z.object({ key: z.enum(SECTION_KEYS as [SectionKey, ...SectionKey[]]), body_md: z.string() })),
   actions: z.array(
     z.object({
       action: z.string(),
       why: z.string(),
       owner: z.string(),
       kind: z.enum(ACTION_KINDS),
-      expected_impact_ref: z.string(),
       expected_impact: z.string(),
       confidence: z.enum(CONFIDENCE),
       metric: z.string(),

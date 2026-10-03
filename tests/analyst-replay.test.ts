@@ -23,7 +23,7 @@ import type { BetaMessage } from '@/lib/analyst/api';
 const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
 const msg = (content: unknown[], stop = 'end_turn', usage: Record<string, number> = {}): BetaMessage =>
   ({ id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content, stop_reason: stop, stop_sequence: null, usage: { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...usage } }) as unknown as BetaMessage;
-const answer = (headline: string, ref: string) => JSON.stringify({ kind: 'answer', headline: { text: headline, ref }, sections: [{ key: 'what_happened', body_md: 'Spend was **$3,697.68 CAD**.\nRavi Brown enrolled; Ravi paid on Sep 3. MARCUS JACKSON is next (marcus.j@realmail.com, +15033249931). Will it hold in May?', numbers: [{ text: '$3,697.68 CAD', ref: 'r1:data.marketing.spendCents' }] }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
+const answer = (headline: string) => JSON.stringify({ kind: 'answer', headline: { text: headline }, sections: [{ key: 'what_happened', body_md: 'Spend was **{r1:data.marketing.spendCents}**.\nRavi Brown enrolled; Ravi paid on Sep 3. MARCUS JACKSON is next (marcus.j@realmail.com, +15033249931). Will it hold in May?' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
 const PEOPLE: Person[] = [
   { firstName: 'Ravi', lastName: 'Brown', email: 'ravi.brown@realmail.com', phone: '+15035550101' },
   { firstName: 'Marcus', lastName: 'Jackson', email: 'marcus.j@realmail.com', phone: '+15033249931' },
@@ -46,8 +46,8 @@ async function recordSynthetic(): Promise<ReplayFixture> {
   const live = recordingClient(
     scriptedLive([
       msg([{ type: 'tool_use', id: 'tu1', name: 'get_scorecard', input: { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' } }], 'tool_use', { cache_creation_input_tokens: 900 }),
-      msg([{ type: 'text', text: answer('Spend was $3,700 CAD.', 'r1:data.marketing.spendCents') }], 'end_turn', { cache_read_input_tokens: 900 }), // $3,700 ≠ $3,697.68 → repair
-      msg([{ type: 'text', text: answer('Spend was $3,697.68 CAD.', 'r1:data.marketing.spendCents') }], 'end_turn', { cache_read_input_tokens: 1200 }),
+      msg([{ type: 'text', text: answer('Spend was $3,700 CAD.') }], 'end_turn', { cache_read_input_tokens: 900 }), // a raw digit → repair
+      msg([{ type: 'text', text: answer('Spend was {r1:data.marketing.spendCents}.') }], 'end_turn', { cache_read_input_tokens: 1200 }),
     ]),
   );
   const events: AnalystEvent[] = [];
@@ -70,7 +70,7 @@ async function recordSynthetic(): Promise<ReplayFixture> {
 describe('the harness (synthetic recording)', () => {
   it('a recorded turn replays through the real loop with the same outcome, repairs, cost and byte-identical log rows', async () => {
     const fixture = await recordSynthetic();
-    expect(fixture.turns[0].outcome).toMatchObject({ status: 'done', headline: 'Spend was $3,697.68 CAD.', repairs: 1, rounds: 2 });
+    expect(fixture.turns[0].outcome).toMatchObject({ status: 'done', headline: 'Spend was {r1:data.marketing.spendCents}.', repairs: 1, rounds: 2 });
     expect(recordedToolResults(fixture).get('r1')?.data).toMatchObject({ marketing: { spendCents: 369_768 } });
     const [replayed] = await replayFixture(fixture);
     expect(compareReplay(fixture.turns[0], replayed)).toEqual([]);

@@ -1,22 +1,30 @@
 /**
- * Rule 3 of the runtime (plan item 6) — PURE: a number is shown only with a
- * ref. Every number in a section's prose must be one of the section's declared
- * `numbers`, and each declared number must equal the referenced tool-result
- * value under that unit's rendering (count exact; cents as whole dollars, two
- * decimals or one-decimal k; ratio as a percent or a multiple). Small integers
- * pass without a ref only in a date, duration or ordinal context. A ref whose
- * tool result predates the newest sync marker is rejected with "re-fetch".
+ * Verifier v2 (design review 2026-10-03, A) — PURE. The model never writes a metric's value: prose carries
+ * REF TOKENS — `{r2:data.marketing.paidCacCents}`, `{r7:data.results[1].value|%}` — and the server
+ * renders them (render.ts). So the checks are:
  *
- * The old Ask verifier (lib/metrics/ask.ts#verifyAnswerNumbers) accepted any
- * number within 1% of ANY context value; against a large ledger that would
- * pass almost anything, which is why refs are required here.
+ *   1. every token resolves: a known ref, not withheld (null), not older than the newest sync marker;
+ *   2. no raw digit run in prose outside a token, except the exempt contexts (ISO dates, times,
+ *      month-day, years, durations, ordinals, markdown list numbers, refs) and a digit string the owner
+ *      wrote verbatim in THIS question;
+ *   3. findings' evidence refs exist;
+ *   4. direction words agree with the sign / polarity of the delta they sit next to (direction.ts).
+ *
+ * ONE repair turn with the exact problems; after that the renderer shows `[no source]` for an unresolved
+ * token and `[unverified: 8]` around a raw digit — marked, never silent. The old verifier compared the
+ * model's rendering with a table of acceptable roundings; with one renderer there is nothing to compare.
  */
 
-import type { Ledger, LedgerEntry } from './ledger';
+import type { Ledger } from './ledger';
 import type { Answer } from './schema';
+import { checkDirection } from './direction';
+
+export type FlagKind = 'ref' | 'digits' | 'evidence' | 'direction';
 
 export interface Flag {
+  kind: FlagKind;
   section: string;
+  /** The token or digit run (or the sentence, for a direction flag) as it appears in the text. */
   text: string;
   reason: string;
 }
@@ -24,15 +32,38 @@ export interface Flag {
 export interface Verification {
   ok: boolean;
   flagged: Flag[];
-  /** Declared numbers that verified. */
+  /** Tokens that resolved. */
   verified: number;
 }
 
+/** `{<ref>}` or `{<ref>|hint}` — the ref exactly as a tool result gives it. */
+export const TOKEN = /\{(r\d+:data\.[^{}|\s]+)(?:\|(%|x|k))?\}/g;
+
+export interface RefToken {
+  text: string;
+  ref: string;
+  hint: '%' | 'x' | 'k' | null;
+  index: number;
+}
+
+export function refTokens(text: string): RefToken[] {
+  const out: RefToken[] = [];
+  const re = new RegExp(TOKEN.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.push({ text: m[0], ref: m[1], hint: (m[2] as RefToken['hint']) ?? null, index: m.index });
+  return out;
+}
+
+/** The text with every token replaced by a word, so the digit scan and the exempt contexts see prose only. */
+export function withoutTokens(text: string): string {
+  return text.replace(new RegExp(TOKEN.source, 'g'), 'REF');
+}
+
 const MONTHS = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*$/i;
-const DURATION_AFTER = /^\s?(-|\s)?(day|days|week|weeks|wk|wks|month|months|mo|year|years|yr|hour|hours|h|hr|hrs|min|mins|minute|minutes|s|sec|seconds|st|nd|rd|th|x|×)\b/i;
+const DURATION_AFTER = /^\s?(-|\s)?(day|days|week|weeks|wk|wks|month|months|mo|year|years|yr|hour|hours|h|hr|hrs|min|mins|minute|minutes|s|sec|seconds|st|nd|rd|th)\b/i;
 const ORDINAL_BEFORE = /(#|no\.?|number|day[- ]|week[- ]|step|round|section|page|q|top|bottom|first|last)\s?$/i;
 
-/** Every numeric token in prose: "$1,605.33 CAD", "$1.6k", "41%", "2.5×", "8", "1,234". */
+/** Every digit run in prose: "1,605", "8", "41.2", "2026-09-30". */
 const NUMBER_TOKEN = /(\$)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s?(k\b|K\b|%|×|x\b)?(\s?(CAD|USD))?/g;
 
 export interface Token {
@@ -52,12 +83,12 @@ function parseToken(m: RegExpExecArray): Token {
   return { text: raw.trim(), index: m.index, value: num, suffix, money };
 }
 
-/** Is this token part of a date, a time, a duration, an ordinal, a list number or a ref — not a metric? */
+/** Is this digit run part of a date, a time, a duration, an ordinal, a list number or a ref — not a metric? */
 export function isExemptContext(body: string, t: Token): boolean {
   const before = body.slice(Math.max(0, t.index - 24), t.index);
   const after = body.slice(t.index + t.text.length, t.index + t.text.length + 16);
   const whole = body.slice(Math.max(0, t.index - 12), t.index + t.text.length + 12);
-  if (t.suffix === '%' || t.suffix === 'k' || t.money) return false;
+  if (t.suffix === '%' || t.suffix === 'k' || t.suffix === 'x' || t.money) return false;
   if (/\d{4}-\d{2}-\d{2}/.test(whole)) return true; // ISO date
   if (/\d{1,2}:\d{2}/.test(whole)) return true; // time
   if (MONTHS.test(before)) return true; // "Sep 3", "Aug 2–8"
@@ -70,102 +101,6 @@ export function isExemptContext(body: string, t: Token): boolean {
   if (/\br$/.test(before) || /^:data/.test(after)) return true; // a ref like r3:data.x
   if (/\[\s?$/.test(before) && /^\s?\]/.test(after)) return true; // a JSON path index
   return false;
-}
-
-function norm(s: string): string {
-  return s.replace(/\s+/g, '').replace(/CAD|USD/gi, '').toLowerCase();
-}
-
-/** Does `text` render `entry` under its unit? */
-export function renders(entry: LedgerEntry, text: string): boolean {
-  if (entry.value === null) return false;
-  const m = new RegExp(NUMBER_TOKEN.source).exec(text.trim());
-  if (!m || m.index !== 0) return false;
-  const t = parseToken(m as RegExpExecArray);
-  // The number token carries no sign and display strings are unsigned (item 3): a drop of $12.34 is written
-  // "down $12.34 CAD", so the magnitude is what must match.
-  const v = Math.abs(entry.value);
-  const close = (a: number, b: number, eps: number) => Math.abs(a - b) <= eps;
-  const r1 = (x: number) => Math.round(x * 10) / 10;
-  const r2 = (x: number) => Math.round(x * 100) / 100;
-  switch (entry.unit) {
-    case 'cents': {
-      const dollars = v / 100;
-      if (t.suffix === 'k') return close(r1(dollars / 1000), t.value, 1e-9) || close(r2(dollars / 1000), t.value, 1e-9);
-      if (t.suffix === '%' || t.suffix === 'x') return false;
-      if (/\.\d{1,2}$/.test(t.text.replace(/\s?(CAD|USD)$/, ''))) return close(dollars, t.value, 0.005 + 1e-9) || close(r1(dollars), t.value, 1e-9);
-      return Math.round(dollars) === t.value;
-    }
-    case 'ratio': {
-      if (t.suffix === '%') return close(Math.round(v * 100), t.value, 1e-9) || close(r1(v * 100), t.value, 1e-9);
-      if (t.suffix === 'x') return close(r1(v), t.value, 1e-9) || close(r2(v), t.value, 1e-9);
-      if (t.suffix === 'k' || t.money) return false;
-      return close(v, t.value, 0.0005) || close(r2(v), t.value, 1e-9);
-    }
-    case 'count': {
-      if (t.suffix === 'k') return close(r1(v / 1000), t.value, 1e-9);
-      if (t.suffix) return false;
-      return v === t.value;
-    }
-    default: {
-      if (t.suffix === '%' || t.suffix === 'k') return false;
-      return v === t.value || close(r1(v), t.value, 1e-9) || close(r2(v), t.value, 1e-9);
-    }
-  }
-}
-
-export interface VerifyOptions {
-  /** ISO: a ref fetched before this is stale (the newest sync marker since the turn began). */
-  staleBefore?: string | null;
-}
-
-export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions = {}): Verification {
-  const flagged: Flag[] = [];
-  let verified = 0;
-
-  const checkDeclared = (section: string, n: { text: string; ref: string }) => {
-    const entry = ledger.get(n.ref);
-    if (!entry) return flagged.push({ section, text: n.text, reason: `no such ref "${n.ref}" — cite a number from a tool result in this conversation` });
-    if (entry.value === null) return flagged.push({ section, text: n.text, reason: `ref "${n.ref}" is withheld (null) — this number has no source` });
-    if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) return flagged.push({ section, text: n.text, reason: `ref "${n.ref}" predates the latest sync — re-fetch` });
-    if (!renders(entry, n.text)) return flagged.push({ section, text: n.text, reason: `"${n.text}" does not equal ${n.ref} = ${entry.value} (${entry.unit})` });
-    verified += 1;
-  };
-
-  // The headline: at most one number, and it must be the ref'd one.
-  const headTokens = tokens(answer.headline.text).filter((t) => !isExemptContext(answer.headline.text, t));
-  if (headTokens.length > 0) {
-    if (!answer.headline.ref) flagged.push({ section: 'headline', text: headTokens[0].text, reason: 'the headline has a number but no ref' });
-    else for (const t of headTokens) checkDeclared('headline', { text: t.text, ref: answer.headline.ref });
-  }
-
-  for (const s of answer.sections) {
-    const declared = s.numbers.map((n) => norm(n.text));
-    for (const n of s.numbers) checkDeclared(s.key, n);
-    for (const t of tokens(s.body_md)) {
-      if (isExemptContext(s.body_md, t)) continue;
-      const key = norm(t.text);
-      const found = declared.some((d) => d === key || d.startsWith(key) || key.startsWith(d));
-      if (!found) flagged.push({ section: s.key, text: t.text, reason: 'a number in the prose with no declared ref' });
-    }
-  }
-
-  for (const a of answer.actions) {
-    if (a.expected_impact_ref) {
-      const entry = ledger.get(a.expected_impact_ref);
-      if (!entry) flagged.push({ section: 'actions', text: a.action, reason: `no such ref "${a.expected_impact_ref}" for the expected impact` });
-    }
-    for (const t of tokens(a.expected_impact)) {
-      if (isExemptContext(a.expected_impact, t)) continue;
-      if (!a.expected_impact_ref) flagged.push({ section: 'actions', text: t.text, reason: 'an expected impact with a number needs expected_impact_ref' });
-    }
-  }
-
-  for (const f of answer.findings) {
-    for (const ref of f.evidence_refs) if (!ledger.get(ref)) flagged.push({ section: 'findings', text: f.finding, reason: `no such evidence ref "${ref}"` });
-  }
-
-  return { ok: flagged.length === 0, flagged, verified };
 }
 
 export function tokens(text: string): Token[] {
@@ -182,7 +117,58 @@ export function tokens(text: string): Token[] {
   return out;
 }
 
+export interface VerifyOptions {
+  /** ISO: a ref fetched before this is stale (the newest sync marker since the turn began). */
+  staleBefore?: string | null;
+  /** The owner's question this turn: a digit string written there may be repeated verbatim. */
+  question?: string | null;
+}
+
+/** Every text field of an answer, with the section it is reported under. */
+export function answerTexts(answer: Answer): Array<{ section: string; text: string }> {
+  return [
+    { section: 'headline', text: answer.headline.text },
+    ...answer.sections.map((s) => ({ section: s.key, text: s.body_md })),
+    ...answer.actions.flatMap((a, i) => [
+      { section: `actions[${i}].action`, text: a.action },
+      { section: `actions[${i}].why`, text: a.why },
+      { section: `actions[${i}].expected_impact`, text: a.expected_impact },
+    ]),
+    ...answer.findings.map((f, i) => ({ section: `findings[${i}]`, text: f.finding })),
+  ];
+}
+
+export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions = {}): Verification {
+  const flagged: Flag[] = [];
+  let verified = 0;
+  const questionDigits = new Set(tokens(opts.question ?? '').map((t) => t.text.replace(/\s/g, '')));
+
+  for (const { section, text } of answerTexts(answer)) {
+    // 1. Tokens resolve.
+    for (const t of refTokens(text)) {
+      const entry = ledger.get(t.ref);
+      if (!entry) flagged.push({ kind: 'ref', section, text: t.text, reason: `no such ref "${t.ref}" — cite a number from a tool result in this conversation` });
+      else if (entry.value === null) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" is withheld (null) — this number has no source; say why it is withheld instead` });
+      else if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" predates the latest sync — re-fetch` });
+      else verified += 1;
+    }
+    // 2. No raw digits outside a token.
+    const prose = withoutTokens(text);
+    for (const t of tokens(prose)) {
+      if (isExemptContext(prose, t)) continue;
+      if (questionDigits.has(t.text.replace(/\s/g, ''))) continue;
+      flagged.push({ kind: 'digits', section, text: t.text, reason: `"${t.text}" is a number written as digits — write its ref in braces instead ({r2:data.<path>}); only dates, durations, ordinals and the owner's own figures may be digits` });
+    }
+    // 4. Direction words agree with the delta they sit next to.
+    for (const d of checkDirection(text, ledger)) flagged.push({ kind: 'direction', section, text: d.sentence, reason: d.reason });
+  }
+  // 3. Evidence refs exist.
+  for (const f of answer.findings) for (const ref of f.evidence_refs) if (!ledger.get(ref)) flagged.push({ kind: 'evidence', section: 'findings', text: f.finding, reason: `no such evidence ref "${ref}"` });
+
+  return { ok: flagged.length === 0, flagged, verified };
+}
+
 /** The repair message appended (hidden) when an answer fails verification or structure. */
 export function repairMessage(problems: string[]): string {
-  return `Your answer was not accepted. Fix ONLY these problems and answer again in the same structure:\n${problems.map((p) => `- ${p}`).join('\n')}\nRules: every number in the prose must be listed in that section's numbers with the ref of the tool result it came from, and must equal that value (money as dollars with its code, ratios as percentages or multiples). If a number has no source, remove it or fetch it with a tool.`;
+  return `Your answer was not accepted. Fix ONLY these problems and answer again in the same structure:\n${problems.map((p) => `- ${p}`).join('\n')}\nRules: a metric is never written as digits — write its ref in braces ({r2:data.kpis.enrollments.current}, {r7:data.results[0].value|%}) and the server prints the number; a ref must come from a tool result in this conversation; direction words must match the sign of the change they describe. If a number has no source, remove it or fetch it with a tool.`;
 }

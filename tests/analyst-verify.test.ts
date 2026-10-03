@@ -1,10 +1,14 @@
 /**
- * Answer schema, ledger and verifier (Analyst plan item 6): a number is shown
- * only with a ref that equals the tool-result value under its unit's rendering.
+ * Verifier v2 (design review 2026-10-03, A): the model writes ref tokens, the server renders them. The checks:
+ * every token resolves; no raw digits outside the exempt contexts (and the owner's own figures); evidence
+ * refs exist; direction words agree with the delta's sign (sign words) or the metric's polarity (judgment
+ * words). One repair; then marked, never silent. Plus the answer schema's structure rules.
  */
 import { describe, it, expect } from 'vitest';
 import { Ledger, ledgerEntries, unitForPath } from '@/lib/analyst/ledger';
-import { isExemptContext, renders, tokens, verifyAnswer, repairMessage } from '@/lib/analyst/verify';
+import { isExemptContext, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
+import { renderAnswer, renderText, NO_SOURCE } from '@/lib/analyst/render';
+import { checkDirection, lowerIsBetter, sentences } from '@/lib/analyst/direction';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, expectedSections, SECTION_KEYS, type Answer } from '@/lib/analyst/schema';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
 
@@ -13,7 +17,7 @@ const ledger = new Ledger();
 ledger.add(
   'r1',
   {
-    kpis: { enrollments: { current: 8, previous: 4, abs: 4, pct: 1 }, paidCacCents: { current: 92_442, previous: 184_884, pct: -0.5 }, roas: { current: 2.0871, previous: 0.94 } },
+    kpis: { enrollments: { current: 8, previous: 4, abs: 4, pct: 1 }, paidCacCents: { current: 92_442, previous: 184_884, abs: -92_442, pct: -0.5 }, roas: { current: 2.0871, previous: 0.94, abs: 1.1471, pct: 1.22 } },
     marketing: { spendCents: 369_768, paidEnrollments: 4, ltvToCac: null },
     showRates: [{ type: 'Consult', rate: 0.6123, showed: 6, noShow: 4 }],
     stages: [{ key: 'applied', count: 52 }, { key: 'consult_booked', count: 7, conversionFromPrevious: 0.1346 }],
@@ -23,10 +27,11 @@ ledger.add(
   T0,
   'CAD',
 );
+ledger.add('r7', { results: [{ label: 'organic', op: 'difference', unit: 'count', delta: true, metric: null, value: 4 }, { label: 'mix', op: 'ratio', unit: 'pct', delta: false, metric: null, value: 0.5 }], failed: 0 }, T0, 'CAD');
 
 const base = (over: Partial<Answer> = {}): Answer => ({
   kind: 'answer',
-  headline: { text: 'Enrollments doubled to 8 last week.', ref: 'r1:data.kpis.enrollments.current' },
+  headline: { text: 'Enrollments doubled to {r1:data.kpis.enrollments.current} last week.' },
   sections: [],
   actions: [],
   findings: [],
@@ -34,28 +39,31 @@ const base = (over: Partial<Answer> = {}): Answer => ({
   clarifying_question: '',
   ...over,
 });
+const sec = (key: Answer['sections'][number]['key'], body_md: string) => ({ key, body_md });
+const action = (over: Partial<Answer['actions'][number]> = {}): Answer['actions'][number] => ({ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', expected_impact: 'unknown', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07', ...over });
 
 describe('schema', () => {
-  it('is strict-compatible, every field required, and the zod schema accepts a full answer', () => {
+  it('is strict-compatible (0 optional, 0 unions), every field required, and the zod schema accepts a full answer', () => {
     expect(findUnsupportedKeywords(ANSWER_SCHEMA as unknown as Record<string, unknown>)).toEqual([]);
     expect(AnswerSchema.safeParse(base()).success).toBe(true);
+    expect(JSON.stringify(ANSWER_SCHEMA)).not.toMatch(/"numbers"|expected_impact_ref|"ref"/); // v2: refs live in the text
     expect(SECTION_KEYS.length).toBe(16);
   });
   it('checkStructure enforces the kind\'s sections and order', () => {
-    expect(checkStructure(base({ sections: [{ key: 'what_happened', body_md: 'x', numbers: [] }, { key: 'do_this', body_md: 'y', numbers: [] }] }))).toBeNull();
-    expect(checkStructure(base({ sections: [{ key: 'do_this', body_md: 'x', numbers: [] }, { key: 'why', body_md: 'y', numbers: [] }] }))).toMatch(/order/);
+    expect(checkStructure(base({ sections: [sec('what_happened', 'x'), sec('do_this', 'y')] }))).toBeNull();
+    expect(checkStructure(base({ sections: [sec('do_this', 'x'), sec('why', 'y')] }))).toMatch(/order/);
     expect(checkStructure(base({ sections: [] }))).toMatch(/at least one section/);
-    expect(checkStructure(base({ sections: [{ key: 'what_it_is', body_md: 'x', numbers: [] }] }))).toMatch(/may only use/);
-    expect(checkStructure(base({ kind: 'explain', sections: expectedSections('explain').keys.map((key) => ({ key, body_md: 'x', numbers: [] })) }))).toBeNull();
-    expect(checkStructure(base({ kind: 'explain', sections: [{ key: 'what_it_is', body_md: 'x', numbers: [] }] }))).toMatch(/exactly the sections/);
-    expect(checkStructure(base({ kind: 'clarify', headline: { text: 'Which period?', ref: '' }, clarifying_question: 'Which period do you mean?' }))).toBeNull();
-    expect(checkStructure(base({ kind: 'clarify', headline: { text: 'x', ref: '' } }))).toMatch(/clarifying_question/);
-    expect(checkStructure(base({ sections: [{ key: 'why', body_md: '   ', numbers: [] }] }))).toMatch(/empty/);
+    expect(checkStructure(base({ sections: [sec('what_it_is', 'x')] }))).toMatch(/may only use/);
+    expect(checkStructure(base({ kind: 'explain', sections: expectedSections('explain').keys.map((key) => sec(key, 'x')) }))).toBeNull();
+    expect(checkStructure(base({ kind: 'explain', sections: [sec('what_it_is', 'x')] }))).toMatch(/exactly the sections/);
+    expect(checkStructure(base({ kind: 'clarify', headline: { text: 'Which period?' }, clarifying_question: 'Which period do you mean?' }))).toBeNull();
+    expect(checkStructure(base({ kind: 'clarify', headline: { text: 'x' } }))).toMatch(/clarifying_question/);
+    expect(checkStructure(base({ sections: [sec('why', '   ')] }))).toMatch(/empty/);
   });
 });
 
 describe('ledger', () => {
-  it('lists every numeric leaf with a unit inferred from the path; nulls are kept as withheld', () => {
+  it('lists every numeric leaf with its unit; nulls are kept as withheld', () => {
     const entries = ledgerEntries('r9', { a: { spendCents: 5 }, b: [{ rate: 0.5 }, { count: 3 }], c: null, d: 'text', e: { roas: { current: 2 } } }, T0, 'CAD');
     expect(entries.map((e) => [e.ref, e.value, e.unit])).toEqual([
       ['r9:data.a.spendCents', 5, 'cents'],
@@ -67,7 +75,7 @@ describe('ledger', () => {
     expect(unitForPath('data.kpis.paidCacCents.current')).toBe('cents');
     expect(unitForPath('data.kpis.enrollments.pct')).toBe('ratio');
     expect(unitForPath('data.kpis.enrollments.abs')).toBe('count');
-    expect(unitForPath('data.kpis.paidCacCents.pct')).toBe('ratio'); // a delta's pct is never cents (item 3)
+    expect(unitForPath('data.kpis.paidCacCents.pct')).toBe('ratio');
     expect(unitForPath('data.kpis.paidCacCents.abs')).toBe('cents');
     expect(unitForPath('data.timeInStageHours')).toBe('hours');
     expect(ledger.resolve('r1:data.marketing.ltvToCac')).toBeNull();
@@ -75,39 +83,13 @@ describe('ledger', () => {
   });
 });
 
-describe('renders — per-unit rounding', () => {
-  const e = (ref: string) => ledger.get(ref)!;
-  it('cents: whole dollars, two decimals, one-decimal k, with or without the code; never as a percent', () => {
-    expect(renders(e('r1:data.marketing.spendCents'), '$3,698 CAD')).toBe(true);
-    expect(renders(e('r1:data.marketing.spendCents'), '$3,697.68 CAD')).toBe(true);
-    expect(renders(e('r1:data.marketing.spendCents'), '$3,697.68')).toBe(true);
-    expect(renders(e('r1:data.marketing.spendCents'), '$3.7k')).toBe(true);
-    expect(renders(e('r1:data.marketing.spendCents'), '$3,697')).toBe(false);
-    expect(renders(e('r1:data.marketing.spendCents'), '3698%')).toBe(false);
-    expect(renders(e('r1:data.kpis.paidCacCents.current'), '$924.42 CAD')).toBe(true);
-    expect(renders(e('r1:data.kpis.paidCacCents.current'), '$924')).toBe(true);
-  });
-  it('ratios: percent (0 or 1 decimal) or a multiple (1 or 2 decimals)', () => {
-    expect(renders(e('r1:data.showRates[0].rate'), '61%')).toBe(true);
-    expect(renders(e('r1:data.showRates[0].rate'), '61.2%')).toBe(true);
-    expect(renders(e('r1:data.showRates[0].rate'), '62%')).toBe(false);
-    expect(renders(e('r1:data.kpis.roas.current'), '2.1×')).toBe(true);
-    expect(renders(e('r1:data.kpis.roas.current'), '2.09x')).toBe(true);
-    expect(renders(e('r1:data.kpis.roas.current'), '2.5×')).toBe(false);
-    expect(renders(e('r1:data.kpis.enrollments.pct'), '100%')).toBe(true);
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '-50%')).toBe(false); // the sign is prose ("down 50%"); the token has none
-    // Item 3 (2026-09-30): the MAGNITUDE must match — before, -0.5 rendered as neither "-50%" nor "50%", so every
-    // negative delta was unciteable and went to repair.
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '50%')).toBe(true);
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '50.0%')).toBe(true);
-    expect(renders(e('r1:data.kpis.paidCacCents.pct'), '49%')).toBe(false);
-  });
-  it('counts exact; hours to one decimal', () => {
-    expect(renders(e('r1:data.kpis.enrollments.current'), '8')).toBe(true);
-    expect(renders(e('r1:data.kpis.enrollments.current'), '9')).toBe(false);
-    expect(renders(e('r1:data.timeInStageHours'), '41.6')).toBe(true);
-    expect(renders(e('r1:data.frequency'), '2.4×')).toBe(true); // frequency is a multiple in the catalog
-    expect(renders(e('r1:data.frequency'), '2.37x')).toBe(true);
+describe('tokens and rendering', () => {
+  it('finds ref tokens with hints; renders them from the ledger; withoutTokens leaves prose only', () => {
+    const text = 'CAC {r1:data.kpis.paidCacCents.current} (down {r1:data.kpis.paidCacCents.pct}) · ROAS {r1:data.kpis.roas.current|%} · {r7:data.results[1].value|x} · {r9:data.nope}';
+    expect(refTokens(text).map((t) => [t.ref, t.hint])).toEqual([['r1:data.kpis.paidCacCents.current', null], ['r1:data.kpis.paidCacCents.pct', null], ['r1:data.kpis.roas.current', '%'], ['r7:data.results[1].value', 'x'], ['r9:data.nope', null]]);
+    expect(renderText(text, ledger)).toBe(`CAC $924.42 CAD (down 50%) · ROAS 208.7% · 0.5× · ${NO_SOURCE}`);
+    expect(withoutTokens(text)).toBe('CAC REF (down REF) · ROAS REF · REF · REF');
+    expect(renderText('**{r1:data.kpis.enrollments.current}** enrollments; {r1:data.marketing.ltvToCac} LTV', ledger)).toBe(`**8** enrollments; ${NO_SOURCE} LTV`);
   });
 });
 
@@ -132,56 +114,70 @@ describe('exempt contexts', () => {
   });
 });
 
-describe('verifyAnswer', () => {
-  it('accepts a fully cited answer', () => {
-    const v = verifyAnswer(
-      base({
-        sections: [
-          { key: 'what_happened', body_md: 'Enrollments reached 8 in the week of Sep 20–26, up from 4 the week before. Paid CAC fell to $924.42 CAD.', numbers: [{ text: '8', ref: 'r1:data.kpis.enrollments.current' }, { text: '4', ref: 'r1:data.kpis.enrollments.previous' }, { text: '$924.42 CAD', ref: 'r1:data.kpis.paidCacCents.current' }] },
-          { key: 'so_what', body_md: 'ROAS is 2.1× on $3,698 CAD of spend.', numbers: [{ text: '2.1×', ref: 'r1:data.kpis.roas.current' }, { text: '$3,698 CAD', ref: 'r1:data.marketing.spendCents' }] },
-        ],
-      }),
-      ledger,
-    );
-    expect(v).toEqual({ ok: true, flagged: [], verified: 6 });
+describe('verifyAnswer v2', () => {
+  it('a clean answer: every token resolves, no raw digits, dates / durations / ordinals allowed', () => {
+    const a = base({ sections: [sec('what_happened', 'Enrollments rose to **{r1:data.kpis.enrollments.current}** in the week of Sep 20–26 (up {r1:data.kpis.enrollments.pct}); over 12 weeks the pattern held.\n1. first\n2. second')] });
+    expect(verifyAnswer(a, ledger)).toEqual({ ok: true, flagged: [], verified: 3 });
   });
-  it('rejects an uncited "3 enrollments" even though 3 is small, and a coincidental match without a ref', () => {
-    const v = verifyAnswer(base({ sections: [{ key: 'what_happened', body_md: 'Only 3 enrollments came from Google. Spend was $3,698 CAD.', numbers: [] }] }), ledger);
+  it('unknown, withheld and stale refs are flagged with the reason; evidence refs too', () => {
+    const a = base({ sections: [sec('why', '{r9:data.nope} and {r1:data.marketing.ltvToCac}')], findings: [{ area: 'marketing', metric: 'roas', finding: 'x', direction: 'up', severity: 'info', evidence_refs: ['r1:data.kpis.roas.current', 'r1:data.zzz'] }] });
+    const v = verifyAnswer(a, ledger);
     expect(v.ok).toBe(false);
-    expect(v.flagged.map((f) => f.text)).toEqual(['3', '$3,698 CAD']);
-    expect(v.flagged[0].reason).toBe('a number in the prose with no declared ref');
+    expect(v.flagged.map((f) => [f.kind, f.section, f.text])).toEqual([['ref', 'why', '{r9:data.nope}'], ['ref', 'why', '{r1:data.marketing.ltvToCac}'], ['evidence', 'findings', 'x']]);
+    expect(v.flagged[0].reason).toMatch(/no such ref "r9:data.nope"/);
+    expect(v.flagged[1].reason).toMatch(/withheld \(null\)/);
+    expect(verifyAnswer(base(), ledger, { staleBefore: '2026-09-30T11:00:00.000Z' }).flagged[0].reason).toMatch(/predates the latest sync — re-fetch/);
   });
-  it('rejects a declared number that does not equal its ref, a null ref, an unknown ref, and a headline number without a ref', () => {
-    const v = verifyAnswer(
-      base({
-        headline: { text: 'Enrollments hit 8.', ref: '' },
-        sections: [{ key: 'why', body_md: 'Paid CAC was $900 CAD; LTV:CAC is 12×; spend was $5,000 CAD.', numbers: [{ text: '$900 CAD', ref: 'r1:data.kpis.paidCacCents.current' }, { text: '12×', ref: 'r1:data.marketing.ltvToCac' }, { text: '$5,000 CAD', ref: 'r7:data.nope' }] }],
-      }),
-      ledger,
-    );
-    expect(v.flagged.map((f) => f.reason)).toEqual([
-      'the headline has a number but no ref',
-      '"$900 CAD" does not equal r1:data.kpis.paidCacCents.current = 92442 (cents)',
-      'ref "r1:data.marketing.ltvToCac" is withheld (null) — this number has no source',
-      'no such ref "r7:data.nope" — cite a number from a tool result in this conversation',
-    ]);
+  it('a raw digit outside a token is flagged unless the owner wrote it in this question', () => {
+    const a = base({ sections: [sec('what_happened', 'We got 8 enrollments and spent $3,697.68 CAD; the cap is $4,000 CAD.')] });
+    const v = verifyAnswer(a, ledger, { question: 'From October we cap Meta at $4,000 CAD a month — does that change anything?' });
+    expect(v.flagged.map((f) => [f.kind, f.text])).toEqual([['digits', '8'], ['digits', '$3,697.68 CAD']]);
+    expect(v.flagged[0].reason).toMatch(/write its ref in braces/);
+    expect(verifyAnswer(a, ledger).flagged.length).toBe(3); // without the question, $4,000 CAD is a raw digit too
   });
-  it('a stale ref (fetched before the newest sync marker) is rejected with "re-fetch"', () => {
-    const v = verifyAnswer(base({ sections: [{ key: 'what_happened', body_md: '8 enrolled.', numbers: [{ text: '8', ref: 'r1:data.kpis.enrollments.current' }] }] }), ledger, { staleBefore: '2026-09-30T11:00:00.000Z' });
-    expect(v.flagged[0].reason).toMatch(/predates the latest sync — re-fetch/);
-    expect(verifyAnswer(base({ sections: [{ key: 'what_happened', body_md: '8 enrolled.', numbers: [{ text: '8', ref: 'r1:data.kpis.enrollments.current' }] }] }), ledger, { staleBefore: '2026-09-30T09:00:00.000Z' }).ok).toBe(true);
+  it('actions and findings are checked like sections', () => {
+    const a = base({ actions: [action({ expected_impact: 'about {r9:data.gone} more', why: 'CAC is 924 dollars' })], findings: [{ area: 'funnel', metric: 'applied', finding: '{r1:data.stages[0].count} applied', direction: 'flat', severity: 'info', evidence_refs: [] }] });
+    expect(verifyAnswer(a, ledger).flagged.map((f) => [f.kind, f.section])).toEqual([['digits', 'actions[0].why'], ['ref', 'actions[0].expected_impact']]);
   });
-  it('actions and findings: an impact with a number needs a ref; evidence refs must exist', () => {
-    const v = verifyAnswer(
-      base({
-        actions: [{ action: 'Move budget', why: 'x', owner: 'Jake', kind: 'spend', expected_impact_ref: '', expected_impact: 'about $2,000 CAD more initial cash', confidence: 'low', metric: 'initial_cash', check_date: '2026-10-07' }],
-        findings: [{ area: 'funnel', metric: 'consult_booked', finding: 'x', direction: 'down', severity: 'warning', evidence_refs: ['r1:data.stages[1].count', 'r2:data.missing'] }],
-      }),
-      ledger,
-    );
-    expect(v.flagged.map((f) => f.reason)).toEqual(['an expected impact with a number needs expected_impact_ref', 'no such evidence ref "r2:data.missing"']);
+  it('the repair message explains the token rule', () => {
+    expect(repairMessage(['x'])).toMatch(/write its ref in braces/);
   });
-  it('the repair message names each problem', () => {
-    expect(repairMessage(['a', 'b'])).toContain('- a\n- b');
+});
+
+describe('direction check (E): sign words vs the sign, judgment words vs the metric\'s polarity', () => {
+  const L = ledger;
+  it('sign words: "fell" needs a negative delta, "rose" a positive one; neutral wording never flags', () => {
+    expect(checkDirection('Paid CAC fell {r1:data.kpis.paidCacCents.pct}.', L)).toEqual([]);
+    expect(checkDirection('Paid CAC rose {r1:data.kpis.paidCacCents.pct}.', L).map((p) => p.reason)).toEqual(['direction: "rose" next to {r1:data.kpis.paidCacCents.pct} which is −50%']);
+    expect(checkDirection('Enrollments were up {r1:data.kpis.enrollments.pct}.', L)).toEqual([]);
+    expect(checkDirection('Enrollments dropped by {r1:data.kpis.enrollments.abs}.', L).map((p) => p.reason)).toEqual(['direction: "dropped" next to {r1:data.kpis.enrollments.abs} which is +4']);
+    expect(checkDirection('Enrollments changed by {r1:data.kpis.enrollments.pct}; CAC moved {r1:data.kpis.paidCacCents.pct}.', L)).toEqual([]);
+    expect(checkDirection('CAC is {r1:data.kpis.paidCacCents.current}, down from last week.', L)).toEqual([]); // not a delta
+  });
+  it('judgment words: a cost metric improves when it falls; a volume metric improves when it rises — both directions', () => {
+    expect(lowerIsBetter('paidCacCents')).toBe(true);
+    expect(lowerIsBetter('enrollments')).toBe(false);
+    expect(lowerIsBetter('nope')).toBeNull();
+    expect(checkDirection('Paid CAC improved {r1:data.kpis.paidCacCents.pct}.', L)).toEqual([]);
+    expect(checkDirection('Paid CAC worsened {r1:data.kpis.paidCacCents.pct}.', L).map((p) => p.reason)).toEqual(['"worsened" next to {r1:data.kpis.paidCacCents.pct} which is −50% — paidCacCents is lower-is-better']);
+    expect(checkDirection('Enrollments improved {r1:data.kpis.enrollments.pct}.', L)).toEqual([]);
+    expect(checkDirection('Enrollments got worse ({r1:data.kpis.enrollments.pct}).', L).map((p) => p.reason)).toEqual(['"worse" next to {r1:data.kpis.enrollments.pct} which is +100% — enrollments is higher-is-better']);
+    // A calculate delta over two different things has no metric: a judgment word is refused with the reason, a sign word is fine.
+    expect(checkDirection('The organic gap improved by {r7:data.results[0].value}.', L).map((p) => p.reason)).toEqual(['"improved" judges {r7:data.results[0].value} (+4) but that change belongs to no single metric — use a sign word (up / down) or cite the metric\'s own delta']);
+    expect(checkDirection('The organic gap grew by {r7:data.results[0].value}.', L)).toEqual([]);
+  });
+  it('the nearest word decides when a sentence cites two deltas; sentences split on . ! ? and line breaks', () => {
+    expect(checkDirection('Enrollments rose {r1:data.kpis.enrollments.pct} while CAC fell {r1:data.kpis.paidCacCents.pct}.', L)).toEqual([]);
+    expect(checkDirection('Enrollments fell {r1:data.kpis.enrollments.pct} while CAC rose {r1:data.kpis.paidCacCents.pct}.', L).length).toBe(2);
+    expect(sentences('CAC fell.\nEnrollments rose! Spend is $1.5 up? Yes').map((s) => s.text.trim())).toEqual(['CAC fell.', 'Enrollments rose!', 'Spend is $1.5 up?', 'Yes']);
+    expect(checkDirection('CAC fell {r1:data.kpis.paidCacCents.pct}.\nEnrollments fell {r1:data.kpis.enrollments.pct}.', L).length).toBe(1);
+  });
+  it('after the repair, verifyAnswer flags the sentence and renderAnswer marks it [check direction]; unresolved tokens read [no source]; raw digits [unverified]', () => {
+    const a = base({ sections: [sec('what_happened', 'Paid CAC rose {r1:data.kpis.paidCacCents.pct} to {r1:data.kpis.paidCacCents.current}. We saw 8 wins. {r9:data.nope} applied.')] });
+    const v = verifyAnswer(a, ledger);
+    expect(v.flagged.map((f) => f.kind)).toEqual(['ref', 'digits', 'direction']);
+    const r = renderAnswer(a, ledger, v.flagged);
+    expect(r.sections[0].body_md).toBe(`[check direction] Paid CAC rose 50% to $924.42 CAD. We saw [unverified: 8] wins. ${NO_SOURCE} applied.`);
+    expect(r.headline).toBe('Enrollments doubled to 8 last week.');
   });
 });

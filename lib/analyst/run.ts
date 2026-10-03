@@ -8,8 +8,10 @@
  *      Unfinished, refused or cut-off assistant turns are never stored.
  *   2. The prefix is frozen (contract, brief, tools); everything volatile is in
  *      the user turn. drop_block is always set; a dropped block is logged.
- *   3. A number is shown only with a ref (lib/analyst/verify.ts); one repair
- *      turn, then flagged numbers are shown marked, never silently.
+ *   3. A number is shown only by ref: the model writes {r2:data.…} tokens and the
+ *      server renders them (lib/analyst/render.ts); the verifier (verify.ts)
+ *      checks the refs, raw digits and direction words — one repair turn, then
+ *      what is still wrong is shown marked, never silently.
  *   4. Stale data is decided by the server: the notice is the first event; a
  *      spend action on stale data is repaired, then stripped with a reason.
  *   5. The run is not the connection: progress is stored on the turn; Stop is
@@ -24,6 +26,7 @@ import { noteAnthropicOutcome } from '../anthropic/incident';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, type Answer } from './schema';
 import { Ledger } from './ledger';
 import { repairMessage, verifyAnswer, type Flag } from './verify';
+import { renderAnswer, type RenderedAnswer } from './render';
 import { formatUsd, priceUsage, shouldPause, usageTotals, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { COMPACTION_INSTRUCTIONS } from './prompts';
@@ -37,7 +40,7 @@ export type AnalystEvent =
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
   | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
-  | { type: 'answer'; answer: Answer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
+  | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean }
   | { type: 'continue' }
   | { type: 'needs_confirmation'; reason: string; spentUsd: number }
@@ -86,6 +89,8 @@ export interface RunDeps {
 export interface TurnOutcome {
   status: 'done' | 'failed' | 'stopped' | 'needs_confirmation' | 'continue';
   answer: Answer | null;
+  /** The rendered answer (null when there is none). */
+  rendered: RenderedAnswer | null;
   flagged: Flag[];
   usage: UsageTotals;
   costUsd: number;
@@ -196,7 +201,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     deps.onEvent?.(e);
   };
 
-  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, ...extra });
+  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, ...extra });
   let usage = emptyUsage();
   let costUsd = 0;
   let rounds = 0;
@@ -348,7 +353,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     // A final answer: parse → structure → verify → (one repair) → accept, flagged if it must be.
     const { answer, problem } = answerFromMessage(message, answerMode);
     const structural = answer ? checkStructure(answer) : problem;
-    let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore }) : null;
+    let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore, question: turn.question }) : null;
     const spendOnStale = answer && deps.freshness.stale ? answer.actions.filter((a) => a.kind === 'spend').length : 0;
     const problems: string[] = [];
     if (structural) problems.push(structural);
@@ -375,14 +380,16 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     if (spendOnStale) {
       strippedSpendActions = spendOnStale;
       accepted = { ...answer, actions: answer.actions.filter((a) => a.kind !== 'spend') };
-      accepted.sections = [...accepted.sections, { key: accepted.sections.some((s) => s.key === 'data_health') ? 'data_health' : accepted.sections[accepted.sections.length - 1]?.key ?? 'what_happened', body_md: `_${strippedSpendActions} spend recommendation${strippedSpendActions === 1 ? '' : 's'} removed: ${deps.freshness.line}. Re-run after the sync completes._`, numbers: [] }];
-      verification = verifyAnswer(accepted, ledger, { staleBefore: deps.staleBefore });
+      accepted.sections = [...accepted.sections, { key: accepted.sections.some((s) => s.key === 'data_health') ? 'data_health' : accepted.sections[accepted.sections.length - 1]?.key ?? 'what_happened', body_md: `_${strippedSpendActions} spend recommendation${strippedSpendActions === 1 ? '' : 's'} removed: ${deps.freshness.line}. Re-run after the sync completes._` }];
+      verification = verifyAnswer(accepted, ledger, { staleBefore: deps.staleBefore, question: turn.question });
     }
     const flagged = verification?.flagged ?? [];
-    await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, flagged, repaired: repairs > 0, strippedSpendActions } }]);
+    // The owner reads the RENDERED answer: every ref token printed by the server from the ledger; flags marked in place.
+    const rendered = renderAnswer(accepted, ledger, flagged);
+    await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, rendered, flagged, repaired: repairs > 0, strippedSpendActions } }]);
     await store.updateTurn(turnId, { status: 'done', finishedAt: new Date(), usage: usage as unknown as Record<string, number>, costUsd, rounds });
     await store.updateThread(threadId, { lastTurnAt: new Date(), ...(thread.title ? {} : { title: turn.question.slice(0, 80) }) });
-    await emit({ type: 'answer', answer: accepted, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
+    await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
     await emit({ type: 'usage', usage, costUsd, model, rounds, estimated: false });
     await noteAnthropicOutcome({ ok: true });
     // Item 6: proposals become `proposed` notes for the owner to approve; never silently dropped, never auto-active.
@@ -416,7 +423,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
       }
     }
     await emit({ type: 'done', status: 'done' });
-    return outcome('done', { answer: accepted, flagged, compacted });
+    return outcome('done', { answer: accepted, rendered, flagged, compacted });
   }
   return fail(`no answer after ${maxRounds} rounds`, true);
 }

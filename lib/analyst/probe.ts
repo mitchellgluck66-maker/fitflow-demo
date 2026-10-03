@@ -46,8 +46,8 @@ export function formatProbeLine(l: ProbeLine): string {
 }
 
 const PROBE_QUESTION =
-  'Wiring probe. Make exactly THREE tool calls, one per turn, in this order: 1) get_notes; 2) get_data_health for the preset last_week; 3) get_metric with key "enrollments" for the preset last_week, mode period. Then answer with kind "answer" and ONE section "what_happened" that names the three tools you called and says the probe is complete — write NO numbers anywhere in the prose, headline "Probe complete." with ref "".';
-const FOLLOW_UP = 'Follow-up: without calling any tool, answer with kind "answer", one section "what_happened", saying in one sentence which three tools the previous turn called. No numbers. Headline "Follow-up complete." with ref "".';
+  'Wiring probe. Make exactly THREE tool calls, one per turn, in this order: 1) get_notes; 2) get_data_health for the preset last_week; 3) get_metric with key "enrollments" for the preset last_week, mode period. Then answer with kind "answer" and ONE section "what_happened" that names the three tools you called and says the probe is complete — write NO numbers anywhere in the prose, headline "Probe complete.".';
+const FOLLOW_UP = 'Follow-up: without calling any tool, answer with kind "answer", one section "what_happened", saying in one sentence which three tools the previous turn called. No numbers. Headline "Follow-up complete.".';
 
 interface Round {
   stopReason: string | null;

@@ -44,7 +44,7 @@ const scripted = (msgs: BetaMessage[]): AnalystClient => ({
   },
 });
 const m = (content: unknown[], stop = 'end_turn') => ({ id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content, stop_reason: stop, usage: { input_tokens: 100, output_tokens: 10 } }) as unknown as BetaMessage;
-const good = JSON.stringify({ kind: 'answer', headline: { text: 'Connected.', ref: '' }, sections: [{ key: 'what_happened', body_md: 'The connection works.', numbers: [] }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
+const good = JSON.stringify({ kind: 'answer', headline: { text: 'Connected.' }, sections: [{ key: 'what_happened', body_md: 'The connection works.' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
 
 beforeAll(async () => {
   await runMigrations();

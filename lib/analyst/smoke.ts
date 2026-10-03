@@ -247,7 +247,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       misses,
       estimateUsd: prepared.estimate.usd,
       seconds,
-      headline: out.answer?.headline.text ?? null,
+      headline: out.rendered?.headline ?? null,
       flagged: out.flagged.length,
       repairs,
       sections: out.answer?.sections.map((s) => s.key) ?? [],

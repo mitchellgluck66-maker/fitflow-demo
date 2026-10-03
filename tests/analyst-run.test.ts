@@ -32,8 +32,8 @@ const text = (t: string) => ({ type: 'text', text: t, citations: null }) as unkn
 const answerJson = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
     kind: 'answer',
-    headline: { text: 'Enrollments doubled to 8.', ref: 'r1:data.kpis.enrollments.current' },
-    sections: [{ key: 'what_happened', body_md: '**8** enrollments last week, up from 4.', numbers: [{ text: '8', ref: 'r1:data.kpis.enrollments.current' }, { text: '4', ref: 'r1:data.kpis.enrollments.previous' }] }],
+    headline: { text: 'Enrollments doubled to {r1:data.kpis.enrollments.current}.' },
+    sections: [{ key: 'what_happened', body_md: '**{r1:data.kpis.enrollments.current}** enrollments last week, up from {r1:data.kpis.enrollments.previous}.' }],
     actions: [],
     findings: [],
     note_proposals: [],
@@ -97,7 +97,8 @@ describe('the loop (memory store)', () => {
     const { thread, turn, events, deps } = await setup(store, { client });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(out.status).toBe('done');
-    expect(out.answer?.headline.text).toBe('Enrollments doubled to 8.');
+    expect(out.answer?.headline.text).toBe('Enrollments doubled to {r1:data.kpis.enrollments.current}.');
+    expect(out.rendered).toMatchObject({ headline: 'Enrollments doubled to 8.', sections: [{ key: 'what_happened', body_md: '**8** enrollments last week, up from 4.' }] }); // rendered by the server
     expect(out.flagged).toEqual([]);
     expect(out.rounds).toBe(1);
     expect(events.map((e) => e.type)).toEqual(['notice', 'status', 'round', 'tools', 'status', 'round', 'answer', 'usage', 'done']);
@@ -172,9 +173,9 @@ describe('the loop (memory store)', () => {
     expect(bare.events.some((e) => e.type === 'status' && e.text.startsWith('1 note proposal (not saved — no handler): 2026-09-30: Meta cap'))).toBe(true);
   });
 
-  it('a wrong number gets ONE repair turn; a correct second answer is accepted as repaired', async () => {
+  it('a raw digit gets ONE repair turn; a correct second answer is accepted as repaired', async () => {
     const store = new MemoryAnalystStore();
-    const bad = answerJson({ headline: { text: 'Enrollments hit 9.', ref: 'r1:data.kpis.enrollments.current' } });
+    const bad = answerJson({ headline: { text: 'Enrollments hit 9.' } });
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)]), msg([text(answerJson())])]);
     const { thread, turn, events, deps } = await setup(store, { client });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
@@ -186,17 +187,18 @@ describe('the loop (memory store)', () => {
     const roles = (await store.listMessages(thread.id)).map((r) => r.role);
     expect(roles).toEqual(['user', 'assistant', 'tool_results', 'assistant', 'user', 'assistant']);
     const repair = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };
-    expect(repair.content).toContain('"9" does not equal r1:data.kpis.enrollments.current = 8');
+    expect(repair.content).toContain('"9" is a number written as digits — write its ref in braces instead');
   });
 
-  it('still wrong after the repair: the answer is shown with the number flagged, never silently', async () => {
+  it('still wrong after the repair: the answer is shown with the digit and the unknown ref marked, never silently', async () => {
     const store = new MemoryAnalystStore();
-    const bad = answerJson({ headline: { text: 'Enrollments hit 9.', ref: 'r1:data.kpis.enrollments.current' } });
+    const bad = answerJson({ headline: { text: 'Enrollments hit 9, spend {r9:data.nope}.' } });
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)]), msg([text(bad)])]);
     const { thread, turn, deps } = await setup(store, { client });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(out.status).toBe('done');
-    expect(out.flagged.map((f) => f.reason)).toEqual(['"9" does not equal r1:data.kpis.enrollments.current = 8 (count)']);
+    expect(out.flagged.map((f) => [f.kind, f.text])).toEqual([['ref', '{r9:data.nope}'], ['digits', '9']]);
+    expect(out.rendered?.headline).toBe('Enrollments hit [unverified: 9], spend [no source].');
   });
 
   it('a refusal or a max_tokens stop stores nothing from the round and fails with a retryable error', async () => {
@@ -290,7 +292,7 @@ describe('the loop (memory store)', () => {
     expect(next.messages.length).toBe(1);
     // A second turn carries the block first and the compaction beta.
     const { turn: t2 } = await store.createTurn({ threadId: thread.id, clientTurnId: 'c2', question: 'And spend?', kind: 'ask', pageContext: null });
-    const client2 = fakeClient([msg([text(answerJson({ headline: { text: 'Fine.', ref: '' }, sections: [{ key: 'what_happened', body_md: 'Nothing new.', numbers: [] }] }))])]);
+    const client2 = fakeClient([msg([text(answerJson({ headline: { text: 'Fine.' }, sections: [{ key: 'what_happened', body_md: 'Nothing new.' }] }))])]);
     await runAnalystTurn(thread.id, t2.id, { ...deps, client: client2, userTurn: 'And spend?' });
     const r = client2.requests[0] as { messages: Array<{ content: unknown }>; betas: string[] };
     expect(r.betas).toContain(ANALYST_BETAS.compaction);
@@ -299,7 +301,7 @@ describe('the loop (memory store)', () => {
 
   it('a spend action on stale data is repaired, then stripped with a stated reason', async () => {
     const store = new MemoryAnalystStore();
-    const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', expected_impact_ref: '', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
+    const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(spend)]), msg([text(spend)])]);
     const { thread, turn, events, deps } = await setup(store, { client, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', sources: [] } });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
@@ -326,7 +328,8 @@ describe('the loop (memory store)', () => {
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([toolUse('tu2', SUBMIT_ANSWER_TOOL, JSON.parse(answerJson()))], 'tool_use')]);
     const out = await runAnalystTurn(thread.id, turn.id, { store, client, contract: 'C', brief: { text: 'B', hash: 'h' }, tools, freshness, userTurn: 'q', allowedUsd: 3 });
     expect(out.status).toBe('done');
-    expect(out.answer?.headline.text).toBe('Enrollments doubled to 8.');
+    expect(out.answer?.headline.text).toBe('Enrollments doubled to {r1:data.kpis.enrollments.current}.');
+    expect(out.rendered).toMatchObject({ headline: 'Enrollments doubled to 8.', sections: [{ key: 'what_happened', body_md: '**8** enrollments last week, up from 4.' }] }); // rendered by the server
     expect((client.requests[0] as { tools: Array<{ name: string }> }).tools.map((t) => t.name)).toEqual(['get_scorecard', SUBMIT_ANSWER_TOOL]);
   });
 
