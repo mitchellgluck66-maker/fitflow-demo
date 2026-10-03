@@ -3,7 +3,7 @@
  * token count, the per-run and monthly caps, the in-loop pause. All USD.
  */
 import { describe, it, expect } from 'vitest';
-import { calibrationFactor, capDecision, estimateRunUsd, shouldPause, RUN_ALLOWANCE } from '@/lib/analyst/cost';
+import { calibrationFactor, capDecision, estimateRunUsd, formatSplit, priceUsage, shouldPause, splitUsage, RUN_ALLOWANCE } from '@/lib/analyst/cost';
 
 describe('estimateRunUsd (item 5 model)', () => {
   it('prices the prefix as one cache write then reads; each round writes its tool tokens once and reads the earlier ones; thinking per round + the answer; uncalibrated with no history', () => {
@@ -49,5 +49,19 @@ describe('shouldPause', () => {
   it('pauses only when spent plus the next round exceeds what was allowed', () => {
     expect(shouldPause({ spentUsd: 2.5, nextRoundUsd: 0.4, allowedUsd: 3 })).toEqual({ pause: false, reason: null });
     expect(shouldPause({ spentUsd: 2.8, nextRoundUsd: 0.4, allowedUsd: 3 })).toEqual({ pause: true, reason: 'Spent $2.80 USD so far; the next round would take this run to about $3.20 USD, above the $3.00 USD allowed' });
+  });
+});
+
+describe('item D: the cost split', () => {
+  it('input · cache read · cache write · thinking · answer sum to the turn cost; answer is capped by output; approximate is labelled', () => {
+    const usage = { inputTokens: 4_000, outputTokens: 7_500, cacheReadTokens: 120_000, cacheWrite5mTokens: 6_000, cacheWrite1hTokens: 35_000 };
+    const s = splitUsage('claude-opus-5-5', usage, 3_100, false);
+    expect(s).toEqual({ inputUsd: 0.016, cacheReadUsd: 0.024, cacheWriteUsd: 0.31, thinkingUsd: 0.088, answerUsd: 0.062, answerTokens: 3_100, thinkingTokens: 4_400, approximate: false });
+    const total = s.inputUsd + s.cacheReadUsd + s.cacheWriteUsd + s.thinkingUsd + s.answerUsd;
+    expect(total).toBeCloseTo(priceUsage('claude-opus-5-5', { input_tokens: 4_000, output_tokens: 7_500, cache_read_input_tokens: 120_000, cache_creation: { ephemeral_5m_input_tokens: 6_000, ephemeral_1h_input_tokens: 35_000 } }), 6);
+    expect(formatSplit(s)).toBe('$0.50 USD = in $0.02 USD · cache read $0.02 USD · cache write $0.31 USD · thinking $0.09 USD · answer $0.06 USD (answer 3.1K tok measured · thinking 4.4K derived)');
+    expect(splitUsage('claude-opus-5-5', usage, 9_999, true)).toMatchObject({ answerTokens: 7_500, thinkingTokens: 0, approximate: true });
+    expect(formatSplit(splitUsage('claude-opus-5-5', usage, 100, true))).toContain('answer 100 tok ≈ from characters, count unavailable');
+    expect(() => splitUsage('claude-sonnet-5', usage, 1, false)).toThrow(/No price table/);
   });
 });

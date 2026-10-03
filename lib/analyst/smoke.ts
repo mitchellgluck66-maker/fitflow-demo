@@ -12,7 +12,7 @@ import { MemoryAnalystStore } from './store';
 import { costLine, type AnalystEvent, type TurnOutcome } from './run';
 import { SECTION_LABELS } from './schema';
 import type { RenderedAnswer } from './render';
-import { formatUsd } from './cost';
+import { formatSplit, formatUsd, type CostSplit } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient } from './api';
 import { analystWireHash, recordingClient, scrubFixture, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
@@ -38,6 +38,8 @@ export interface SmokeTurnLine {
   /** Item 10: one entry per API request — tool calls it made and its cache share. */
   rounds: Array<{ toolCalls: number; cacheSharePct: number; cacheReadTokens: number; cacheWriteTokens: number }>;
   costUsd: number;
+  /** Item D. */
+  split: CostSplit | null;
   /** The per-turn targets this turn missed (empty on a PASS). */
   misses: string[];
 }
@@ -205,7 +207,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
   let recordError: string | null = null;
   let threadModel: string | null = null;
   let threadEffort: string | null = null;
-  const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', costUsd: 0, estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, rounds: [], misses: [], ...extra });
+  const fail = (turn: number, question: string, error: string, extra: Partial<SmokeTurnLine> = {}) => lines.push({ status: 'FAIL', turn, question, tools: 0, cost: '$0.00 USD', costUsd: 0, split: null, estimateUsd: null, seconds: 0, headline: null, flagged: 0, repairs: 0, proposals: [], sections: [], error, cacheRead: 0, rounds: [], misses: [], ...extra });
   for (let i = 0; i < turns.length; i++) {
     const req = turns[i];
     const started = Date.now();
@@ -253,6 +255,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     }
     const seconds = Math.round((Date.now() - started) / 1000);
     if (out.rendered) opts.log?.(formatRenderedAnswer(out.rendered));
+    if (out.split) opts.log?.(`   cost split · ${formatSplit(out.split)}`);
     const turn = await store.getTurn(prepared.turn.id);
     spentUsd += out.costUsd;
     if (out.status === 'needs_confirmation') {
@@ -287,6 +290,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       tools,
       cost: costLine(out.usage, out.costUsd),
       costUsd: out.costUsd,
+      split: out.split,
       rounds,
       misses,
       estimateUsd: prepared.estimate.usd,

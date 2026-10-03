@@ -91,6 +91,49 @@ export function priceUsage(model: string, usage: UsageLike): number {
   return Math.round(usd * 1_000_000) / 1_000_000;
 }
 
+/**
+ * The cost split of a turn (design review 2026-10-03, D): input · cache read · cache write · thinking · answer.
+ * `answerTokens` = the visible output (the answer text and the tool calls), measured with count_tokens when a
+ * counter is given, else ≈ chars ÷ 3.5 and labelled so; thinking = the rest of `output_tokens` (derived).
+ * The five parts sum to the turn's cost (test).
+ */
+export interface CostSplit {
+  inputUsd: number;
+  cacheReadUsd: number;
+  cacheWriteUsd: number;
+  thinkingUsd: number;
+  answerUsd: number;
+  answerTokens: number;
+  thinkingTokens: number;
+  /** true when answerTokens was estimated from characters (no counter). */
+  approximate: boolean;
+}
+
+export function splitUsage(model: string, t: UsageTotals, answerTokens: number, approximate: boolean): CostSplit {
+  const p = ANALYST_PRICES[model];
+  if (!p) throw new UnknownModelPriceError(model);
+  const answer = Math.min(Math.max(0, Math.round(answerTokens)), t.outputTokens);
+  const thinking = t.outputTokens - answer;
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+  return {
+    inputUsd: r6((t.inputTokens * p.inputPerMTok) / 1e6),
+    cacheReadUsd: r6((t.cacheReadTokens * p.cacheReadPerMTok) / 1e6),
+    cacheWriteUsd: r6((t.cacheWrite5mTokens * p.cacheWrite5mPerMTok + t.cacheWrite1hTokens * p.cacheWrite1hPerMTok) / 1e6),
+    thinkingUsd: r6((thinking * p.outputPerMTok) / 1e6),
+    answerUsd: r6((answer * p.outputPerMTok) / 1e6),
+    answerTokens: answer,
+    thinkingTokens: thinking,
+    approximate,
+  };
+}
+
+/** "$0.31 USD = in $0.02 · cache read $0.05 · cache write $0.08 · thinking $0.09 · answer $0.07 (answer 3.1K tok measured · thinking 4.4K derived)" */
+export function formatSplit(s: CostSplit): string {
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+  const total = s.inputUsd + s.cacheReadUsd + s.cacheWriteUsd + s.thinkingUsd + s.answerUsd;
+  return `${formatUsd(total)} = in ${formatUsd(s.inputUsd)} · cache read ${formatUsd(s.cacheReadUsd)} · cache write ${formatUsd(s.cacheWriteUsd)} · thinking ${formatUsd(s.thinkingUsd)} · answer ${formatUsd(s.answerUsd)} (answer ${k(s.answerTokens)} tok ${s.approximate ? '≈ from characters, count unavailable' : 'measured'} · thinking ${k(s.thinkingTokens)} derived)`;
+}
+
 /** "$0.21 USD" — 2 decimals, or 4 when the amount is under a cent so a probe line never reads "$0.00". */
 export function formatUsd(usd: number): string {
   const digits = usd > 0 && usd < 0.01 ? 4 : 2;

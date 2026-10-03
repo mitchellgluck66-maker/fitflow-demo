@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatSmokeTurn, sectionsMiss, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine } from '@/lib/analyst/smoke';
 
-const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 35_700 }, { toolCalls: 1, cacheSharePct: 91.2, cacheReadTokens: 35_700, cacheWriteTokens: 2_000 }, { toolCalls: 0, cacheSharePct: 94.8, cacheReadTokens: 40_000, cacheWriteTokens: 1_000 }], misses: [], ...over });
+const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, split: null, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 35_700 }, { toolCalls: 1, cacheSharePct: 91.2, cacheReadTokens: 35_700, cacheWriteTokens: 2_000 }, { toolCalls: 0, cacheSharePct: 94.8, cacheReadTokens: 40_000, cacheWriteTokens: 1_000 }], misses: [], ...over });
 
 describe('item 7: one turn by default, the whole conversation with --full', () => {
   it('default = the first turn only; --full = every turn incl. the memory check and the explain', () => {

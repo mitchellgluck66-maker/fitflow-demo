@@ -146,7 +146,11 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
           const r = await saveProposals(texts, { threadId: thread!.id, turnId: turn.id });
           return { saved: r.saved.length, skipped: r.skipped };
         }));
-  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null, onProposals };
+  const keyForCount = config.key;
+  const countVisible = opts.countTokens
+    ? async (text: string) => opts.countTokens!(buildCountRequest({ model: thread!.model, system: ['', ''], tools: [], messages: [{ role: 'user', content: text }] }))
+    : async (text: string) => (await makeAnalystClient(keyForCount).beta.messages.countTokens({ model: thread!.model, messages: [{ role: 'user', content: text }] })).input_tokens;
+  const deps: RunDeps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness, staleBefore, userTurn, allowedUsd, onEvent: opts.onEvent, starterRows: starter ? starterRows(turn.id, req.question, userTurn, starter) : null, onProposals, countTokens: countVisible };
   return { ok: true, thread, turn, created, estimate, allowedUsd, deps };
 }
 

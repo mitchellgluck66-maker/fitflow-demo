@@ -27,7 +27,7 @@ import { ANSWER_SCHEMA, AnswerSchema, checkStructure, type Answer } from './sche
 import { Ledger } from './ledger';
 import { repairMessage, verifyAnswer, type Flag } from './verify';
 import { renderAnswer, type RenderedAnswer } from './render';
-import { formatUsd, priceUsage, shouldPause, usageTotals, type UsageLike, type UsageTotals } from './cost';
+import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { COMPACTION_INSTRUCTIONS } from './prompts';
 import { SNAPSHOT_PREFIX } from './starter';
@@ -41,7 +41,7 @@ export type AnalystEvent =
   | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
   | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
-  | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean }
+  | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean; /** Item D: input · cache read · cache write · thinking · answer. */ split: CostSplit }
   | { type: 'continue' }
   | { type: 'needs_confirmation'; reason: string; spentUsd: number }
   | { type: 'error'; message: string; retryable: boolean }
@@ -81,6 +81,8 @@ export interface RunDeps {
   /** Compact after a completed turn whose last request exceeded this many input tokens (default 300K). */
   compactAboveTokens?: number;
   retryDelayMs?: number;
+  /** Item D: measures the visible output (answer text + tool calls) for the cost split; without it the split is ≈ chars ÷ 3.5 and says so. */
+  countTokens?: (text: string) => Promise<number>;
   onEvent?: (e: AnalystEvent) => void;
   /** Item 6: where a finished answer's `note_proposals` go (the service saves them as proposed notes; the smoke keeps them in memory). */
   onProposals?: (texts: string[]) => Promise<{ saved: number; skipped: number }>;
@@ -97,6 +99,8 @@ export interface TurnOutcome {
   rounds: number;
   error: string | null;
   compacted: boolean;
+  /** Item D (done turns only). */
+  split: CostSplit | null;
 }
 
 const emptyUsage = (): UsageTotals => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0 });
@@ -201,7 +205,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     deps.onEvent?.(e);
   };
 
-  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, ...extra });
+  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, split: null, ...extra });
   let usage = emptyUsage();
   let costUsd = 0;
   let rounds = 0;
@@ -267,6 +271,8 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   };
 
   let lastInputTotal = 0;
+  // The visible output of this run's responses (a resumed turn's earlier rounds are not re-measured: the split then says ≈).
+  let visibleOutput = '';
   while (rounds < maxRounds) {
     const live = await store.getTurn(turnId);
     if (live?.stopRequested) {
@@ -307,6 +313,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     const u = message.usage as unknown as UsageLike;
     const t = usageTotals(u);
     usage = addUsage(usage, t);
+    visibleOutput += message.content.map((b) => (b.type === 'text' ? b.text : b.type === 'tool_use' ? JSON.stringify(b.input) : '')).join('');
     costUsd += priceUsage(model, u);
     lastInputTotal = t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
     const dropped = inputTransformations(message);
@@ -390,7 +397,20 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     await store.updateTurn(turnId, { status: 'done', finishedAt: new Date(), usage: usage as unknown as Record<string, number>, costUsd, rounds });
     await store.updateThread(threadId, { lastTurnAt: new Date(), ...(thread.title ? {} : { title: turn.question.slice(0, 80) }) });
     await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
-    await emit({ type: 'usage', usage, costUsd, model, rounds, estimated: false });
+    // Item D: the cost split. The visible output is measured (count_tokens) when a counter is given, else ≈ chars ÷ 3.5.
+    let answerTokens = Math.ceil(visibleOutput.length / 3.5);
+    let approximate = true;
+    if (deps.countTokens && visibleOutput.trim()) {
+      try {
+        answerTokens = await deps.countTokens(visibleOutput);
+        approximate = false;
+      } catch (err) {
+        await emit({ type: 'status', text: `Answer token count unavailable (${describeError(err)}); the split uses characters.` });
+      }
+    }
+    const split = splitUsage(model, usage, answerTokens, approximate);
+    await store.updateTurn(turnId, { usage: { ...(usage as unknown as Record<string, number>), answerTokens: split.answerTokens, thinkingTokens: split.thinkingTokens, inputUsd: split.inputUsd, cacheReadUsd: split.cacheReadUsd, cacheWriteUsd: split.cacheWriteUsd, thinkingUsd: split.thinkingUsd, answerUsd: split.answerUsd } });
+    await emit({ type: 'usage', usage, costUsd, model, rounds, estimated: false, split });
     await noteAnthropicOutcome({ ok: true });
     // Item 6: proposals become `proposed` notes for the owner to approve; never silently dropped, never auto-active.
     if (accepted.note_proposals.length > 0) {
@@ -423,7 +443,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
       }
     }
     await emit({ type: 'done', status: 'done' });
-    return outcome('done', { answer: accepted, rendered, flagged, compacted });
+    return outcome('done', { answer: accepted, rendered, flagged, compacted, split });
   }
   return fail(`no answer after ${maxRounds} rounds`, true);
 }

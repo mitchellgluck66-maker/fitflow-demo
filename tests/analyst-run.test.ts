@@ -102,6 +102,15 @@ describe('the loop (memory store)', () => {
     expect(out.flagged).toEqual([]);
     expect(out.rounds).toBe(1);
     expect(events.map((e) => e.type)).toEqual(['notice', 'status', 'round', 'tools', 'status', 'round', 'answer', 'usage', 'done']);
+    // Item D: the split (no counter here → ≈ from characters, labelled) sums to the cost and is stored on the turn.
+    const usageEvent = events.find((e) => e.type === 'usage') as { split: { approximate: boolean; answerTokens: number; inputUsd: number; cacheReadUsd: number; cacheWriteUsd: number; thinkingUsd: number; answerUsd: number } };
+    expect(usageEvent.split.approximate).toBe(true);
+    expect(usageEvent.split.answerTokens).toBeGreaterThan(0);
+    expect(usageEvent.split.inputUsd + usageEvent.split.cacheReadUsd + usageEvent.split.cacheWriteUsd + usageEvent.split.thinkingUsd + usageEvent.split.answerUsd).toBeCloseTo(out.costUsd, 6);
+    expect((await store.getTurn(turn.id))?.usage).toMatchObject({ answerTokens: usageEvent.split.answerTokens, answerUsd: usageEvent.split.answerUsd });
+    const counted = await setup(new MemoryAnalystStore(), { client: fakeClient(happyScript()), countTokens: async (text) => text.length });
+    const o2 = await runAnalystTurn(counted.thread.id, counted.turn.id, counted.deps);
+    expect(o2.split).toMatchObject({ approximate: false });
     expect(events.filter((e) => e.type === 'round')).toEqual([expect.objectContaining({ stopReason: 'tool_use', cacheWriteTokens: 900, cacheSharePct: 0, toolCalls: 1 }), expect.objectContaining({ stopReason: 'end_turn', cacheReadTokens: 900, cacheSharePct: 47.4, toolCalls: 0 })]);
     expect(events[3]).toMatchObject({ type: 'tools', calls: [{ ref: 'r1', name: 'get_scorecard', label: 'Reading the scorecard…' }] });
     // Cost: 1000 in + 900 cache write + 200 out, then 1000 in + 900 cache read + 200 out on Opus.
