@@ -9,8 +9,8 @@
  *   - thinking blocks are bound to the prefix; `drop_block` degrades a changed
  *     prefix instead of failing, and the response reports `input_transformations`;
  *   - `thinking.display: "updates"` returns progress updates as text;
- *   - prompt caching: tools → system → messages; ≤ 4 breakpoints; 5-minute TTL. Two sit on the
- *     system (contract, brief); two MOVE with the conversation (item 2, 2026-09-30): the last block
+ *   - prompt caching: tools → system → messages; ≤ 4 breakpoints. Two sit on the system (contract,
+ *     brief) with a 1-hour TTL on Opus (`prefixCacheControl`); two MOVE with the conversation (item 2, 2026-09-30): the last block
  *     of the final user message and of the previous user message, so every round reads the whole
  *     prior conversation from cache (the API looks back ≤ 20 blocks from a breakpoint for a hit;
  *     the previous one keeps the hit when a round adds more blocks than that). Thinking blocks never
@@ -49,6 +49,17 @@ export interface AnalystRequestInput {
 
 /** The betas every turn request carries, in a fixed order (order is part of the cache key). */
 export const TURN_BETAS = [ANALYST_BETAS.displayUpdates, ANALYST_BETAS.bindingControls] as const;
+
+/**
+ * The stable prefix (tools + contract + brief) is cached for ONE HOUR on Opus (design review 2026-10-03, C):
+ * an owner's next question later in the hour, the daily brief check and two smoke runs read it instead of
+ * re-writing it (write 2× vs 1.25×, read 0.05×; pays off whenever the next request lands 5–60 min after the
+ * last). Fable keeps 5 minutes: its reads are 0.025× and a keep-alive beats the 2× write there. The moving
+ * message breakpoints stay at 5 minutes — a longer TTL must come first, and it does (system before messages).
+ */
+export function prefixCacheControl(model: AnalystModel): { type: 'ephemeral'; ttl?: '1h' } {
+  return model === 'claude-fable-5-1' ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' };
+}
 
 /** The share of a response's input that was read from cache (0–100; 0 when the request was empty). */
 export function cacheSharePct(u: { inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): number {
@@ -102,8 +113,8 @@ export function buildTurnRequest(input: AnalystRequestInput, opts: { carriesComp
     max_tokens: input.maxTokens,
     betas,
     system: [
-      { type: 'text', text: input.system[0], cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: input.system[1], cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: input.system[0], cache_control: prefixCacheControl(input.model) },
+      { type: 'text', text: input.system[1], cache_control: prefixCacheControl(input.model) },
     ],
     tools,
     tool_choice: { type: 'auto' },
@@ -128,8 +139,8 @@ export function buildCompactionRequest(input: Omit<AnalystRequestInput, 'answerS
     max_tokens: 8192,
     betas: [...TURN_BETAS, ANALYST_BETAS.compaction],
     system: [
-      { type: 'text', text: input.system[0], cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: input.system[1], cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: input.system[0], cache_control: prefixCacheControl(input.model) },
+      { type: 'text', text: input.system[1], cache_control: prefixCacheControl(input.model) },
     ],
     tools,
     thinking: { type: 'adaptive', display: 'updates', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
@@ -145,8 +156,8 @@ export function buildCountRequest(input: Pick<AnalystRequestInput, 'model' | 'sy
     model: input.model,
     betas: [...TURN_BETAS],
     system: [
-      { type: 'text', text: input.system[0], cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: input.system[1], cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: input.system[0], cache_control: prefixCacheControl(input.model) },
+      { type: 'text', text: input.system[1], cache_control: prefixCacheControl(input.model) },
     ],
     tools: [...input.tools].sort((a, b) => a.name.localeCompare(b.name)),
     thinking: { type: 'adaptive', display: 'updates', block_binding: { prefix_mismatch_behavior: 'drop_block' } },

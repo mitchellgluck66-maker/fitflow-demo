@@ -40,12 +40,16 @@ describe('turn request', () => {
     expect(req).not.toHaveProperty('compaction'); // ↔ no compaction beta
     expect(buildTurnRequest(base, { carriesCompaction: true }).betas).toContain(ANALYST_BETAS.compaction);
   });
-  it('at most 4 cache breakpoints: two on system, two moving with the last user messages (item 2)', () => {
-    const sys = req.system as Array<{ cache_control?: unknown }>;
-    expect(sys.filter((s) => s.cache_control).length).toBe(2);
+  it('at most 4 cache breakpoints: two on system (1-hour TTL on Opus, 5-minute on Fable), two moving with the last user messages at 5 minutes', () => {
+    const sys = req.system as Array<{ cache_control?: { type: string; ttl?: string } }>;
+    expect(sys.map((s) => s.cache_control)).toEqual([{ type: 'ephemeral', ttl: '1h' }, { type: 'ephemeral', ttl: '1h' }]);
     const json = JSON.stringify(req);
     expect((json.match(/"cache_control"/g) ?? []).length).toBeLessThanOrEqual(4);
-    expect(json).not.toContain('"ttl"'); // 5-minute TTL only
+    expect((json.match(/"ttl":"1h"/g) ?? []).length).toBe(2); // never on a message breakpoint: a longer TTL must come first
+    const fable = buildTurnRequest({ ...base, model: 'claude-fable-5-1' });
+    expect((fable.system as Array<{ cache_control?: unknown }>).map((s) => s.cache_control)).toEqual([{ type: 'ephemeral' }, { type: 'ephemeral' }]);
+    expect(JSON.stringify(buildCompactionRequest({ model: base.model, effort: base.effort, system: base.system, tools, messages: base.messages }, 'x').system)).toContain('"ttl":"1h"');
+    expect(JSON.stringify(buildCountRequest({ model: base.model, system: base.system, tools, messages: base.messages }).system)).toContain('"ttl":"1h"');
     // One user message → one message breakpoint, on a text block made from the string content.
     expect(req.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } }] }]);
 

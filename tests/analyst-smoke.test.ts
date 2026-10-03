@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatSmokeTurn, sectionsMiss, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine } from '@/lib/analyst/smoke';
 
-const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0 }, { toolCalls: 1, cacheSharePct: 91.2 }, { toolCalls: 0, cacheSharePct: 94.8 }], misses: [], ...over });
+const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 35_700 }, { toolCalls: 1, cacheSharePct: 91.2, cacheReadTokens: 35_700, cacheWriteTokens: 2_000 }, { toolCalls: 0, cacheSharePct: 94.8, cacheReadTokens: 40_000, cacheWriteTokens: 1_000 }], misses: [], ...over });
 
 describe('item 7: one turn by default, the whole conversation with --full', () => {
   it('default = the first turn only; --full = every turn incl. the memory check and the explain', () => {
@@ -17,16 +17,16 @@ describe('item 7: one turn by default, the whole conversation with --full', () =
 
 describe('item 10: the per-turn line and the targets', () => {
   it('prints rounds, tools per round, cache per round, repairs, flagged, seconds, cost vs estimate; a FAIL names what it missed', () => {
-    expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened)\n     ↳ Enrollments doubled.');
+    expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened)\n     ↳ Enrollments doubled.');
     expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened) · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
-    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.50 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.50 USD');
-    expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
+    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.50 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.50 USD');
+    expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · prefix: — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
   });
-  it('per-turn targets: cost ≤ $0.40, cache ≥ 80% from round 2, estimate within ±25%; run-level: p50 ≤ 45 s, repairs < 20%, 0 flagged', () => {
+  it('per-turn targets: cost ≤ $0.50, cache ≥ 80% from round 2, estimate within ±25%; run-level: p50 ≤ 45 s, repairs < 20%, 0 flagged', async () => {
     expect(SMOKE_TARGETS).toEqual({ p50Seconds: 45, maxUsd: 0.5, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 });
     expect(turnMisses(line())).toEqual([]);
     expect(turnMisses(line({ costUsd: 0.62, estimateUsd: 0.4 }))).toEqual(['cost $0.62 USD > $0.50 USD', 'estimate +55% outside ±25%']);
-    expect(turnMisses(line({ rounds: [{ toolCalls: 3, cacheSharePct: 0 }, { toolCalls: 0, cacheSharePct: 71.4 }] }))).toEqual(['cache round 2 71.4% < 80%']);
+    expect(turnMisses(line({ rounds: [{ toolCalls: 3, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 1 }, { toolCalls: 0, cacheSharePct: 71.4, cacheReadTokens: 1, cacheWriteTokens: 0 }] }))).toEqual(['cache round 2 71.4% < 80%']);
     expect(turnMisses(line({ costUsd: 0.1, estimateUsd: 0.2 }))).toEqual(['estimate -50% outside ±25%']);
     expect(turnMisses(line({ estimateUsd: null }))).toEqual([]);
     expect(runMisses([line({ seconds: 30 }), line({ seconds: 44 }), line({ seconds: 90 })])).toEqual([]); // p50 = 44
@@ -35,6 +35,8 @@ describe('item 10: the per-turn line and the targets', () => {
     expect(runMisses([line(), line(), line(), line(), line({ repairs: 1 })])).toEqual(['repairs 1/5 turns ≥ 20%']); // 20% is not < 20%
     expect(runMisses([line(), line(), line(), line(), line(), line({ repairs: 1 })])).toEqual([]); // 1/6 = 16.7%
     expect(runMisses([line({ flagged: 1 })])).toEqual(['1 flagged number(s) > 0']);
+    const { prefixLine } = await import('@/lib/analyst/smoke');
+    expect(prefixLine([{ toolCalls: 1, cacheSharePct: 90, cacheReadTokens: 35_700, cacheWriteTokens: 300 }])).toBe('prefix: hit (35.7K read)');
     expect(runMisses([line({ seconds: 0, rounds: [] })])).toEqual([]); // a turn that never ran is not judged
   });
 });

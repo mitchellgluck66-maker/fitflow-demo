@@ -9,7 +9,7 @@ describe('estimateRunUsd (item 5 model)', () => {
   it('prices the prefix as one cache write then reads; each round writes its tool tokens once and reads the earlier ones; thinking per round + the answer; uncalibrated with no history', () => {
     const e = estimateRunUsd('claude-opus-5-5', 30_000, 'ask');
     const a = RUN_ALLOWANCE.ask;
-    let usd = (30_000 * 5) / 1e6;
+    let usd = (30_000 * 8) / 1e6; // the prefix is written at the 1-hour rate on Opus (item C)
     for (let r = 2; r <= a.rounds; r++) usd += (30_000 * 0.2 + (r - 2) * a.toolTokensPerRound * 0.2 + a.toolTokensPerRound * 5) / 1e6;
     usd += ((a.rounds * a.thinkingPerRound + a.answerTokens) * 20) / 1e6;
     expect(e.usd).toBe(Math.round(usd * 100) / 100);

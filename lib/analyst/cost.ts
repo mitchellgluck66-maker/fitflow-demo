@@ -165,7 +165,9 @@ export function estimateRunUsd(model: string, promptTokens: number, kind: RunKin
   const p = ANALYST_PRICES[model];
   if (!p) throw new UnknownModelPriceError(model);
   const a = RUN_ALLOWANCE[kind];
-  let usd = (promptTokens * p.cacheWrite5mPerMTok) / 1e6;
+  // The prefix is written once at its TTL's rate (1-hour on Opus — conservative: the first request of the hour pays it).
+  const prefixWrite = model === 'claude-fable-5-1' ? p.cacheWrite5mPerMTok : p.cacheWrite1hPerMTok;
+  let usd = (promptTokens * prefixWrite) / 1e6;
   for (let round = 2; round <= a.rounds; round++) {
     const earlierToolTokens = (round - 2) * a.toolTokensPerRound;
     usd += (promptTokens * p.cacheReadPerMTok + earlierToolTokens * p.cacheReadPerMTok + a.toolTokensPerRound * p.cacheWrite5mPerMTok) / 1e6;

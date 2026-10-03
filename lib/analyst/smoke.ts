@@ -36,7 +36,7 @@ export interface SmokeTurnLine {
   error: string | null;
   cacheRead: number;
   /** Item 10: one entry per API request — tool calls it made and its cache share. */
-  rounds: Array<{ toolCalls: number; cacheSharePct: number }>;
+  rounds: Array<{ toolCalls: number; cacheSharePct: number; cacheReadTokens: number; cacheWriteTokens: number }>;
   costUsd: number;
   /** The per-turn targets this turn missed (empty on a PASS). */
   misses: string[];
@@ -103,8 +103,16 @@ const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l
  *        ↳ headline
  *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.50 USD; cache round 2 71% < 80%
  */
+/** Item C: did the first request of the turn read the stable prefix from cache, or write it? */
+export function prefixLine(rounds: SmokeTurnLine['rounds']): string {
+  const first = rounds[0];
+  if (!first) return 'prefix: —';
+  const k = (n: number) => `${(n / 1000).toFixed(1)}K`;
+  return first.cacheReadTokens > 0 ? `prefix: hit (${k(first.cacheReadTokens)} read)` : `prefix: written (${k(first.cacheWriteTokens)}, 1h on Opus)`;
+}
+
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
@@ -206,7 +214,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     const rounds: SmokeTurnLine['rounds'] = [];
     const onEvent = (e: AnalystEvent) => {
       if (e.type === 'tools') tools += e.calls.length;
-      if (e.type === 'round') rounds.push({ toolCalls: e.toolCalls, cacheSharePct: e.cacheSharePct });
+      if (e.type === 'round') rounds.push({ toolCalls: e.toolCalls, cacheSharePct: e.cacheSharePct, cacheReadTokens: e.cacheReadTokens, cacheWriteTokens: e.cacheWriteTokens });
       if (e.type === 'usage') cacheRead = e.usage.cacheReadTokens;
       if (e.type === 'status') opts.log?.(`   turn ${i + 1} · ${e.text}`);
       if (e.type === 'tools') opts.log?.(`   turn ${i + 1} · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);
