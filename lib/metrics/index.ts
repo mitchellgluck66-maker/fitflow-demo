@@ -491,14 +491,12 @@ export interface DailySpend {
  *     remainder on the Sunday) and used ONLY for days of that week where the
  *     platform has no API row. Manual therefore stays the fallback for
  *     uncovered dates and never double-counts a day Meta already reports.
- *   - Demo rows follow their level: manual-level demo rows spread like manual;
- *     campaign/ad-level demo rows are API-grade (the demo seed fakes daily
- *     platform reporting).
+ *   - Sample rows follow their level like any other row (the demo seed writes
+ *     campaign-level daily rows, which are API-grade).
  */
+/** Manual-like = entered by hand (origin manual) or reported at manual level — the same rule for every tenant, sample rows included. */
 function isManualLike(s: SpendRow): boolean {
-  if (s.origin === 'manual') return true;
-  if (s.origin === 'demo') return !s.level || s.level === 'manual';
-  return false;
+  return s.origin === 'manual' || s.level === 'manual';
 }
 
 export function expandSpend(rawSpend: SpendRow[], money: MoneyContext = DEFAULT_MONEY_CONTEXT): DailySpend[] {
@@ -714,8 +712,6 @@ export function isApplicationFormSource(source: string | null | undefined): bool
  * dropped straight into a later stage, a non-form contact, or a moved-in opportunity does not.
  */
 export function applicationSignal(c: { source: string | null; contactCreatedOn: string | null; appliedOn: string | null; firstStageRole: string | null; movedIn?: boolean; origin?: string }): { signal: 'form' | 'none'; reason: string } {
-  // A fabricated row has no GHL form record to check; the sample-data banner already says it is not real.
-  if (c.origin === 'demo') return { signal: 'form', reason: 'sample data' };
   if (c.movedIn) return { signal: 'none', reason: 'opportunity moved in from another pipeline' };
   if (!isApplicationFormSource(c.source)) return { signal: 'none', reason: `contact source is ${c.source ? `"${c.source}"` : 'empty'}, not an application form` };
   const newContact = Boolean(c.contactCreatedOn && c.appliedOn && Math.abs(Date.parse(c.contactCreatedOn) - Date.parse(c.appliedOn)) <= 86_400_000);

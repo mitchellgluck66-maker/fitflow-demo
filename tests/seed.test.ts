@@ -29,8 +29,11 @@ describe('demo seed', () => {
     expect(first.aiReports).toBe(4);
     expect(first.emailDigests).toBeGreaterThanOrEqual(15);
 
-    expect(await count('payments', "where status = 'failed'")).toBe(2);
+    expect(await count('payments', "where status = 'failed'")).toBe(4); // 2 declined + 2 retried then paid (data-quality classes, 2026-10-03)
     expect(await count('payments', "where status = 'refunded'")).toBe(1);
+    expect(await count('payments', "where refunded_cents > 0 and refunded_cents < amount_cents")).toBe(1); // the partial refund
+    expect(await count('pipelines', "where is_tracked = false and origin = 'demo'")).toBe(1); // the Nurture pipeline (class X)
+    expect(await count('ghl_opportunities', "where origin = 'demo'")).toBe(first.contacts); // the mirror, as a real sync writes it
     expect(await count('payments', "where kind = 'subscription' and status = 'active'")).toBe(3);
     expect(await count('payments', "where contact_id is null and status = 'succeeded'")).toBe(2);
 

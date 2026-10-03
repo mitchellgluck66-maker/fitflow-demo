@@ -121,8 +121,10 @@ export function buildLedgerRows(params: {
 
   const push = (r: LedgerRowInput) => rows.set(r.key, r);
 
+  // Sample rows are excluded only where real rows exist (a mixed database); a pure demo tenant reconciles its own data.
+  const mixed = input.contacts.some((c) => c.origin !== 'demo');
   for (const c of input.contacts) {
-    if (c.origin === 'demo') {
+    if (mixed && c.origin === 'demo') {
       sampleExcluded += 1;
       continue;
     }
@@ -177,7 +179,7 @@ export function buildLedgerRows(params: {
   const contactRowById = new Map(input.contacts.map((c) => [c.id, c]));
   for (const o of params.scanned) {
     if (rows.has(o.id)) continue;
-    if (o.contact?.origin === 'demo') continue;
+    if (mixed && o.contact?.origin === 'demo') continue;
     const pipelineFollowed = followed.has(o.pipelineId);
     const mirrored = o.contact !== null;
     const held = o.contact?.heldOpportunityId === o.id;

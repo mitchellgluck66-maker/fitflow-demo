@@ -30,7 +30,7 @@ beforeAll(async () => {
     contact('returning', 'o-ret', '2025-03-01T18:00:00Z', { attributionSource: 'New Application 7.10' }), // contact from 2025, re-applied Aug 20
     contact('no-date', 'o-missing', '2026-08-15T18:00:00Z'),                      // opportunity row never stored
     contact('moved', 'o-moved', '2026-01-01T18:00:00Z'),                          // application moved in from "Old"
-    contact('demo', null, '2026-08-05T18:00:00Z', { origin: 'demo' }),            // fabricated sample row
+    contact('demo', null, '2026-08-05T18:00:00Z', { origin: 'demo' }),            // a sample row with no opportunity: no date, like any other (2026-10-03)
     // Audit P1 #2: a contact with no opportunity in ANY pipeline (created by the appointments sync) is not an applicant
     contact('walk-in', null, '2026-08-12T18:00:00Z', { pipelineId: null, stageId: null }),
     // Applied caveat: a form applicant whose opportunity was created in the UNFOLLOWED pipeline (never counted, but named)
@@ -63,14 +63,14 @@ describe('applied = the application (opportunity created in the followed pipelin
     expect(on['returning']).toBe('2026-08-20'); // contact created 2025 — the old rule never counted this application
     expect(on['no-date']).toBeNull(); // NOT 2026-08-15 (the contact date)
     expect(on['moved']).toBe('2026-09-05'); // entry into the followed pipeline, flagged
-    expect(on['demo']).toBe('2026-08-05');
-    expect(input.health).toMatchObject({ appliedFromMove: 1, applicantsWithoutDate: [{ name: 'no-date' }] });
+    expect(on['demo']).toBeNull(); // the contact date is never a stand-in, sample rows included
+    expect(input.health).toMatchObject({ appliedFromMove: 1 });
     // P1 #2: the no-pipeline contact is outside the funnel scope and NOT in the banner (it is not a followed-pipeline contact)
     expect(input.contacts.some((c) => c.name === 'walk-in')).toBe(false);
-    expect(input.health!.applicantsWithoutDate.map((a) => a.name)).toEqual(['no-date']);
+    expect(input.health!.applicantsWithoutDate.map((a) => a.name).sort()).toEqual(['demo', 'no-date']);
     const aug = computeFunnel(input, AUG).stages.find((s) => s.key === 'applied')!.count;
     const sep = computeFunnel(input, SEP).stages.find((s) => s.key === 'applied')!.count;
-    expect(aug).toBe(4); // new-aug, returning, demo, manual — no-date is not guessed in; elsewhere is in the unfollowed pipeline
+    expect(aug).toBe(3); // new-aug, returning, manual — no-date and the sample row without an opportunity are not guessed in; elsewhere is in the unfollowed pipeline
     expect(sep).toBe(1); // moved
   });
 
@@ -83,10 +83,10 @@ describe('applied = the application (opportunity created in the followed pipelin
     expect(sig['moved']).toEqual(['none', 'opportunity moved in from another pipeline']);
     expect(input.otherPipelineApplications).toEqual([{ contactId: expect.any(String), name: 'elsewhere', on: '2026-08-22', pipeline: 'Old', alsoInFollowed: false }]);
     const aug = computeAppliedCaveat(input, AUG);
-    expect(aug.applied).toBe(4);
+    expect(aug.applied).toBe(3);
     expect(aug.withoutFormRecord.map((w) => w.name)).toEqual(['manual']);
     expect(aug.otherPipelines.map((o) => o.name)).toEqual(['elsewhere']);
-    expect(aug.text).toBe('4 applied · 1 has no application form record · 1 applicant in other pipelines. Definition under review.');
+    expect(aug.text).toBe('3 applied · 1 has no application form record · 1 applicant in other pipelines. Definition under review.');
     const sep = computeAppliedCaveat(input, SEP);
     expect(sep.withoutFormRecord.map((w) => w.name)).toEqual(['moved']); // the moved-in opportunity is counted in September, flagged
     expect(sep.otherPipelines).toEqual([]);

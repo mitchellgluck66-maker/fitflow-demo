@@ -35,11 +35,13 @@ import {
   aiReports,
   emailDigests,
   syncRuns,
+  ghlOpportunities,
 } from './index';
 import { runMigrations } from './migrate';
 import { clearDemoData } from '../lib/provenance';
 import { suggestRole } from '../lib/ghl/roles';
 import { normalizeEmail, normalizePhone } from '../lib/ghl/transitions';
+import { setSetting, SETTING_KEYS } from '../lib/settings';
 import { runPaymentClassification } from '../lib/stripe/classify';
 import { runAttributionClassification } from '../lib/attribution/run';
 import { addDays, weekStart, weekEnd, resolvePreset, formatRangeLabel, todayInTimezone, localDate } from '../lib/dates';
@@ -77,6 +79,9 @@ const OWNERS = ['Miranda', 'Jake'];
 // ---------------------------------------------------------------------------
 
 const PIPELINE = { id: 'demo-pipeline-application', name: '[demo] Application Pipeline' };
+/** An UNFOLLOWED pipeline a few form applicants get routed to by mistake (data-quality class X). */
+const NURTURE = { id: 'demo-pipeline-nurture', name: '[demo] Nurture' };
+const NURTURE_STAGE = 'demo-stage-nurture-new';
 const STAGE = {
   applied: 'demo-stage-applied',
   consultBooked: 'demo-stage-consult-booked',
@@ -170,6 +175,8 @@ interface Lead {
   finalStage: string;
   status: 'open' | 'won' | 'lost';
   enrolledAt: Date | null;
+  /** Data-quality classes the demo tenant carries on purpose (design review 2026-10-03, F). */
+  dq: { manualLateEntry: boolean; otherPipeline: boolean; noDealValue: boolean };
 }
 
 function nameFor(i: number): { firstName: string; lastName: string } {
@@ -225,7 +232,66 @@ function generateLeads(now: Date, today: string): Lead[] {
     leads.push(lead);
     i += 1;
   }
+  applyDataQualityClasses(leads, now, today);
   return leads;
+}
+
+/**
+ * The demo tenant carries every known data-quality class, deterministically, so replays and the acceptance
+ * tests exercise real failures (design review 2026-10-03, F):
+ *   - manual entries into a late stage (class C): a non-form contact whose first observed stage is past Applied;
+ *   - a form applicant routed to the unfollowed Nurture pipeline (class X);
+ *   - new clients with no deal value (the partial-data rule on LTV:CAC);
+ *   - consult attendance recorded for < 90 % of one past week (the show rate is withheld there);
+ *   - CAD + USD payments, a full and a partial refund, a failed charge retried and later paid (payments, below);
+ *   - a maturing week: `history_complete_since` sits inside the seeded window (settings, below).
+ */
+function applyDataQualityClasses(leads: Lead[], now: Date, today: string): void {
+  // Class C — every 23rd lead that got past Applied: entered by hand at its first later stage.
+  for (const l of leads) {
+    if (l.i % 23 === 7 && l.path.length >= 2 && l.path[0].stageId === STAGE.applied) {
+      l.path = l.path.slice(1);
+      l.appliedAt = l.path[0].at;
+      l.def = { ...l.def, source: 'Manual', utmSource: null, utmMedium: null, campaign: null };
+      l.dq.manualLateEntry = true;
+    }
+  }
+  // Class X — three form applicants of the last two complete weeks sit in the Nurture pipeline, Applied only.
+  const twoWeeksAgo = addDays(weekStart(today), -14);
+  const lastTwoWeeks = leads.filter((l) => localDate(l.appliedAt, TZ) >= twoWeeksAgo && localDate(l.appliedAt, TZ) < weekStart(today) && !l.dq.manualLateEntry);
+  let x = 0;
+  for (const [n, l] of lastTwoWeeks.entries()) {
+    if (x >= 3) break;
+    if (n % 4 === 1) {
+      l.path = [l.path[0]];
+      l.appts = [];
+      l.finalStage = STAGE.applied;
+      l.status = 'open';
+      l.enrolledAt = null;
+      l.dq.otherPipeline = true;
+      x += 1;
+    }
+  }
+  // Missing deal values — every 7th enrolled client (by index among enrollments) has none on the opportunity.
+  leads.filter((l) => l.enrolledAt).forEach((l, n) => {
+    if (n % 7 === 3) l.dq.noDealValue = true;
+  });
+  // Attendance coverage below 90 % — in the complete week three weeks back, a third of the consults that happened have no recorded outcome.
+  const w = addDays(weekStart(today), -21);
+  const wEnd = weekEnd(w);
+  for (const l of leads) {
+    for (const a of l.appts) {
+      if (a.type !== 'Consult' || a.at.getTime() > now.getTime()) continue;
+      const d = localDate(a.at, TZ);
+      if (d >= w && d <= wEnd && (a.status === 'showed' || a.status === 'noshow') && l.i % 3 === 0) a.status = 'confirmed';
+    }
+  }
+}
+
+/** The week whose consult attendance is deliberately under-recorded (for the tests). */
+export function demoUnderRecordedWeek(today: string): { start: string; end: string } {
+  const w = addDays(weekStart(today), -21);
+  return { start: w, end: weekEnd(w) };
 }
 
 function buildJourney(i: number, appliedAt: Date, def: SourceDef, now: Date, opts: { forceApplied?: boolean } = {}): Lead {
@@ -246,6 +312,7 @@ function buildJourney(i: number, appliedAt: Date, def: SourceDef, now: Date, opt
     finalStage: STAGE.applied,
     status: 'open',
     enrolledAt: null,
+    dq: { manualLateEntry: false, otherPipeline: false, noDealValue: false },
   };
   if (opts.forceApplied) return lead;
 
@@ -430,7 +497,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
   const prov = { source: 'demo', origin: 'demo', syncedAt: now, backfilled: false } as const;
 
   // ---- Pipeline + stages ---------------------------------------------------
-  await db.insert(pipelines).values({ ...PIPELINE, position: 0, isTracked: true, ...prov });
+  await db.insert(pipelines).values([{ ...PIPELINE, position: 0, isTracked: true, ...prov }, { ...NURTURE, position: 1, isTracked: false, ...prov }]);
   const roleOf = new Map<string, SemanticRole | null>();
   const stageRows = Object.values(STAGE).map((id, i) => {
     const suggestion = suggestRole(STAGE_NAMES[id]);
@@ -448,19 +515,25 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
       ...prov,
     };
   });
-  await db.insert(stages).values(stageRows);
+  await db.insert(stages).values([...stageRows, { id: NURTURE_STAGE, pipelineId: NURTURE.id, name: 'New Lead', position: 0, semanticRole: null, roleSource: 'unmapped', roleConfidence: 0, suggestedRole: null, ...prov }]);
 
   // ---- Leads ---------------------------------------------------------------
   const leads = generateLeads(now, today);
+  const pipelineOf = (l: Lead) => (l.dq.otherPipeline ? NURTURE.id : PIPELINE.id);
+  const stageOf = (l: Lead) => (l.dq.otherPipeline ? NURTURE_STAGE : l.finalStage);
+  const valueOf = (l: Lead) => (l.dq.noDealValue ? 0 : l.finalStage === STAGE.enrolled ? 299_900 : l.path.length > 2 ? 299_900 : 0);
+  /** The contact source as the application forms write it ("Fit Physician Application (Facebook)") — a manual entry says so. */
+  const sourceOf = (l: Lead) => (l.dq.manualLateEntry ? 'Manual' : `Fit Physician Application (${l.def.source})`);
   const contactRows = leads.map((l) => ({
     id: `demo-contact-${l.i}`,
     ghlContactId: `demo-contact-${l.i}`,
     ghlOpportunityId: `demo-opp-${l.i}`,
-    pipelineId: PIPELINE.id,
-    stageId: l.finalStage,
+    pipelineId: pipelineOf(l),
+    stageId: stageOf(l),
     opportunityStatus: l.status,
     opportunityName: `${l.firstName} ${l.lastName}`,
-    monetaryValueCents: l.finalStage === STAGE.enrolled ? 299_900 : l.path.length > 2 ? 299_900 : 0,
+    opportunityCreatedAt: l.appliedAt,
+    monetaryValueCents: valueOf(l),
     lastStageChangeAt: l.path[l.path.length - 1].at,
     firstName: l.firstName,
     lastName: l.lastName,
@@ -468,7 +541,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     phone: l.phone,
     emailNormalized: normalizeEmail(l.email),
     phoneNormalized: normalizePhone(l.phone),
-    attributionSource: l.def.source,
+    attributionSource: sourceOf(l),
     utmSource: l.def.utmSource,
     utmMedium: l.def.utmMedium,
     utmCampaign: l.def.campaign,
@@ -476,22 +549,39 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     entryFunnel: 'Application 7.10',
     ownerName: l.owner,
     tags: ['demo', l.def.source.toLowerCase()],
-    ghlCreatedAt: l.appliedAt,
+    ghlCreatedAt: l.dq.manualLateEntry ? new Date(l.appliedAt.getTime() - 30 * DAY) : l.appliedAt,
     ghlUpdatedAt: l.path[l.path.length - 1].at,
     ...prov,
   }));
   await chunkInsert(contactRows, (c) => db.insert(contacts).values(c));
+
+  // ---- The opportunity mirror, as a real sync writes it (the engine dates Applied from here) ----
+  const oppRows = leads.map((l) => ({
+    id: `demo-opp-${l.i}`,
+    ghlContactId: `demo-contact-${l.i}`,
+    contactId: `demo-contact-${l.i}`,
+    pipelineId: pipelineOf(l),
+    stageId: stageOf(l),
+    status: l.status,
+    name: `${l.firstName} ${l.lastName}`,
+    monetaryValueCents: valueOf(l),
+    ghlCreatedAt: l.appliedAt,
+    ghlUpdatedAt: l.path[l.path.length - 1].at,
+    lastStageChangeAt: l.path[l.path.length - 1].at,
+    ...prov,
+  }));
+  await chunkInsert(oppRows, (c) => db.insert(ghlOpportunities).values(c));
 
   // ---- Transitions ---------------------------------------------------------
   const transitionRows = leads.flatMap((l) =>
     l.path.map((step, s) => ({
       contactId: `demo-contact-${l.i}`,
       ghlOpportunityId: `demo-opp-${l.i}`,
-      pipelineId: PIPELINE.id,
+      pipelineId: pipelineOf(l),
       fromStageId: s === 0 ? null : l.path[s - 1].stageId,
-      toStageId: step.stageId,
+      toStageId: l.dq.otherPipeline ? NURTURE_STAGE : step.stageId,
       fromRole: s === 0 ? null : (roleOf.get(l.path[s - 1].stageId) ?? null),
-      toRole: roleOf.get(step.stageId) ?? null,
+      toRole: l.dq.otherPipeline ? null : (roleOf.get(step.stageId) ?? null),
       observedAt: step.at,
       previousObservedAt: s === 0 ? null : l.path[s - 1].at,
       kind: s === 0 ? 'initial' : 'diff',
@@ -598,6 +688,20 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     row.refundedCents = row.amountCents;
     row.description = `${row.description} (refunded)`;
   }
+  // A partial refund (the 6th enrollment): still cash, net of the refund.
+  if (enrolledLeads[5]) {
+    const row = paymentRows.find((p) => p.contactId === `demo-contact-${enrolledLeads[5].i}` && p.kind === 'charge')!;
+    row.refundedCents = 100_000;
+    row.description = `${row.description} (partly refunded)`;
+  }
+  // A failed charge retried and paid the next day (the 7th enrollment): the failures are excluded, the retry is the initial.
+  if (enrolledLeads[6]) {
+    const l = enrolledLeads[6];
+    const paid = paymentRows.find((p) => p.contactId === `demo-contact-${l.i}` && p.kind === 'charge')!;
+    const paidAt = paid.paidAt as Date;
+    paymentRows.push(payment(l, { status: 'failed', paidAt: null, failedAt: new Date(paidAt.getTime() - 1.2 * DAY), description: 'Fit Physician Coaching — card declined (retried)' }));
+    paymentRows.push(payment(l, { status: 'failed', paidAt: null, failedAt: new Date(paidAt.getTime() - 0.6 * DAY), description: 'Fit Physician Coaching — card declined (retried)' }));
+  }
   // Three active subscriptions on the most recent enrollments.
   for (const l of enrolledLeads.slice(-3)) {
     paymentRows.push(
@@ -643,6 +747,15 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
   await chunkInsert(paymentRows, (c) => db.insert(payments).values(c));
   await runPaymentClassification();
   await runAttributionClassification();
+
+  // ---- A maturing week (pure demo tenant only) ----------------------------
+  // Stage history is "complete" from six weeks back, so the trailing-8-week baseline always holds maturing weeks and
+  // the disclaimer never sunsets on the demo tenant. Never written where real rows exist: those are a tenant's own settings.
+  const [{ real }] = await db.select({ real: sql<number>`count(*)` }).from(contacts).where(sql`${contacts.origin} <> 'demo'`);
+  if (Number(real) === 0) {
+    await setSetting(SETTING_KEYS.historyCompleteSince, addDays(weekStart(today), -42));
+    await setSetting(SETTING_KEYS.disclaimerSunset, addDays(today, 120));
+  }
 
   // ---- AI reports (pre-generated, model 'demo') ------------------------------
   const generatedAt = new Date(now.getTime() - 6 * 3_600_000).toISOString();

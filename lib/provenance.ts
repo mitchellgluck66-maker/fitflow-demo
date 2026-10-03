@@ -3,7 +3,7 @@
  * The sample-data banner reads this; the Setup page's reset button uses it.
  */
 
-import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents } from '@/db';
+import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents, ghlOpportunities } from '@/db';
 import { desc, eq, like, sql } from 'drizzle-orm';
 
 export interface Provenance {
@@ -81,6 +81,7 @@ export async function clearDemoData(): Promise<{
   const p = await db.delete(payments).where(eq(payments.origin, 'demo')).returning({ id: payments.id });
   const t = await db.delete(stageTransitions).where(eq(stageTransitions.origin, 'demo')).returning({ id: stageTransitions.id });
   const a = await db.delete(appointments).where(eq(appointments.origin, 'demo')).returning({ id: appointments.id });
+  await db.delete(ghlOpportunities).where(eq(ghlOpportunities.origin, 'demo'));
   const c = await db.delete(contacts).where(eq(contacts.origin, 'demo')).returning({ id: contacts.id });
   const s = await db.delete(adSpend).where(eq(adSpend.origin, 'demo')).returning({ id: adSpend.id });
   await db.delete(stageSnapshots).where(eq(stageSnapshots.origin, 'demo'));

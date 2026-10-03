@@ -165,8 +165,6 @@ export async function loadMetricsInput(
   }
   const health: InputHealth = { applicantsWithoutDate: [], appliedFromMove: 0 };
   const appliedDate = (c: (typeof contactRows)[number]): string | null => {
-    if (c.origin === "demo")
-      return localDate(c.ghlCreatedAt ?? c.createdAt, tz); // fabricated sample rows have no applications
     const opp = c.ghlOpportunityId;
     const moved = opp ? movedIn.get(opp) : undefined;
     if (moved) {

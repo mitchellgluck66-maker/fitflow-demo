@@ -29,8 +29,9 @@ beforeAll(async () => {
     lastName: 'Doe',
     email: 'jane@example.com',
     attributionSource: 'Facebook',
-    // Noon ET yesterday — unambiguous local date.
+    // Noon ET yesterday — unambiguous local date. The application is dated by the opportunity, as a real sync writes it.
     ghlCreatedAt: new Date(`${YESTERDAY}T16:00:00Z`),
+    opportunityCreatedAt: new Date(`${YESTERDAY}T16:00:00Z`),
     ...prov,
   });
 });

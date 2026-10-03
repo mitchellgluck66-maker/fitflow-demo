@@ -36,8 +36,9 @@ describe('applicationSignal', () => {
     expect(applicationSignal({ ...base, source: 'Manual entry' })).toEqual({ signal: 'none', reason: 'contact source is "Manual entry", not an application form' });
     expect(applicationSignal({ ...base, source: null }).reason).toBe('contact source is empty, not an application form');
   });
-  it('a sample-data row is never flagged: there is no GHL record to check and the banner already labels it', () => {
-    expect(applicationSignal({ ...base, source: 'Facebook', origin: 'demo' })).toEqual({ signal: 'form', reason: 'sample data' });
+  it('a sample-data row is classified like any other (2026-10-03: the demo tenant is a tenant; no sample-data branch in the engine)', () => {
+    expect(applicationSignal({ ...base, source: 'Facebook', origin: 'demo' })).toEqual({ signal: 'none', reason: 'contact source is "Facebook", not an application form' });
+    expect(applicationSignal({ ...base, source: 'Fit Physician Application (Facebook)', origin: 'demo' }).signal).toBe('form');
   });
   it('an opportunity moved in from another pipeline is not an application form record', () => {
     expect(applicationSignal({ ...base, movedIn: true })).toEqual({ signal: 'none', reason: 'opportunity moved in from another pipeline' });

@@ -82,8 +82,8 @@ describe('spend precedence (manual weekly fallback vs API daily rows)', () => {
     expect(computeSpend([manualMeta], { start: '2026-08-06', end: '2026-08-10' })).toBe(30_003);
   });
 
-  it('manual-level demo rows behave like manual rows', () => {
-    const spend: SpendRow[] = [{ ...manualMeta, origin: 'demo' }, { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 500, origin: 'meta' }];
+  it('manual-level rows behave like manual rows whatever their origin (a sample row at manual level too)', () => {
+    const spend: SpendRow[] = [{ ...manualMeta, origin: 'demo', level: 'manual' }, { date: '2026-08-03', platform: 'meta', currency: 'CAD' as const, spendCents: 500, origin: 'meta' }];
     expect(computeSpend(spend, R)).toBe(500 + 70_010 - 10_001);
   });
 
