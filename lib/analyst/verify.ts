@@ -4,9 +4,10 @@
  * renders them (render.ts). So the checks are:
  *
  *   1. every token resolves: a known ref, not withheld (null), not older than the newest sync marker;
- *   2. no raw digit run in prose outside a token, except the exempt contexts (ISO dates, times,
- *      month-day, years, durations, ordinals, markdown list numbers, refs) and a digit string the owner
- *      wrote verbatim in THIS question;
+ *   2. no raw digit run in the RENDERED text outside a rendered token span, except the exempt contexts
+ *      (ISO dates, times, month-day, years, durations, ordinals, markdown list numbers, refs) and a digit
+ *      string the owner wrote verbatim in THIS question — a formatted number ("$2,153.45 CAD", "1,234",
+ *      "41.6%", "2.1×", "$3.7k") is ONE unit and a flag carries its position, so the mark goes exactly there;
  *   3. findings' evidence refs exist;
  *   4. direction words agree with the sign / polarity of the delta they sit next to (direction.ts).
  *
@@ -18,6 +19,8 @@
 import type { Ledger } from './ledger';
 import type { Answer } from './schema';
 import { checkDirection } from './direction';
+import { refTokens } from './refToken';
+import { renderWithSpans, type RenderedSpan } from './render';
 
 export type FlagKind = 'ref' | 'digits' | 'evidence' | 'direction';
 
@@ -27,6 +30,13 @@ export interface Flag {
   /** The token or digit run (or the sentence, for a direction flag) as it appears in the text. */
   text: string;
   reason: string;
+  /**
+   * Where the renderer marks it (item 3, 2026-10-06): a `digits` flag's offset in the RENDERED text (the
+   * scan runs on the rendered text with the rendered token spans excluded, so a flagged bare "2" can never
+   * land inside a rendered "$2,153.45"); a `direction` flag's offset of its sentence in the token-form text.
+   */
+  index?: number;
+  length?: number;
 }
 
 export interface Verification {
@@ -36,28 +46,8 @@ export interface Verification {
   verified: number;
 }
 
-/** `{<ref>}` or `{<ref>|hint}` — the ref exactly as a tool result gives it. */
-export const TOKEN = /\{(r\d+:data\.[^{}|\s]+)(?:\|(%|x|k))?\}/g;
-
-export interface RefToken {
-  text: string;
-  ref: string;
-  hint: '%' | 'x' | 'k' | null;
-  index: number;
-}
-
-export function refTokens(text: string): RefToken[] {
-  const out: RefToken[] = [];
-  const re = new RegExp(TOKEN.source, 'g');
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) out.push({ text: m[0], ref: m[1], hint: (m[2] as RefToken['hint']) ?? null, index: m.index });
-  return out;
-}
-
-/** The text with every token replaced by a word, so the digit scan and the exempt contexts see prose only. */
-export function withoutTokens(text: string): string {
-  return text.replace(new RegExp(TOKEN.source, 'g'), 'REF');
-}
+export { TOKEN, refTokens, withoutTokens } from './refToken';
+export type { RefToken } from './refToken';
 
 const MONTHS = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*$/i;
 const DURATION_AFTER = /^\s?(-|\s)?(day|days|week|weeks|wk|wks|month|months|mo|year|years|yr|hour|hours|h|hr|hrs|min|mins|minute|minutes|s|sec|seconds|st|nd|rd|th)\b/i;
@@ -149,6 +139,17 @@ export function suggest(ledger: Ledger, ref: string): string {
   return best.length ? ` — the index has ${best.map((x) => `{${x.r}}`).join(', ')}` : '';
 }
 
+const overlaps = (spans: RenderedSpan[], index: number, length: number) => spans.some((sp) => index < sp.end && index + length > sp.start);
+
+/**
+ * The digit runs of the RENDERED text that are neither a rendered token nor an exempt context — each with its
+ * offset in the rendered text. A number the model wrote next to a rendered one is found as its own whole unit.
+ */
+export function rawDigits(text: string, ledger: Ledger): Token[] {
+  const { text: rendered, spans } = renderWithSpans(text, ledger);
+  return tokens(rendered).filter((t) => !overlaps(spans, t.index, t.text.length) && !isExemptContext(rendered, t));
+}
+
 export interface VerifyOptions {
   /** ISO: a ref fetched before this is stale (the newest sync marker since the turn began). */
   staleBefore?: string | null;
@@ -184,15 +185,13 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
       else if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" predates the latest sync — re-fetch` });
       else verified += 1;
     }
-    // 2. No raw digits outside a token.
-    const prose = withoutTokens(text);
-    for (const t of tokens(prose)) {
-      if (isExemptContext(prose, t)) continue;
+    // 2. No raw digits outside a rendered token span — scanned on the rendered text, flagged by position.
+    for (const t of rawDigits(text, ledger)) {
       if (questionDigits.has(t.text.replace(/\s/g, ''))) continue;
-      flagged.push({ kind: 'digits', section, text: t.text, reason: `"${t.text}" is a number written as digits — write its ref in braces instead ({r2:data.<path>}); only dates, durations, ordinals and the owner's own figures may be digits` });
+      flagged.push({ kind: 'digits', section, text: t.text, index: t.index, length: t.text.length, reason: `"${t.text}" is a number written as digits — write its ref in braces instead ({r2:data.<path>}); only dates, durations, ordinals and the owner's own figures may be digits` });
     }
     // 4. Direction words agree with the delta they sit next to.
-    for (const d of checkDirection(text, ledger)) flagged.push({ kind: 'direction', section, text: d.sentence, reason: d.reason });
+    for (const d of checkDirection(text, ledger)) flagged.push({ kind: 'direction', section, text: d.sentence, index: d.index, length: d.sentence.length, reason: d.reason });
   }
   // 3. Evidence refs exist.
   for (const f of answer.findings) for (const ref of f.evidence_refs) if (!ledger.get(ref)) flagged.push({ kind: 'evidence', section: 'findings', text: f.finding, reason: `no such evidence ref "${ref}"` });

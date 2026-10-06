@@ -6,8 +6,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Ledger, ledgerEntries, unitForPath } from '@/lib/analyst/ledger';
-import { isExemptContext, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
-import { renderAnswer, renderText, NO_SOURCE } from '@/lib/analyst/render';
+import { isExemptContext, rawDigits, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
+import { renderAnswer, renderText, renderWithSpans, toRenderedIndex, NO_SOURCE } from '@/lib/analyst/render';
 import { checkDirection, lowerIsBetter, sentences } from '@/lib/analyst/direction';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, expectedSections, SECTION_KEYS, type Answer } from '@/lib/analyst/schema';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
@@ -18,7 +18,7 @@ ledger.add(
   'r1',
   {
     kpis: { enrollments: { current: 8, previous: 4, abs: 4, pct: 1 }, paidCacCents: { current: 92_442, previous: 184_884, abs: -92_442, pct: -0.5 }, roas: { current: 2.0871, previous: 0.94, abs: 1.1471, pct: 1.22 } },
-    marketing: { spendCents: 369_768, paidEnrollments: 4, ltvToCac: null },
+    marketing: { spendCents: 369_768, paidEnrollments: 4, ltvToCac: null, initialCents: 215_345 },
     showRates: [{ type: 'Consult', rate: 0.6123, showed: 6, noShow: 4 }],
     stages: [{ key: 'applied', count: 52 }, { key: 'consult_booked', count: 7, conversionFromPrevious: 0.1346 }],
     frequency: 2.37,
@@ -90,6 +90,42 @@ describe('tokens and rendering', () => {
     expect(renderText(text, ledger)).toBe(`CAC $924.42 CAD (down 50%) · ROAS 208.7% · 0.5× · ${NO_SOURCE}`);
     expect(withoutTokens(text)).toBe('CAC REF (down REF) · ROAS REF · REF · REF');
     expect(renderText('**{r1:data.kpis.enrollments.current}** enrollments; {r1:data.marketing.ltvToCac} LTV', ledger)).toBe(`**8** enrollments; ${NO_SOURCE} LTV`);
+  });
+});
+
+describe('formatted numbers are one unit; marks land by position (item 3, 2026-10-06)', () => {
+  it('the tokenizer takes "$2,153.45", "$2,153.45 CAD", "1,234", "41.6%", "2.1×", "$3.7k" whole', () => {
+    expect(tokens('we got $2,153.45 then $2,153.45 CAD and 1,234 or 41.6% or 2.1× or $3.7k').map((t) => t.text)).toEqual(['$2,153.45', '$2,153.45 CAD', '1,234', '41.6%', '2.1×', '$3.7k']);
+  });
+  it('the digit scan runs on the RENDERED text with the token spans excluded: a bare "2" next to a rendered "$2,153.45 CAD" is flagged alone, at its own offset', () => {
+    const text = 'Cash {r1:data.marketing.initialCents} and 2 more; CAC {r1:data.kpis.paidCacCents.current}.';
+    const { text: rendered, spans } = renderWithSpans(text, ledger);
+    expect(rendered).toBe('Cash $2,153.45 CAD and 2 more; CAC $924.42 CAD.');
+    expect(spans.map((s) => rendered.slice(s.start, s.end))).toEqual(['$2,153.45 CAD', '$924.42 CAD']);
+    expect(rawDigits(text, ledger).map((t) => [t.text, t.index])).toEqual([['2', rendered.indexOf(' 2 ') + 1]]);
+    const a = base({ sections: [sec('what_happened', text)] });
+    const v = verifyAnswer(a, ledger);
+    expect(v.flagged.map((f) => [f.kind, f.text, f.index, f.length])).toEqual([['digits', '2', rendered.indexOf(' 2 ') + 1, 1]]);
+    expect(renderAnswer(a, ledger, v.flagged).sections[0].body_md).toBe('Cash $2,153.45 CAD and [unverified: 2] more; CAC $924.42 CAD.');
+  });
+  it('each formatted raw number is wrapped as one unit, right to left, and a direction prefix lands at its sentence', () => {
+    const text = 'Spend was $2,153.45 CAD on 1,234 clicks at 41.6% (2.1×, $3.7k). CAC rose {r1:data.kpis.paidCacCents.pct} to {r1:data.kpis.paidCacCents.current}.';
+    const a = base({ sections: [sec('what_happened', text)] });
+    const v = verifyAnswer(a, ledger);
+    expect(v.flagged.map((f) => [f.kind, f.text])).toEqual([['digits', '$2,153.45 CAD'], ['digits', '1,234'], ['digits', '41.6%'], ['digits', '2.1×'], ['digits', '$3.7k'], ['direction', 'CAC rose {r1:data.kpis.paidCacCents.pct} to {r1:data.kpis.paidCacCents.current}.']]);
+    expect(renderAnswer(a, ledger, v.flagged).sections[0].body_md).toBe('Spend was [unverified: $2,153.45 CAD] on [unverified: 1,234] clicks at [unverified: 41.6%] ([unverified: 2.1×], [unverified: $3.7k]). [check direction] CAC rose 50% to $924.42 CAD.');
+    // The same digits inside a rendered value never mark: "2" and "1,234" written by the owner are exempt, the rendered ones untouched.
+    const own = verifyAnswer(base({ sections: [sec('why', 'You asked about 2 and 1,234: cash {r1:data.marketing.initialCents}.')] }), ledger, { question: 'what about 2 and 1,234?' });
+    expect(own.flagged).toEqual([]);
+  });
+  it('toRenderedIndex maps token-form offsets through the spans; a stored flag without a position falls back to its first occurrence outside a span', () => {
+    const text = 'A {r1:data.kpis.enrollments.current} B {r1:data.marketing.initialCents} Z';
+    const { text: rendered, spans } = renderWithSpans(text, ledger);
+    expect(rendered).toBe('A 8 B $2,153.45 CAD Z');
+    expect(toRenderedIndex(spans, text.indexOf('B'))).toBe(rendered.indexOf('B'));
+    expect(toRenderedIndex(spans, text.indexOf('Z'))).toBe(rendered.indexOf('Z'));
+    expect(toRenderedIndex(spans, text.indexOf('{r1:data.marketing') + 3)).toBe(rendered.indexOf('$2,153'));
+    expect(renderText('{r1:data.marketing.initialCents} and 2 more and 2 again', ledger, [{ kind: 'digits', section: 'x', text: '2', reason: 'r' }])).toBe('$2,153.45 CAD and [unverified: 2] more and 2 again');
   });
 });
 

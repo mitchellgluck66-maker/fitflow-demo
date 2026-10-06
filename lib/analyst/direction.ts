@@ -18,7 +18,7 @@
 
 import type { Ledger, LedgerEntry } from './ledger';
 import { glossaryEntry, GLOSSARY } from '../metrics/glossary';
-import { refTokens } from './verify';
+import { refTokens } from './refToken';
 
 const SIGN_DOWN = ['fell', 'fall', 'falls', 'falling', 'down', 'decreased', 'decrease', 'decreases', 'decreasing', 'dropped', 'drop', 'drops', 'dropping', 'lower', 'shrank', 'shrunk', 'shrinking', 'declined', 'decline', 'declines', 'declining', 'slipped', 'reduced'];
 const SIGN_UP = ['rose', 'rise', 'rises', 'rising', 'up', 'increased', 'increase', 'increases', 'increasing', 'grew', 'grow', 'grows', 'growing', 'higher', 'climbed', 'climb', 'climbs', 'climbing', 'jumped', 'gained'];
@@ -63,6 +63,8 @@ export function lowerIsBetter(metric: string | null): boolean | null {
 
 export interface DirectionProblem {
   sentence: string;
+  /** Offset of the (trimmed) sentence in the text it was found in — the renderer marks it by position. */
+  index: number;
   token: string;
   word: string;
   reason: string;
@@ -73,6 +75,7 @@ export function checkDirection(text: string, ledger: Ledger): DirectionProblem[]
   for (const s of sentences(text)) {
     const words = directionWords(s.text);
     if (words.length === 0) continue;
+    const index = s.index + (s.text.length - s.text.trimStart().length);
     for (const t of refTokens(s.text)) {
       const entry: LedgerEntry | undefined = ledger.get(t.ref);
       if (!entry || !entry.delta || entry.value === null || entry.value === 0) continue;
@@ -81,16 +84,16 @@ export function checkDirection(text: string, ledger: Ledger): DirectionProblem[]
       const shown = `${positive ? '+' : '−'}${Math.abs(entry.unit === 'ratio' ? Math.round(entry.value * 1000) / 10 : entry.value)}${entry.unit === 'ratio' ? '%' : ''}`;
       if (nearest.sense === 'down' || nearest.sense === 'up') {
         const wants = nearest.sense === 'up';
-        if (wants !== positive) out.push({ sentence: s.text.trim(), token: t.text, word: nearest.word, reason: `direction: "${nearest.word}" next to ${t.text} which is ${shown}` });
+        if (wants !== positive) out.push({ sentence: s.text.trim(), index, token: t.text, word: nearest.word, reason: `direction: "${nearest.word}" next to ${t.text} which is ${shown}` });
       } else {
         const lib = lowerIsBetter(entry.metric);
         if (lib === null) {
-          out.push({ sentence: s.text.trim(), token: t.text, word: nearest.word, reason: `"${nearest.word}" judges ${t.text} (${shown}) but that change belongs to no single metric — use a sign word (up / down) or cite the metric's own delta` });
+          out.push({ sentence: s.text.trim(), index, token: t.text, word: nearest.word, reason: `"${nearest.word}" judges ${t.text} (${shown}) but that change belongs to no single metric — use a sign word (up / down) or cite the metric's own delta` });
           continue;
         }
         const good = lib ? !positive : positive;
         const wantsGood = nearest.sense === 'good';
-        if (wantsGood !== good) out.push({ sentence: s.text.trim(), token: t.text, word: nearest.word, reason: `"${nearest.word}" next to ${t.text} which is ${shown} — ${entry.metric} is ${lib ? 'lower' : 'higher'}-is-better` });
+        if (wantsGood !== good) out.push({ sentence: s.text.trim(), index, token: t.text, word: nearest.word, reason: `"${nearest.word}" next to ${t.text} which is ${shown} — ${entry.metric} is ${lib ? 'lower' : 'higher'}-is-better` });
       }
     }
   }
