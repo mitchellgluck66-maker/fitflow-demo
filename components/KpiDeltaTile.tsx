@@ -9,7 +9,7 @@ import { RadialRing } from './RadialRing';
 import { KpiTrendPopover } from './KpiTrendPopover';
 import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
-import type { DataMaturity } from '@/lib/metrics/maturity';
+import { isMaturingMetric, type DataMaturity } from '@/lib/metrics/maturity';
 
 /**
  * KPI tile driven by an engine `Delta`. Same chrome as KPITile, plus a
@@ -34,7 +34,7 @@ type KpiDeltaTileProps = {
   /** 0..1 rate with a natural 0–100% frame — rendered as a radial ring instead of a sparkline. Never for counts/currency. */
   ring?: number | null;
   empty?: { title: string; description: string };
-  /** Maturing-data disclaimer state; the badge shows only when `maturing` is true AND it is active. */
+  /** Maturing-data disclaimer state. The badge follows the metric key (`trendMetric`) and the one list in lib/metrics/maturity.ts; `maturing` only overrides it. */
   maturity?: DataMaturity | null;
   maturing?: boolean;
   /**
@@ -122,7 +122,7 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
           <span className="text-[11.5px] font-medium uppercase tracking-[0.045em] truncate" style={{ color: 'var(--text-tertiary)' }}>
             {label}
           </span>
-          {maturing && <MaturingBadge maturity={maturity} compact className="shrink-0" />}
+          {(maturing ?? (trendMetric ? isMaturingMetric(trendMetric, maturity) : false)) && <MaturingBadge maturity={maturity} compact className="shrink-0" />}
           {partial && !empty && (
             <span className="inline-flex items-center h-[16px] px-1 rounded-[4px] text-[10px] font-semibold uppercase tracking-[0.04em] shrink-0" style={{ background: 'var(--warning-muted)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }} title={partial.note} data-testid="partial-badge">
               partial

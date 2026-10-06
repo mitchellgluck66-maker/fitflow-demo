@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import type { AppliedCaveat, InputHealth, MarketingMetrics, Revenue } from '@/lib/metrics';
+import type { AppliedCaveat, EnrollmentReconciliation, InputHealth, MarketingMetrics, Revenue } from '@/lib/metrics';
 import { formatCents } from '@/lib/metrics';
 
 /**
@@ -113,6 +113,37 @@ const NameList: React.FC<{ people: Array<{ contactId: string; name: string; titl
  * decided, every Applied number says how many rows have no application-form record and how many form applicants
  * landed in other pipelines — with the people one click away. Nothing is changed or hidden.
  */
+/** 1c (2026-10-06): GHL enrolled entries vs Stripe first payments — both shown, the gap named, whenever they differ. */
+export function enrollmentReconciliationWarnings(r: EnrollmentReconciliation | undefined | null): React.ReactNode[] {
+  if (!r || r.paidInStripe === null || (r.enrolledUnpaid.length === 0 && r.paidNotEnrolled.length === 0 && r.paidUnmatched === 0)) return [];
+  return [
+    <span key="enrollment-reconciliation">
+      <strong>
+        {r.enrolledInGhl} enrolled in GHL, {r.paidInStripe} {r.paidInStripe === 1 ? 'has' : 'have'} paid
+      </strong>
+      {' '}— a GHL "enrolled" entry is a stage move; a new client is a Stripe first payment.
+      {r.enrolledUnpaid.length > 0 && (
+        <>
+          {' '}
+          Not yet paid: <NameList people={r.enrolledUnpaid.map((p) => ({ contactId: p.contactId, name: p.name, title: 'entered Enrolled this period, no first payment on record' }))} />.
+        </>
+      )}
+      {r.paidNotEnrolled.length > 0 && (
+        <>
+          {' '}
+          Paid without an enrolled entry this period: <NameList people={r.paidNotEnrolled.map((p) => ({ contactId: p.contactId, name: p.name }))} />.
+        </>
+      )}
+      {r.paidUnmatched > 0 && (
+        <>
+          {' '}
+          {r.paidUnmatched} first payment{r.paidUnmatched === 1 ? '' : 's'} not matched to a contact.
+        </>
+      )}
+    </span>,
+  ];
+}
+
 export function appliedCaveatWarnings(c: AppliedCaveat | undefined | null): React.ReactNode[] {
   if (!c || (c.withoutFormRecord.length === 0 && c.otherPipelines.length === 0)) return [];
   return [

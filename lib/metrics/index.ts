@@ -746,6 +746,61 @@ export function computeAppliedCaveat(input: MetricsInput, range: Range, mode: Fu
   return { applied: ids.length, withoutFormRecord, otherPipelines, text };
 }
 
+/**
+ * "Awaiting Stripe" = no payment rows at all (the loader found none in or around the window). Until 2026-10-06 this
+ * tested `origin === 'stripe'`, a sample-data branch that made the demo tenant read as unconnected — the demo tenant
+ * is a tenant; its rows are labelled by the banner, not hidden from the engine.
+ */
+export function hasPaymentRows(input: Pick<MetricsInput, 'payments'>): boolean {
+  return input.payments.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-source check (2026-10-06, 1c): GHL "enrolled" entries vs Stripe first payments
+// ---------------------------------------------------------------------------
+
+export interface EnrollmentReconciliation {
+  /** Contacts who entered the enrolled stage in the range (a stage move). */
+  enrolledInGhl: number;
+  /** Stripe first payments in the range (null when Stripe is not connected). */
+  paidInStripe: number | null;
+  /** Entered Enrolled in the range with no initial payment on record in the range. */
+  enrolledUnpaid: Array<{ contactId: string; name: string }>;
+  /** Paid a first payment in the range without an enrolled entry in the range (matched contacts only). */
+  paidNotEnrolled: Array<{ contactId: string; name: string }>;
+  /** Initial payments the matcher could not tie to a contact. */
+  paidUnmatched: number;
+  /** "8 enrolled in GHL, 4 have paid · unpaid: A, B, C, D" — or why there is no comparison. */
+  text: string;
+  reason: string | null;
+}
+
+/**
+ * When GHL enrolled entries and Stripe first payments for the same period differ, show both and name the gap. A
+ * GHL "enrolled" entry is a stage move (and history-dependent); a new client is a first payment. PURE.
+ */
+export function computeEnrollmentReconciliation(raw: MetricsInput, range: Range): EnrollmentReconciliation {
+  const input = inReportingCurrency(raw);
+  const byId = new Map(input.contacts.map((c) => [c.id, c]));
+  const enrolledIds = membershipFor(input, range, 'period').enrolled;
+  const awaitingStripe = !hasPaymentRows(input);
+  if (awaitingStripe) {
+    return { enrolledInGhl: enrolledIds.length, paidInStripe: null, enrolledUnpaid: [], paidNotEnrolled: [], paidUnmatched: 0, text: `${enrolledIds.length} enrolled in GHL; Stripe not connected, so first payments cannot be compared`, reason: 'Stripe not connected' };
+  }
+  const paid = input.payments.filter((p) => p.paymentClass === 'initial' && p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded') && p.amountCents - p.refundedCents > 0 && inRange(p.on, range));
+  const paidIds = new Set(paid.map((p) => p.contactId).filter((id): id is string => Boolean(id)));
+  const paidUnmatched = paid.filter((p) => !p.contactId).length;
+  const name = (id: string) => byId.get(id)?.name ?? id;
+  const enrolledUnpaid = enrolledIds.filter((id) => !paidIds.has(id)).map((id) => ({ contactId: id, name: name(id) }));
+  const enrolledSet = new Set(enrolledIds);
+  const paidNotEnrolled = [...paidIds].filter((id) => !enrolledSet.has(id)).map((id) => ({ contactId: id, name: name(id) }));
+  const parts = [`${enrolledIds.length} enrolled in GHL, ${paid.length} ${paid.length === 1 ? 'has' : 'have'} paid`];
+  if (enrolledUnpaid.length) parts.push(`unpaid: ${enrolledUnpaid.map((p) => p.name).join(', ')}`);
+  if (paidNotEnrolled.length) parts.push(`paid without an enrolled entry this period: ${paidNotEnrolled.map((p) => p.name).join(', ')}`);
+  if (paidUnmatched) parts.push(`${paidUnmatched} first payment${paidUnmatched === 1 ? '' : 's'} not matched to a contact`);
+  return { enrolledInGhl: enrolledIds.length, paidInStripe: paid.length, enrolledUnpaid, paidNotEnrolled, paidUnmatched, text: parts.join(' · '), reason: null };
+}
+
 export interface Cac {
   spendCents: number;
   enrollments: number;
@@ -835,7 +890,7 @@ export function failedPayments(raw: MetricsInput, range: Range): { count: number
 export function computeRevenue(raw: MetricsInput, range: Range): Revenue {
   const input = inReportingCurrency(raw);
   const ccy = input.money.reporting;
-  const awaitingStripe = !input.payments.some((p) => p.origin === 'stripe');
+  const awaitingStripe = !hasPaymentRows(input);
   const rows = input.payments.filter((p) => p.kind !== 'subscription' && inRange(p.on, range));
   const cash = rows.filter((p) => p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded'));
 
@@ -1456,6 +1511,8 @@ export interface Scorecard {
   empty: boolean;
   /** The Applied caveat for the range (period mode; the cohort set is the same people). */
   appliedCaveat: AppliedCaveat;
+  /** GHL enrolled entries vs Stripe first payments for the range, with the names behind the gap (1c). */
+  enrollmentReconciliation: EnrollmentReconciliation;
 }
 
 export function computeScorecard(
@@ -1530,6 +1587,7 @@ export function computeScorecard(
     timeInStage: computeTimeInStage(input, range),
     empty: funnel.stages.every((s) => s.count === 0),
     appliedCaveat: computeAppliedCaveat(input, range),
+    enrollmentReconciliation: computeEnrollmentReconciliation(input, range),
   };
 }
 
@@ -1675,7 +1733,7 @@ export function computeCampaignTable(raw: MetricsInput, range: Range): CampaignR
 
   // Initial cash per campaign: initial-class payments in range whose matched
   // contact is tracked to the campaign (by the same normalised name join).
-  const awaitingStripe = !input.payments.some((p) => p.origin === 'stripe');
+  const awaitingStripe = !hasPaymentRows(input);
   for (const p of input.payments) {
     if (p.paymentClass !== 'initial' || !p.contactId || !inRange(p.on, range)) continue;
     const row = byName.get(normalizeCampaign(contactCampaign.get(p.contactId)));

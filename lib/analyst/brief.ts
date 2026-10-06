@@ -200,10 +200,10 @@ export function buildBrief(b: BriefInputs): Brief {
   lines.push('');
 
   lines.push('## Weekly KPIs since the first data (Sun–Sat weeks)');
-  lines.push('week | applied | consults booked | roadmaps booked | enrolled | initial cash | recurring cash | spend | Paid CAC | Blended CAC | ROAS | flags');
+  lines.push('week | applied | consults booked | roadmaps booked | enrolled (GHL stage entries) | paid (Stripe first payments) | initial cash | recurring cash | spend | Paid CAC | Blended CAC | ROAS | flags');
   for (const w of weeks) {
     const flags = [w.partial ? 'week to date' : null, w.maturing ? 'maturing' : null].filter(Boolean).join(', ') || '—';
-    lines.push(`${w.label} | ${w.applied} | ${w.consultsBooked} | ${w.roadmapsBooked} | ${w.enrolled} | ${money(w.initialCents, ccy)} | ${money(w.recurringCents, ccy)} | ${money(w.spendCents, ccy)} | ${money(w.paidCacCents, ccy)} | ${money(w.blendedCacCents, ccy)} | ${ratio(w.roas)} | ${flags}`);
+    lines.push(`${w.label} | ${w.applied} | ${w.consultsBooked} | ${w.roadmapsBooked} | ${w.enrolled} | ${w.newPayingClients} | ${money(w.initialCents, ccy)} | ${money(w.recurringCents, ccy)} | ${money(w.spendCents, ccy)} | ${money(w.paidCacCents, ccy)} | ${money(w.blendedCacCents, ccy)} | ${ratio(w.roas)} | ${flags}`);
   }
   lines.push('');
 

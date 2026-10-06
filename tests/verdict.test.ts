@@ -55,7 +55,7 @@ describe('computeWeekVerdict — the rule', () => {
     expect(v).toMatchObject({ verdict: 'normal', clients: 4, baselineClientsPerWeek: 4.25, ratioClients: 0.94 });
   });
   it('unavailable: Stripe not connected, fewer than 4 baseline weeks, or a zero baseline — each with its reason', () => {
-    const noStripe = computeWeekVerdict({ ...withWeek(4), payments: withWeek(4).payments.map((p) => ({ ...p, origin: 'demo' })) }, LAST, baseline);
+    const noStripe = computeWeekVerdict({ ...withWeek(4), payments: [] }, LAST, baseline);
     expect(noStripe).toMatchObject({ verdict: 'unavailable', reason: 'unavailable: Stripe is not connected — new clients are counted from first payments', clients: null });
     const short = cleanBaseline({ candidate: baseline.candidate.slice(-2), metric: 'initial_cash', today: '2026-10-06' });
     expect(computeWeekVerdict(withWeek(4), LAST, short)).toMatchObject({ verdict: 'unavailable', reason: 'unavailable: baseline needs 4 complete weeks; have 2 (Sep 13–26)', clients: 4 });

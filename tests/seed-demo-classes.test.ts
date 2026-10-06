@@ -125,3 +125,17 @@ describe('the demo tenant carries every data-quality class', () => {
     expect(input.contacts.every((c) => c.appliedOn !== null)).toBe(true); // dated from the opportunity mirror, like a real sync
   });
 });
+
+describe('1c on the demo tenant', () => {
+  it('some week has GHL enrolled entries without a first payment (objections, declined cards) — shown with names, never hidden', async () => {
+    const { computeEnrollmentReconciliation } = await import('@/lib/metrics');
+    const tz = await getTimezone();
+    const today = todayInTimezone(tz);
+    const input = await loadMetricsInput({ start: '2026-06-01', end: today, timezone: tz });
+    const r = computeEnrollmentReconciliation(input, { start: '2026-06-01', end: today });
+    expect(r.paidInStripe).not.toBeNull();
+    expect(r.enrolledInGhl).toBeGreaterThan(0);
+    expect(r.enrolledUnpaid.length + r.paidNotEnrolled.length).toBeGreaterThan(0);
+    expect(r.text).toMatch(/^\d+ enrolled in GHL, \d+ have paid/);
+  });
+});

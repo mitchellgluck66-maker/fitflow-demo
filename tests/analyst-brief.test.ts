@@ -62,7 +62,7 @@ describe('buildBrief (pure)', () => {
     // Aug 2–8: a applied, booked, roadmap, enrolled; $500 spend; $2,500 initial cash; Paid CAC $500.
     const aug2 = brief.weeks[0];
     expect(aug2).toMatchObject({ applied: 1, consultsBooked: 1, roadmapsBooked: 1, enrolled: 1, spendCents: 50_000, initialCents: 250_000, paidCacCents: 50_000 });
-    expect(brief.text).toContain('Aug 2–8 | 1 | 1 | 1 | 1 | $2,500 CAD | $0 CAD | $500 CAD | $500 CAD | $500 CAD | 5.00× | maturing');
+    expect(brief.text).toContain('Aug 2–8 | 1 | 1 | 1 | 1 | 1 | $2,500 CAD | $0 CAD | $500 CAD | $500 CAD | $500 CAD | 5.00× | maturing'); // enrolled | paid (Stripe first payments)
   });
 
   it('amendment 2: weeks before history_complete_since are maturing; the baselines say how many they include', () => {

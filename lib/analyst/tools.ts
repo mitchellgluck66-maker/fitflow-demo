@@ -299,6 +299,8 @@ const getScorecardTool = tool(
         sources: sc.sources.slice(0, 12).map((s) => ({ source: s.source, applied: s.counts.applied, consultBooked: s.counts.consult_booked, enrolled: s.counts.enrolled, appliedToEnrolled: s.appliedToEnrolled })),
         maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? `History-dependent metrics (${HISTORY_DEPENDENT_LABEL}) are maturing for this range or its comparison: a change in them is not a real change. Baselines for them exclude the weeks before ${res.maturity.historyCompleteSince}.` : null },
         appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.length, otherPipelines: sc.appliedCaveat.otherPipelines.length },
+        /** GHL enrolled entries vs Stripe first payments for the period (1c): when they differ, say both — "8 enrolled in GHL, 4 have paid" — and name the gap. */
+        enrollmentReconciliation: { ...sc.enrollmentReconciliation, enrolledUnpaid: sc.enrollmentReconciliation.enrolledUnpaid.map((p) => p.name), paidNotEnrolled: sc.enrollmentReconciliation.paidNotEnrolled.map((p) => p.name) },
         dataHealth: { applicantsWithoutDate: res.inputHealth?.applicantsWithoutDate.length ?? 0, appliedFromMove: res.inputHealth?.appliedFromMove ?? 0, unsupportedMoneyRows: res.money.unsupportedRows },
       },
     };

@@ -153,3 +153,32 @@ describe('no caller builds a baseline outside lib/metrics/baseline.ts', () => {
     expect(weekBuckets('2026-08-02', '2026-08-08').length).toBe(1);
   });
 });
+
+describe('1c — GHL enrolled entries vs Stripe first payments', () => {
+  it('last week: 8 entered Enrolled, 4 paid — both shown, the unpaid named; a paid contact with no enrolled entry is named too', async () => {
+    const { computeEnrollmentReconciliation } = await import('@/lib/metrics');
+    const r = computeEnrollmentReconciliation(INPUT, { start: '2026-09-27', end: '2026-10-03' });
+    expect(r).toMatchObject({ enrolledInGhl: 8, paidInStripe: 4, paidUnmatched: 0, reason: null });
+    expect(r.enrolledUnpaid.length).toBe(4);
+    expect(r.text).toMatch(/^8 enrolled in GHL, 4 have paid · unpaid: C\d+, C\d+, C\d+, C\d+$/);
+    // Aug 2–8: 0 enrolled entries, 6 first payments (the catch-up case from the other side)
+    const aug = computeEnrollmentReconciliation(INPUT, { start: '2026-08-02', end: '2026-08-08' });
+    expect(aug).toMatchObject({ enrolledInGhl: 0, paidInStripe: 6 });
+    expect(aug.paidNotEnrolled.length).toBe(6);
+    expect(aug.text).toContain('0 enrolled in GHL, 6 have paid · paid without an enrolled entry this period:');
+    // No Stripe → no comparison, the reason stated
+    const none = computeEnrollmentReconciliation({ ...INPUT, payments: [] }, { start: '2026-09-27', end: '2026-10-03' });
+    expect(none).toMatchObject({ enrolledInGhl: 8, paidInStripe: null, reason: 'Stripe not connected' });
+    // an unmatched first payment is counted, never silently dropped
+    const unmatched = computeEnrollmentReconciliation({ ...INPUT, payments: [...INPUT.payments, { ...INPUT.payments[0], id: 'u1', stripeId: 'ch_u1', contactId: null, on: '2026-09-30' }] }, { start: '2026-09-27', end: '2026-10-03' });
+    expect(unmatched).toMatchObject({ paidInStripe: 5, paidUnmatched: 1 });
+    expect(unmatched.text).toContain('1 first payment not matched to a contact');
+    // the scorecard carries it
+    expect(scorecardResultFor().scorecard.enrollmentReconciliation.text).toMatch(/^8 enrolled in GHL, 4 have paid/);
+  });
+});
+
+function scorecardResultFor() {
+  const range = rangeFromParams({ start: '2026-09-27', end: '2026-10-03' }, TODAY);
+  return { scorecard: computeScorecard(INPUT, range, null, null) };
+}

@@ -145,7 +145,8 @@ export async function getScorecard(params: {
     },
     revenue: computeRevenueSummary(input, range),
     // P1 #4: the badge also covers a comparison period or chip baseline that starts before complete history.
-    maturity: await getMaturity(range, today, [comparison.range, { start: baseline.start, end: baseline.end }]),
+    // P1 #4 + 2026-10-06: the badge covers the comparison period and the CLEAN chip baseline — an excluded week no longer taints it.
+    maturity: await getMaturity(range, today, [comparison.range, baselines.stageHistory.range]),
     money: moneyInfo(input, today),
   };
 }

@@ -13,7 +13,7 @@ import { ChartTooltip, ChartLegend } from '@/components/Chart';
 import { DateRangePicker } from '@/components/DateRangePicker';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
-import { DataHealthNotice, marketingWarnings, inputWarnings, appliedCaveatWarnings } from '@/components/DataHealth';
+import { DataHealthNotice, marketingWarnings, inputWarnings, appliedCaveatWarnings, enrollmentReconciliationWarnings } from '@/components/DataHealth';
 import { useScorecard } from '@/components/useScorecard';
 import { formatCents } from '@/lib/metrics';
 
@@ -99,13 +99,14 @@ function CommandCenter() {
 
       <PageBody className="space-y-5">
         <SampleDataBanner page="numbers" />
-        <DataHealthNotice items={[...appliedCaveatWarnings(scorecard.appliedCaveat), ...inputWarnings(data.inputHealth), ...marketingWarnings(marketing, scorecard.revenue)]} />
+        <DataHealthNotice items={[...appliedCaveatWarnings(scorecard.appliedCaveat), ...enrollmentReconciliationWarnings(scorecard.enrollmentReconciliation), ...inputWarnings(data.inputHealth), ...marketingWarnings(marketing, scorecard.revenue)]} />
 
         {/* ---- Row 1: Initial cash · Enrollments · Paid CAC · Blended CAC · ROAS ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 stagger">
           <KpiDeltaTile
             label="Initial cash collected"
             trendMetric="initial_cash"
+            maturity={data.maturity}
             trendRange={range}
             value={formatCents(scorecard.revenue.initialCents, ccy, { compact: true })}
             delta={scorecard.kpis.initialCents}
@@ -125,6 +126,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Enrollments"
             trendMetric="enrollments"
+            maturity={data.maturity}
             trendRange={range}
             value={String(scorecard.kpis.enrollments.current ?? 0)}
             delta={scorecard.kpis.enrollments}
@@ -137,6 +139,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Paid CAC"
             trendMetric="paid_cac"
+            maturity={data.maturity}
             trendRange={range}
             value={formatCents(marketing.paidCacCents, ccy)}
             delta={scorecard.kpis.paidCacCents}
@@ -161,6 +164,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="Blended CAC"
             trendMetric="blended_cac"
+            maturity={data.maturity}
             trendRange={range}
             value={formatCents(marketing.blendedCacCents, ccy)}
             delta={scorecard.kpis.blendedCacCents}
@@ -185,6 +189,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="ROAS"
             trendMetric="roas"
+            maturity={data.maturity}
             trendRange={range}
             value={marketing.roas !== null ? `${marketing.roas.toFixed(2)}×` : '—'}
             delta={scorecard.kpis.roas}
@@ -213,6 +218,7 @@ function CommandCenter() {
           <KpiDeltaTile
             label="LTV:CAC"
             trendMetric="ltv_cac"
+            maturity={data.maturity}
             trendRange={range}
             value={marketing.ltvToCac !== null ? `${marketing.ltvToCac.toFixed(1)}×` : '—'}
             delta={scorecard.kpis.ltvToCac}

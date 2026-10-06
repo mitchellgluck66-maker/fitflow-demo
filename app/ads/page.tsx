@@ -82,6 +82,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Spend"
               trendMetric="spend"
+              maturity={data.maturity}
               trendRange={range}
               value={formatCents(kpis.spendCents, ccy, { compact: true })}
               delta={computeDelta(kpis.spendCents, previousKpis?.spendCents ?? null, true)}
@@ -149,6 +150,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Paid CAC"
               trendMetric="paid_cac"
+              maturity={data.maturity}
               trendRange={range}
               value={formatCents(kpis.paidCacCents, ccy)}
               delta={computeDelta(kpis.paidCacCents, previousKpis?.paidCacCents ?? null, true)}
@@ -165,6 +167,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="Blended CAC"
               trendMetric="blended_cac"
+              maturity={data.maturity}
               trendRange={range}
               value={formatCents(kpis.blendedCacCents, ccy)}
               delta={computeDelta(kpis.blendedCacCents, previousKpis?.blendedCacCents ?? null, true)}
@@ -180,6 +183,7 @@ function AdsTab() {
             <KpiDeltaTile
               label="ROAS"
               trendMetric="roas"
+              maturity={data.maturity}
               trendRange={range}
               value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}×` : '—'}
               delta={computeDelta(kpis.roas, previousKpis?.roas ?? null)}
