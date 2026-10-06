@@ -2,6 +2,7 @@
  * Maturing-data disclaimer: badge conditions, sunset logic, metric scoping,
  * the AI caveat, and the scorecard/email wiring.
  */
+import { weekVerdictFor } from '@/lib/metrics/verdict';
 import { describe, it, expect } from 'vitest';
 import { computeMaturity, isMaturingMetric, isMaturingStage, dataCaveats, maturingCaveatText, HISTORY_DEPENDENT_METRICS, MATURITY_DEFAULTS } from '@/lib/metrics/maturity';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
@@ -141,6 +142,7 @@ function build(rangeKey: string, today: string): ScorecardResult {
     comparison,
     baseline: { start: '2026-06-21', end: '2026-08-15' },
     baselines: scorecardBaselines(INPUT, range, { today }),
+    verdict: weekVerdictFor(INPUT, range, scorecardBaselines(INPUT, range, { today }).sourceDated),
     scorecard: computeScorecard(INPUT, range, P, null),
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: computeTrend(INPUT, [{ ...range, label: range.resolvedLabel }]), comparison: null },

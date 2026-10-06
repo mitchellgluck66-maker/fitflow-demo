@@ -6,6 +6,7 @@
  * clean baseline must not see the catch-up week anywhere: chips, get_scorecard, the starter snapshot, the brief,
  * the insight input, the ask context.
  */
+import { weekVerdictFor } from '@/lib/metrics/verdict';
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +94,7 @@ describe('the catch-up week never reaches a baseline — every surface', () => {
     comparison,
     baseline: { start: '2026-08-02', end: '2026-09-26' },
     baselines,
+    verdict: weekVerdictFor(INPUT, range, baselines.sourceDated),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: [], comparison: null },

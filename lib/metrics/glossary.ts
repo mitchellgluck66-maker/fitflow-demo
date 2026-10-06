@@ -38,6 +38,8 @@ import {
   type Range,
 } from './index';
 import { HISTORY_DEPENDENT_METRICS, HISTORY_DEPENDENT_STAGES } from './maturity';
+import { trailingBaseline } from './baseline';
+import { weekVerdictFor, VERDICT_RULE } from './verdict';
 import { DISPLAY_METRICS } from './display';
 import { TREND_METRICS } from './trendMetrics';
 
@@ -694,9 +696,29 @@ const tileAlias = (key: string, stage: FunnelStageKey, label: string): GlossaryE
   return { ...base, key, label, definition: `${label}: ${base.definition}`, differsFrom: `Same definition as the funnel's ${base.label} stage in in-period mode; the funnel strip on the Command Center shows the cohort count, which can differ.`, worked: (input, range) => base.worked(input, range, 'period') };
 };
 
+/** The week verdict (lib/metrics/verdict.ts): decided by code from Stripe first payments and new-client cash vs the clean baseline. */
+const weekVerdictEntry: GlossaryEntry = {
+  key: 'week_verdict',
+  label: 'Week verdict',
+  group: 'money',
+  unit: 'count',
+  lowerIsBetter: false,
+  definition: `Strong / normal / weak for one Sun–Sat week, decided by the server — never by the Analyst — from Stripe-confirmed new paying clients (first payments) and new-client cash against the clean trailing 8-week baseline. Rule: ${VERDICT_RULE}. A GHL "enrolled" entry is a stage move; a new client is a first payment.`,
+  differsFrom: 'Enrollments count GHL stage entries, which are history-dependent and can be entered late or in bulk; the verdict counts money that arrived. The 8-week baseline for the verdict uses every complete week (Stripe dates itself).',
+  formula: 'rc = new paying clients ÷ baseline clients/week; r$ = new-client cash ÷ baseline cash/week; thresholds 1.3× (strong) and 0.7× (weak)',
+  maturing: false,
+  worked: (input, range) => {
+    const v = weekVerdictFor(input, range, trailingBaseline({ before: range.start, metric: 'initial_cash', today: range.end }));
+    const inputs = { clients: v.clients, cashCents: v.cashCents, baselineClientsPerWeek: v.baselineClientsPerWeek, baselineCashPerWeekCents: v.baselineCashPerWeekCents, ratioClients: v.ratioClients, ratioCash: v.ratioCash, weeksUsed: v.weeksUsed };
+    if (v.verdict === 'unavailable') return { value: null, text: v.reason, reason: v.reason.replace(/^unavailable: /, ''), currency: v.currency as Currency, inputs };
+    return { value: v.clients, text: v.reason, reason: null, currency: v.currency as Currency, inputs };
+  },
+};
+
 /** `maturing` follows HISTORY_DEPENDENT_METRICS (one list) — an entry's own flag can only add to it. */
 export const GLOSSARY: readonly GlossaryEntry[] = ([
   ...moneyEntries,
+  weekVerdictEntry,
   ...stageEntries,
   tileAlias('enrollments', 'enrolled', 'Enrollments'),
   tileAlias('consults_booked', 'consult_booked', 'Consults booked'),

@@ -12,6 +12,7 @@ import { MemoryAnalystStore } from './store';
 import { costLine, type AnalystEvent, type TurnOutcome } from './run';
 import { SECTION_LABELS } from './schema';
 import type { RenderedAnswer } from './render';
+import { SNAPSHOT_PREFIX } from './starter';
 import { formatSplit, formatUsd, type CostSplit } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient } from './api';
@@ -81,6 +82,34 @@ export interface SmokeTurn extends Omit<TurnRequest, 'clientTurnId'> {
   expectsProposal?: boolean;
   /** The sections this answer must carry (2026-10-01: cheaper must not mean thinner — turn 1 stays 5/5). */
   expectsSections?: readonly string[];
+  /** 1b (2026-10-06): the rendered headline must carry the SERVER's verdict word for last week (strong / normal / weak), never the model's own. */
+  expectsVerdict?: boolean;
+}
+
+/** The snapshot's verdict (r2) from a new thread's starter row, or null when the thread has none. */
+export function starterVerdict(rows: ReadonlyArray<{ apiJson: string }> | null | undefined): { verdict: string; reason: string } | null {
+  for (const r of rows ?? []) {
+    const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; text?: string }> };
+    for (const b of msg.content ?? []) {
+      if (b.type !== 'text' || !b.text?.startsWith(SNAPSHOT_PREFIX)) continue;
+      try {
+        const res = JSON.parse(b.text.slice(SNAPSHOT_PREFIX.length)) as { data?: { verdict?: { verdict: string; reason: string } } };
+        if (res.data?.verdict) return { verdict: res.data.verdict.verdict, reason: res.data.verdict.reason };
+      } catch {
+        /* not a tool result */
+      }
+    }
+  }
+  return null;
+}
+
+/** "headline verdict ≠ computed verdict: the headline says "strong", the server computed normal" — or null. */
+export function verdictMiss(expected: { verdict: string } | null, headline: string | null): string | null {
+  if (!expected || !headline) return null;
+  const words = (headline.match(/\b(strong|normal|weak)\b/gi) ?? []).map((w) => w.toLowerCase());
+  if (expected.verdict === 'unavailable') return words.length ? `headline verdict ≠ computed verdict: the headline says "${words[0]}", the server computed unavailable` : null;
+  if (!words.includes(expected.verdict)) return `headline verdict ≠ computed verdict: the headline says "${words[0] ?? '(no verdict word)'}", the server computed ${expected.verdict}`;
+  return null;
 }
 
 /** "sections 4/5: missing so_what" when a required section is absent; null when all are there (pure). */
@@ -91,7 +120,7 @@ export function sectionsMiss(expected: readonly string[] | undefined, got: strin
 }
 
 export const SMOKE_TURNS: SmokeTurn[] = [
-  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' }, expectsSections: ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'] },
+  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' }, expectsSections: ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'], expectsVerdict: true },
   { question: 'And how does that compare with the week before?', kind: 'ask' },
   { question: 'Which campaign had the best cost per client in that period, and should we move budget?', kind: 'ask' },
   { question: 'For the record: from October we cap Meta spend at $4,000 CAD a month. Does that change your advice?', kind: 'ask', expectsProposal: true },
@@ -223,7 +252,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     };
     // Nothing is written: proposals are collected here, not saved as notes.
     const proposals: string[] = [];
-    const { expectsProposal: _expects, expectsSections: _sections, ...turnReq } = req;
+    const { expectsProposal: _expects, expectsSections: _sections, expectsVerdict: _verdict, ...turnReq } = req;
     // The remaining budget is what this turn may spend: the cap decision refuses a turn whose estimate does not fit,
     // and the loop pauses between rounds (needs_confirmation) when spent + the next request would not — both read
     // here as the budget stop. Nothing is sent past the budget.
@@ -280,9 +309,12 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     }
     const memoryMiss = req.expectsProposal && proposals.length === 0;
     const thin = sectionsMiss(req.expectsSections, out.answer?.sections.map((s) => s.key) ?? []);
+    const computed = starterVerdict(prepared.deps.starterRows);
+    if (computed) opts.log?.(`   verdict (computed by the server): ${computed.verdict} — ${computed.reason}`);
+    const wrongVerdict = req.expectsVerdict ? verdictMiss(computed, out.rendered?.headline ?? null) : null;
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
-    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : []), ...(thin ? [thin] : [])];
+    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
     lines.push({
       status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,

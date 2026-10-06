@@ -271,6 +271,12 @@ const getScorecardTool = tool(
           initialCount: sc.revenue.initialCount,
           recurringCount: sc.revenue.recurringCount,
         },
+        /**
+         * The week's verdict, decided by the SERVER from Stripe first payments and new-client cash vs the clean baseline
+         * (lib/metrics/verdict.ts; thresholds in the glossary entry week_verdict). Use it and explain its inputs; never
+         * decide strong / normal / weak yourself. `unavailable` carries its reason.
+         */
+        verdict: { ...res.verdict, unit: 'number' },
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
         /**
