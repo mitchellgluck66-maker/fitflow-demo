@@ -41,6 +41,15 @@ describe('item 10: the per-turn line and the targets', () => {
     expect(runMisses([line({ flagged: 1 })])).toEqual(['1 flagged number(s) > 0']);
     const { prefixLine } = await import('@/lib/analyst/smoke');
     expect(prefixLine([{ toolCalls: 1, cacheSharePct: 90, cacheReadTokens: 35_700, cacheWriteTokens: 300 }])).toBe('prefix: hit (35.7K read)');
+    // Oct 4 item 5: the estimate names its prefix state; a disagreement with the measured first round is printed, not hidden.
+    const { prefixMismatchLine, measuredPrefix } = await import('@/lib/analyst/smoke');
+    expect(measuredPrefix([])).toBeNull();
+    expect(measuredPrefix(line().rounds)).toBe('cold');
+    expect(formatSmokeTurn(line({ estimatePrefix: 'cold' }))).toContain(' · $0.19 USD vs est $0.21 USD (cold) (-10%) · sections');
+    expect(formatSmokeTurn(line({ estimatePrefix: 'warm' }))).toContain(' vs est $0.21 USD (warm) (-10%) · prefix predicted warm, measured written · sections');
+    expect(prefixMismatchLine({ estimatePrefix: 'cold', rounds: [{ toolCalls: 1, cacheSharePct: 90, cacheReadTokens: 35_700, cacheWriteTokens: 300 }] })).toBe(' · prefix predicted cold, measured hit');
+    expect(prefixMismatchLine({ estimatePrefix: 'cold', rounds: line().rounds })).toBe('');
+    expect(prefixMismatchLine({ estimatePrefix: null, rounds: line().rounds })).toBe('');
     expect(runMisses([line({ seconds: 0, rounds: [] })])).toEqual([]); // a turn that never ran is not judged
   });
 });

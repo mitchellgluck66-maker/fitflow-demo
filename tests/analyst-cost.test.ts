@@ -3,7 +3,7 @@
  * token count, the per-run and monthly caps, the in-loop pause. All USD.
  */
 import { describe, it, expect } from 'vitest';
-import { calibrationFactor, capDecision, estimateRunUsd, formatSplit, priceUsage, shouldPause, splitUsage, RUN_ALLOWANCE } from '@/lib/analyst/cost';
+import { calibrationFactor, capDecision, estimateRunUsd, formatSplit, prefixState, prefixWarmWindowMs, priceUsage, shouldPause, splitUsage, RUN_ALLOWANCE } from '@/lib/analyst/cost';
 
 describe('estimateRunUsd (item 5 model)', () => {
   it('prices the prefix as one cache write then reads; each round writes its tool tokens once and reads the earlier ones; thinking per round + the answer; uncalibrated with no history', () => {
@@ -13,10 +13,32 @@ describe('estimateRunUsd (item 5 model)', () => {
     for (let r = 2; r <= a.rounds; r++) usd += (30_000 * 0.2 + (r - 2) * a.toolTokensPerRound * 0.2 + a.toolTokensPerRound * 5) / 1e6;
     usd += ((a.rounds * a.thinkingPerRound + a.answerTokens) * 20) / 1e6;
     expect(e.usd).toBe(Math.round(usd * 100) / 100);
-    expect(e.detail).toBe('~4 rounds · 30K prompt (cached after round 1) · 10K out · uncalibrated (no completed runs of this kind yet)');
-    expect(e).toMatchObject({ calibration: 1, calibrationRuns: 0, rounds: 4 });
+    expect(e.detail).toBe('~4 rounds · 30K prompt (prefix cold (1h write), cached after round 1) · 10K out · uncalibrated (no completed cold-prefix runs of this kind yet)');
+    expect(e).toMatchObject({ calibration: 1, calibrationRuns: 0, rounds: 4, prefix: 'cold' });
     expect(estimateRunUsd('claude-fable-5-1', 30_000, 'report').usd).toBeGreaterThan(e.usd);
     expect(() => estimateRunUsd('claude-sonnet-5', 1, 'ask')).toThrow(/No price table/);
+  });
+  it('Oct 4 item 5: a warm prefix is priced at the cache-read rate, a cold one at the 1h (Opus) / 5m (Fable) write rate; the detail says which', () => {
+    const cold = estimateRunUsd('claude-opus-5-5', 30_000, 'ask', undefined, 'cold');
+    const warm = estimateRunUsd('claude-opus-5-5', 30_000, 'ask', undefined, 'warm');
+    expect(cold.usd - warm.usd).toBeCloseTo((30_000 * (8 - 0.2)) / 1e6, 2); // the write vs the read of the same 30K prefix
+    expect(warm.detail).toContain('prefix warm (hit expected)');
+    expect(warm.detail).toContain('uncalibrated (no completed warm-prefix runs of this kind yet)');
+    expect(warm.prefix).toBe('warm');
+    expect(estimateRunUsd('claude-fable-5-1', 30_000, 'ask', undefined, 'cold').detail).toContain('prefix cold (5m write)');
+    expect(estimateRunUsd('claude-opus-5-5', 30_000, 'ask', { factor: 1.2, runs: 3 }, 'warm').detail).toContain('calibrated ×1.2 on 3 warm runs');
+  });
+  it('prefixState: warm only when a turn with the same brief finished inside the TTL minus a margin (55 min Opus, 4 min Fable); cold with no such turn', () => {
+    const now = new Date('2026-10-06T12:00:00.000Z');
+    const ago = (min: number) => new Date(now.getTime() - min * 60_000);
+    expect(prefixWarmWindowMs('claude-opus-5-5')).toBe(55 * 60_000);
+    expect(prefixWarmWindowMs('claude-fable-5-1')).toBe(4 * 60_000);
+    expect(() => prefixWarmWindowMs('claude-sonnet-5')).toThrow(/No price table/);
+    expect(prefixState({ model: 'claude-opus-5-5', lastFinishedAt: null, now })).toBe('cold');
+    expect(prefixState({ model: 'claude-opus-5-5', lastFinishedAt: ago(54), now })).toBe('warm');
+    expect(prefixState({ model: 'claude-opus-5-5', lastFinishedAt: ago(56), now })).toBe('cold');
+    expect(prefixState({ model: 'claude-fable-5-1', lastFinishedAt: ago(3), now })).toBe('warm');
+    expect(prefixState({ model: 'claude-fable-5-1', lastFinishedAt: ago(5), now })).toBe('cold');
   });
   it('the first live smoke (Opus, ~30K prompt) is within the $0.40 target when the rounds hold', () => {
     expect(estimateRunUsd('claude-opus-5-5', 30_000, 'ask').usd).toBeLessThanOrEqual(0.6); // conservative for the cap; the smoke measures the real figure
@@ -30,7 +52,7 @@ describe('estimateRunUsd (item 5 model)', () => {
     const base = estimateRunUsd('claude-opus-5-5', 30_000, 'ask');
     const cal = estimateRunUsd('claude-opus-5-5', 30_000, 'ask', { factor: 1.5, runs: 12 });
     expect(cal.usd).toBe(Math.round(base.usd * 1.5 * 100) / 100);
-    expect(cal.detail).toContain('calibrated ×1.5 on 12 runs');
+    expect(cal.detail).toContain('calibrated ×1.5 on 12 cold runs');
     expect(cal).toMatchObject({ calibration: 1.5, calibrationRuns: 12 });
   });
 });

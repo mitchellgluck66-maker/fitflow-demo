@@ -10,6 +10,7 @@
 import { executeTurn, prepareTurn, type TurnRequest } from './service';
 import { MemoryAnalystStore } from './store';
 import { costLine, countRepairs, type AnalystEvent, type RepairProblem, type TurnOutcome } from './run';
+import type { PrefixState } from './cost';
 import { SECTION_LABELS } from './schema';
 import type { RenderedAnswer } from './render';
 import { SNAPSHOT_PREFIX } from './starter';
@@ -26,6 +27,8 @@ export interface SmokeTurnLine {
   tools: number;
   cost: string;
   estimateUsd: number | null;
+  /** Oct 4 item 5: how the estimate priced the prefix; printed beside the measured hit / written. */
+  estimatePrefix?: PrefixState | null;
   seconds: number;
   headline: string | null;
   flagged: number;
@@ -132,10 +135,23 @@ export const SMOKE_TURNS: SmokeTurn[] = [
 const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l.costUsd >= l.estimateUsd ? '+' : ''}${Math.round(((l.costUsd - l.estimateUsd) / l.estimateUsd) * 100)}%)` : '');
 
 /**
- *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 1 (digits×2, ref×1) · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (-20%) · sections …
+ *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 1 (digits×2, ref×1) · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (cold) (-20%) · sections …
  *        ↳ headline
  *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.50 USD; cache round 2 71% < 80%
  */
+/** Oct 4 item 5: the prefix state the first round measured (hit = read from cache; written), or null before any round. */
+export function measuredPrefix(rounds: SmokeTurnLine['rounds']): PrefixState | null {
+  const first = rounds[0];
+  return first ? (first.cacheReadTokens > 0 ? 'warm' : 'cold') : null;
+}
+
+/** " · prefix predicted cold, measured hit" when the estimate's prefix state and the first round disagree; else "". Printed, never hidden. */
+export function prefixMismatchLine(l: Pick<SmokeTurnLine, 'estimatePrefix' | 'rounds'>): string {
+  const measured = measuredPrefix(l.rounds);
+  if (!l.estimatePrefix || !measured || measured === l.estimatePrefix) return '';
+  return ` · prefix predicted ${l.estimatePrefix}, measured ${measured === 'warm' ? 'hit' : 'written'}`;
+}
+
 /** Item C: did the first request of the turn read the stable prefix from cache, or write it? */
 export function prefixLine(rounds: SmokeTurnLine['rounds']): string {
   const first = rounds[0];
@@ -174,7 +190,7 @@ export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   
 }
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
@@ -310,7 +326,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);
     } catch (err) {
-      fail(i + 1, req.question, err instanceof Error ? err.message : String(err), { tools, estimateUsd: prepared.estimate.usd, seconds: Math.round((Date.now() - started) / 1000), cacheRead, rounds });
+      fail(i + 1, req.question, err instanceof Error ? err.message : String(err), { tools, estimateUsd: prepared.estimate.usd, estimatePrefix: prepared.estimate.prefix, seconds: Math.round((Date.now() - started) / 1000), cacheRead, rounds });
       break;
     }
     const seconds = Math.round((Date.now() - started) / 1000);
@@ -321,7 +337,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     spentUsd += out.costUsd;
     if (out.status === 'needs_confirmation') {
       budgetStopped = true;
-      fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, null), { tools, cost: costLine(out.usage, out.costUsd), costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, seconds, cacheRead, rounds });
+      fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, null), { tools, cost: costLine(out.usage, out.costUsd), costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, estimatePrefix: prepared.estimate.prefix, seconds, cacheRead, rounds });
       break;
     }
     // Counted from this turn's own events, so the line and the repair lines above it agree.
@@ -360,6 +376,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       rounds,
       misses,
       estimateUsd: prepared.estimate.usd,
+      estimatePrefix: prepared.estimate.prefix,
       seconds,
       headline: out.rendered?.headline ?? null,
       flagged: out.flagged.length,

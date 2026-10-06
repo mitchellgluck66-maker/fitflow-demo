@@ -101,14 +101,29 @@ describe('prepareTurn', () => {
     // A follow-up turn on the same thread gets NO second snapshot.
     const t3 = await prepareTurn({ threadId: ok.thread.id, clientTurnId: 't3', question: 'And the week before?', kind: 'ask' }, { store, client, countTokens: async () => 1 });
     expect(t3).toMatchObject({ ok: true, deps: { starterRows: null } });
-    // Item 5: the first turn stored its estimate beside its measured cost, and the next estimate of the kind is
-    // calibrated from it (actual ÷ estimate, clamped to ≥ 0.5 here because the fake stream cost almost nothing).
-    expect((await store.getTurn(ok.turn.id))?.estimateUsd).toBe(ok.estimate.usd);
-    expect(await store.recentEstimates('ask', 20)).toEqual([{ estimateUsd: ok.estimate.usd, costUsd: (await store.getTurn(ok.turn.id))!.costUsd }]);
+    // Item 5: the first turn stored its estimate beside its measured cost, with the prefix state it was priced under
+    // (cold: nothing had run) and the brief hash its request carried.
+    expect((await store.getTurn(ok.turn.id))).toMatchObject({ estimateUsd: ok.estimate.usd, prefix: 'cold', briefHash: ok.thread.briefHash });
+    expect(ok.estimate.prefix).toBe('cold');
+    expect(await store.recentEstimates('ask', 20, 'cold')).toEqual([{ estimateUsd: ok.estimate.usd, costUsd: (await store.getTurn(ok.turn.id))!.costUsd }]);
+    expect(await store.recentEstimates('ask', 20, 'warm')).toEqual([]);
+    // Oct 4 item 5: the follow-up right after it is priced WARM (the 1-hour entry is alive) and calibrates only from
+    // warm runs — none yet — so it is uncalibrated rather than scaled by the cold run's ratio.
     if (t3.ok) {
-      expect(t3.estimate.detail).toContain('calibrated ×0.5 on 1 run');
-      expect(t3.estimate.calibration).toBe(0.5);
+      expect(t3.estimate.prefix).toBe('warm');
+      expect(t3.estimate.detail).toContain('prefix warm (hit expected)');
+      expect(t3.estimate.detail).toContain('uncalibrated (no completed warm-prefix runs of this kind yet)');
+      expect(t3.estimate.calibration).toBe(1);
     }
+    // An hour later the entry has expired: cold again, and now calibrated from the cold run (actual ÷ estimate,
+    // clamped to ≥ 0.5 here because the fake stream cost almost nothing).
+    // (A new thread: t3 above is still the live turn of the first one.)
+    const later = await prepareTurn({ clientTurnId: 't4', question: 'Later?', kind: 'ask' }, { store, client, countTokens: async () => 1, now: new Date(Date.now() + 61 * 60_000) });
+    if (later.ok) {
+      expect(later.estimate.prefix).toBe('cold');
+      expect(later.estimate.detail).toContain('calibrated ×0.5 on 1 cold run');
+      expect(later.estimate.calibration).toBe(0.5);
+    } else throw new Error(`t4: ${JSON.stringify(later)}`);
     expect((await store.getTurn(ok.turn.id))?.costUsd).toBeCloseTo((500 * 4 + 100 * 20) / 1e6, 8);
     expect(await resumeTurn(ok.turn.id, { store, client })).toMatchObject({ ok: false, message: 'Turn is done' });
   });

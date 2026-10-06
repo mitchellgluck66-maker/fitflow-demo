@@ -14,6 +14,7 @@
 import { and, asc, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
 import { db, analystMessages, analystThreads, analystTurns } from '@/db';
 import type { AnalystModel, AnswerMode, Effort } from './config';
+import type { PrefixState } from './cost';
 
 export type MessageRole = 'user' | 'assistant' | 'tool_results' | 'compaction';
 export type TurnStatus = 'running' | 'done' | 'failed' | 'stopped' | 'needs_confirmation';
@@ -59,6 +60,10 @@ export interface TurnRow {
   costEstimated: boolean;
   /** The pre-run estimate in USD (null on turns from before migration 0019). */
   estimateUsd: number | null;
+  /** How the estimate priced the prefix (Oct 4 item 5; null before migration 0020). */
+  prefix: PrefixState | null;
+  /** The brief hash the turn's request carried (null before migration 0020). */
+  briefHash: string | null;
   error: string | null;
   startedAt: Date;
   finishedAt: Date | null;
@@ -86,9 +91,11 @@ export interface AnalystStore {
   getTurn(id: string): Promise<TurnRow | null>;
   /** The live turn of a thread (status running / needs_confirmation), if any. */
   liveTurn(threadId: string): Promise<TurnRow | null>;
-  updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void>;
-  /** Item 5: the last `limit` DONE turns of a kind that carry an estimate, newest first — (estimate, actual) pairs for calibration. */
-  recentEstimates(kind: TurnKind, limit: number): Promise<Array<{ estimateUsd: number; costUsd: number }>>;
+  updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'prefix' | 'briefHash' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void>;
+  /** Item 5: the last `limit` DONE turns of a kind (and prefix state, when given) that carry an estimate, newest first — (estimate, actual) pairs for calibration. */
+  recentEstimates(kind: TurnKind, limit: number, prefix?: PrefixState): Promise<Array<{ estimateUsd: number; costUsd: number }>>;
+  /** Oct 4 item 5: when the newest finished turn whose request carried `briefHash` on a thread of `model` finished (null when none). */
+  lastFinishedAt(model: AnalystModel, briefHash: string): Promise<Date | null>;
   /** Append a progress event and refresh the heartbeat. */
   appendEvent(turnId: string, event: Record<string, unknown>): Promise<number>;
   /** Refresh the heartbeat without an event (a long stream). */
@@ -105,7 +112,7 @@ export interface AnalystStore {
 
 const asThread = (r: typeof analystThreads.$inferSelect): ThreadRow => ({ id: r.id, title: r.title, model: r.model as AnalystModel, effort: r.effort as Effort, answerMode: r.answerMode as AnswerMode, briefHash: r.briefHash, archived: r.archived, createdAt: r.createdAt, lastTurnAt: r.lastTurnAt });
 const asMessage = (r: typeof analystMessages.$inferSelect): MessageRow => ({ id: r.id, threadId: r.threadId, seq: r.seq, turnId: r.turnId, role: r.role as MessageRole, apiJson: r.apiJson, display: r.display ?? null, createdAt: r.createdAt });
-const asTurn = (r: typeof analystTurns.$inferSelect): TurnRow => ({ id: r.id, threadId: r.threadId, clientTurnId: r.clientTurnId, status: r.status as TurnStatus, question: r.question, kind: r.kind as TurnKind, pageContext: r.pageContext ?? null, events: r.events ?? [], heartbeatAt: r.heartbeatAt, stopRequested: r.stopRequested, rounds: r.rounds, usage: r.usage ?? null, costUsd: r.costUsd, costEstimated: r.costEstimated, estimateUsd: r.estimateUsd ?? null, error: r.error, startedAt: r.startedAt, finishedAt: r.finishedAt });
+const asTurn = (r: typeof analystTurns.$inferSelect): TurnRow => ({ id: r.id, threadId: r.threadId, clientTurnId: r.clientTurnId, status: r.status as TurnStatus, question: r.question, kind: r.kind as TurnKind, pageContext: r.pageContext ?? null, events: r.events ?? [], heartbeatAt: r.heartbeatAt, stopRequested: r.stopRequested, rounds: r.rounds, usage: r.usage ?? null, costUsd: r.costUsd, costEstimated: r.costEstimated, estimateUsd: r.estimateUsd ?? null, prefix: (r.prefix as PrefixState | null) ?? null, briefHash: r.briefHash ?? null, error: r.error, startedAt: r.startedAt, finishedAt: r.finishedAt });
 
 export class DbAnalystStore implements AnalystStore {
   async createThread(t: { model: AnalystModel; effort: Effort; answerMode: AnswerMode; briefHash: string | null; title?: string | null }): Promise<ThreadRow> {
@@ -159,17 +166,27 @@ export class DbAnalystStore implements AnalystStore {
     const [row] = await db.select().from(analystTurns).where(and(eq(analystTurns.threadId, threadId), sql`${analystTurns.status} in ('running', 'needs_confirmation')`)).orderBy(desc(analystTurns.startedAt)).limit(1);
     return row ? asTurn(row) : null;
   }
-  async updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void> {
+  async updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'prefix' | 'briefHash' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void> {
     await db.update(analystTurns).set({ ...patch, heartbeatAt: new Date() }).where(eq(analystTurns.id, id));
   }
-  async recentEstimates(kind: TurnKind, limit: number): Promise<Array<{ estimateUsd: number; costUsd: number }>> {
+  async recentEstimates(kind: TurnKind, limit: number, prefix?: PrefixState): Promise<Array<{ estimateUsd: number; costUsd: number }>> {
     const rows = await db
       .select({ estimateUsd: analystTurns.estimateUsd, costUsd: analystTurns.costUsd })
       .from(analystTurns)
-      .where(and(eq(analystTurns.kind, kind), eq(analystTurns.status, 'done'), isNotNull(analystTurns.estimateUsd)))
+      .where(and(eq(analystTurns.kind, kind), eq(analystTurns.status, 'done'), isNotNull(analystTurns.estimateUsd), ...(prefix ? [eq(analystTurns.prefix, prefix)] : [])))
       .orderBy(desc(analystTurns.startedAt))
       .limit(limit);
     return rows.filter((r): r is { estimateUsd: number; costUsd: number } => r.estimateUsd !== null && r.estimateUsd > 0);
+  }
+  async lastFinishedAt(model: AnalystModel, briefHash: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ finishedAt: analystTurns.finishedAt })
+      .from(analystTurns)
+      .innerJoin(analystThreads, eq(analystThreads.id, analystTurns.threadId))
+      .where(and(eq(analystThreads.model, model), eq(analystTurns.briefHash, briefHash), isNotNull(analystTurns.finishedAt)))
+      .orderBy(desc(analystTurns.finishedAt))
+      .limit(1);
+    return row?.finishedAt ?? null;
   }
   async appendEvent(turnId: string, event: Record<string, unknown>): Promise<number> {
     const [row] = await db
@@ -239,7 +256,7 @@ export class MemoryAnalystStore implements AnalystStore {
   async createTurn(t: { threadId: string; clientTurnId: string; question: string; kind: TurnKind; pageContext: Record<string, unknown> | null }): Promise<{ turn: TurnRow; created: boolean }> {
     const existing = [...this.turns.values()].find((x) => x.threadId === t.threadId && x.clientTurnId === t.clientTurnId);
     if (existing) return { turn: existing, created: false };
-    const row: TurnRow = { id: this.next('turn'), threadId: t.threadId, clientTurnId: t.clientTurnId, status: 'running', question: t.question, kind: t.kind, pageContext: t.pageContext, events: [], heartbeatAt: new Date(), stopRequested: false, rounds: 0, usage: null, costUsd: 0, costEstimated: false, estimateUsd: null, error: null, startedAt: new Date(), finishedAt: null };
+    const row: TurnRow = { id: this.next('turn'), threadId: t.threadId, clientTurnId: t.clientTurnId, status: 'running', question: t.question, kind: t.kind, pageContext: t.pageContext, events: [], heartbeatAt: new Date(), stopRequested: false, rounds: 0, usage: null, costUsd: 0, costEstimated: false, estimateUsd: null, prefix: null, briefHash: null, error: null, startedAt: new Date(), finishedAt: null };
     this.turns.set(row.id, row);
     return { turn: row, created: true };
   }
@@ -249,13 +266,17 @@ export class MemoryAnalystStore implements AnalystStore {
   async liveTurn(threadId: string): Promise<TurnRow | null> {
     return [...this.turns.values()].filter((t) => t.threadId === threadId && (t.status === 'running' || t.status === 'needs_confirmation')).sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())[0] ?? null;
   }
-  async updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void> {
+  async updateTurn(id: string, patch: Partial<Pick<TurnRow, 'status' | 'rounds' | 'usage' | 'costUsd' | 'costEstimated' | 'estimateUsd' | 'prefix' | 'briefHash' | 'error' | 'finishedAt' | 'stopRequested'>>): Promise<void> {
     const t = this.turns.get(id);
     if (t) Object.assign(t, patch, { heartbeatAt: new Date() });
   }
-  async recentEstimates(kind: TurnKind, limit: number): Promise<Array<{ estimateUsd: number; costUsd: number }>> {
+  async lastFinishedAt(model: AnalystModel, briefHash: string): Promise<Date | null> {
+    const finished = [...this.turns.values()].filter((t) => t.finishedAt && t.briefHash === briefHash && this.threads.get(t.threadId)?.model === model).sort((a, b) => b.finishedAt!.getTime() - a.finishedAt!.getTime());
+    return finished[0]?.finishedAt ?? null;
+  }
+  async recentEstimates(kind: TurnKind, limit: number, prefix?: PrefixState): Promise<Array<{ estimateUsd: number; costUsd: number }>> {
     return [...this.turns.values()]
-      .filter((t) => t.kind === kind && t.status === 'done' && t.estimateUsd !== null && t.estimateUsd > 0)
+      .filter((t) => t.kind === kind && t.status === 'done' && t.estimateUsd !== null && t.estimateUsd > 0 && (!prefix || t.prefix === prefix))
       .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
       .slice(0, limit)
       .map((t) => ({ estimateUsd: t.estimateUsd!, costUsd: t.costUsd }));

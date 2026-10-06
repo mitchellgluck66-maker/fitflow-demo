@@ -16,7 +16,7 @@ import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type Freshness } from './tools
 import { runStarterCalls, starterMessages, starterRows, STARTER_CALLS } from './starter';
 import { runAnalystTurn, sweepOrphanTurns, ORPHAN_REASON, type AnalystClient, type AnalystEvent, type RunDeps, type TurnOutcome } from './run';
 import { analystStore, type AnalystStore, type ThreadRow, type TurnKind, type TurnRow } from './store';
-import { calibrationFactor, CALIBRATION_RUNS, capDecision, estimateRunUsd, formatUsd, type RunEstimate } from './cost';
+import { calibrationFactor, CALIBRATION_RUNS, capDecision, estimateRunUsd, formatUsd, prefixState, type RunEstimate } from './cost';
 import { freshnessSummary, readSyncStatus } from '../sync/sourceFreshness';
 import { readMarker, type MarkerFamily } from '../sync/markers';
 import { getTimezone } from '../settings';
@@ -64,6 +64,8 @@ export interface PrepareOptions {
   client?: AnalystClient;
   /** Token counter (the real count endpoint by default; tests stub it). */
   countTokens?: (params: ReturnType<typeof buildCountRequest>) => Promise<number>;
+  /** The clock for the warm/cold prefix check (tests). */
+  now?: Date;
   onEvent?: (e: AnalystEvent) => void;
   /** Item 4: the snapshot calls a NEW thread opens with (STARTER_CALLS by default; [] = none). */
   starterCalls?: readonly { name: string; input: Record<string, unknown> }[];
@@ -126,8 +128,11 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
     opts.onEvent?.({ type: 'status', text: `Token count unavailable (${describeError(err)}); the estimate uses text sizes.` });
   }
   const kind = req.kind === 'ask' ? 'ask' : req.kind;
-  // Item 5: the model is scaled by the measured actual ÷ estimate of the last completed runs of this kind.
-  const estimate = estimateRunUsd(thread.model, promptTokens, kind, calibrationFactor(await store.recentEstimates(req.kind, CALIBRATION_RUNS)));
+  // Oct 4 item 5: price the prefix as a cache hit when a turn with this brief on this model finished inside the TTL,
+  // else as the TTL's write; the calibration (median actual ÷ estimate) comes from completed runs of the same kind
+  // AND prefix state.
+  const prefix = prefixState({ model: thread.model, lastFinishedAt: await store.lastFinishedAt(thread.model, brief.hash), now: opts.now ?? new Date() });
+  const estimate = estimateRunUsd(thread.model, promptTokens, kind, calibrationFactor(await store.recentEstimates(req.kind, CALIBRATION_RUNS, prefix)), prefix);
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
@@ -137,7 +142,7 @@ export async function prepareTurn(req: TurnRequest, opts: PrepareOptions = {}): 
   const allowedUsd = req.confirmedUsd ?? Math.max(config.capRunUsd, estimate.usd);
 
   const { turn, created } = await store.createTurn({ threadId: thread.id, clientTurnId: req.clientTurnId, question: req.question, kind: req.kind, pageContext: (req.context as Record<string, unknown> | null) ?? null });
-  if (created) await store.updateTurn(turn.id, { estimateUsd: estimate.usd });
+  if (created) await store.updateTurn(turn.id, { estimateUsd: estimate.usd, prefix, briefHash: brief.hash });
   const onProposals =
     opts.onProposals === null
       ? undefined

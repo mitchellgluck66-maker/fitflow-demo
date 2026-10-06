@@ -756,6 +756,10 @@ export const analystTurns = pgTable(
     costEstimated: boolean('cost_estimated').notNull().default(false),
     /** The pre-run estimate (USD) shown to the owner; with cost_usd it calibrates later estimates (item 5). */
     estimateUsd: doublePrecision('estimate_usd'),
+    /** warm | cold — how the estimate priced the stable prefix (Oct 4 item 5); calibration buckets by (kind, prefix). */
+    prefix: text('prefix'),
+    /** The brief hash this turn's request carried — the warm check asks "did a turn with THIS prefix finish inside the TTL". */
+    briefHash: text('brief_hash'),
     error: text('error'),
     startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),

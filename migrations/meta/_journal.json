@@ -141,6 +141,13 @@
       "when": 1790818784505,
       "tag": "0019_analyst_estimate",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791327780107,
+      "tag": "0020_analyst_prefix",
+      "breakpoints": true
     }
   ]
 }

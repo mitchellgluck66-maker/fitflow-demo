@@ -174,8 +174,30 @@ export const RUN_ALLOWANCE: Record<RunKind, { rounds: number; toolTokensPerRound
   report: { rounds: 8, toolTokensPerRound: 8_000, thinkingPerRound: 2_000, answerTokens: 12_000 },
 };
 
+/**
+ * Oct 4 item 5 (2026-10-06): whether the stable prefix (contract + brief + tools) is expected to be READ from the
+ * cache (warm) or WRITTEN (cold) by this turn's first request. The cache entry lives for the model's TTL
+ * (`api#prefixCacheControl`: 1 hour on Opus, 5 minutes on Fable) from its last use, so a turn whose request carries
+ * the same brief hash on the same model and finished inside that window leaves the entry alive. The window keeps a
+ * safety margin because the turn's own requests take time.
+ */
+export type PrefixState = 'warm' | 'cold';
+export const PREFIX_TTL_MINUTES: Record<string, number> = { 'claude-opus-5-5': 60, 'claude-fable-5-1': 5 };
+export function prefixWarmWindowMs(model: string): number {
+  const ttl = PREFIX_TTL_MINUTES[model];
+  if (!ttl) throw new UnknownModelPriceError(model);
+  return (ttl - (ttl >= 60 ? 5 : 1)) * 60_000;
+}
+/** Pure: `lastFinishedAt` = the newest finished turn on this model with the same brief hash (null when none). */
+export function prefixState(p: { model: string; lastFinishedAt: Date | null; now: Date }): PrefixState {
+  if (!p.lastFinishedAt) return 'cold';
+  return p.now.getTime() - p.lastFinishedAt.getTime() <= prefixWarmWindowMs(p.model) ? 'warm' : 'cold';
+}
+
 export interface RunEstimate {
   usd: number;
+  /** How the prefix was priced: warm = read at the cache-read rate; cold = written at the TTL's write rate. */
+  prefix: PrefixState;
   /** "~4 rounds · 26K prompt (cached after round 1) · 10K out · calibrated ×1.3 on 12 runs" */
   detail: string;
   promptTokens: number;
@@ -202,15 +224,16 @@ export function calibrationFactor(pairs: Array<{ estimateUsd: number; costUsd: n
 /**
  * The prefix (system + tools + history) is written to the cache on round 1 and read on every later round; each
  * round's tool results are written once and read by the rounds after it; every round thinks; the answer is output.
- * `calibration` (item 5) scales the model by the measured actual ÷ estimate of recent completed runs of the kind.
+ * `calibration` (item 5) scales the model by the measured actual ÷ estimate of recent completed runs of the kind
+ * priced under the same prefix state (Oct 4 item 5: a cold run's write and a warm run's hit are different costs).
  */
-export function estimateRunUsd(model: string, promptTokens: number, kind: RunKind, calibration: { factor: number; runs: number } = { factor: 1, runs: 0 }): RunEstimate {
+export function estimateRunUsd(model: string, promptTokens: number, kind: RunKind, calibration: { factor: number; runs: number } = { factor: 1, runs: 0 }, prefix: PrefixState = 'cold'): RunEstimate {
   const p = ANALYST_PRICES[model];
   if (!p) throw new UnknownModelPriceError(model);
   const a = RUN_ALLOWANCE[kind];
-  // The prefix is written once at its TTL's rate (1-hour on Opus — conservative: the first request of the hour pays it).
+  // Oct 4 item 5: a cold prefix is written once at its TTL's rate (1-hour on Opus); a warm one is read on round 1 too.
   const prefixWrite = model === 'claude-fable-5-1' ? p.cacheWrite5mPerMTok : p.cacheWrite1hPerMTok;
-  let usd = (promptTokens * prefixWrite) / 1e6;
+  let usd = (promptTokens * (prefix === 'warm' ? p.cacheReadPerMTok : prefixWrite)) / 1e6;
   for (let round = 2; round <= a.rounds; round++) {
     const earlierToolTokens = (round - 2) * a.toolTokensPerRound;
     usd += (promptTokens * p.cacheReadPerMTok + earlierToolTokens * p.cacheReadPerMTok + a.toolTokensPerRound * p.cacheWrite5mPerMTok) / 1e6;
@@ -219,8 +242,9 @@ export function estimateRunUsd(model: string, promptTokens: number, kind: RunKin
   usd += (outputTokens * p.outputPerMTok) / 1e6;
   usd *= calibration.factor;
   const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
-  const cal = calibration.runs > 0 ? ` · calibrated ×${calibration.factor} on ${calibration.runs} run${calibration.runs === 1 ? '' : 's'}` : ' · uncalibrated (no completed runs of this kind yet)';
-  return { usd: Math.round(usd * 100) / 100, detail: `~${a.rounds} rounds · ${k(promptTokens)} prompt (cached after round 1) · ${k(outputTokens)} out${cal}`, promptTokens, rounds: a.rounds, calibration: calibration.factor, calibrationRuns: calibration.runs };
+  const cal = calibration.runs > 0 ? ` · calibrated ×${calibration.factor} on ${calibration.runs} ${prefix} run${calibration.runs === 1 ? '' : 's'}` : ` · uncalibrated (no completed ${prefix}-prefix runs of this kind yet)`;
+  const prefixText = prefix === 'warm' ? 'prefix warm (hit expected)' : `prefix cold (${model === 'claude-fable-5-1' ? '5m' : '1h'} write)`;
+  return { usd: Math.round(usd * 100) / 100, prefix, detail: `~${a.rounds} rounds · ${k(promptTokens)} prompt (${prefixText}, cached after round 1) · ${k(outputTokens)} out${cal}`, promptTokens, rounds: a.rounds, calibration: calibration.factor, calibrationRuns: calibration.runs };
 }
 
 export interface CapDecision {
