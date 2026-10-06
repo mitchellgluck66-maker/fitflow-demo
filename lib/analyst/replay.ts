@@ -24,7 +24,7 @@ import { ANALYST_CONTRACT } from './prompts';
 import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { ANSWER_SCHEMA } from './schema';
 import { SNAPSHOT_PREFIX } from './starter';
-import { runAnalystTurn, type AnalystClient, type AnalystEvent, type TurnOutcome } from './run';
+import { countRepairs, runAnalystTurn, type AnalystClient, type AnalystEvent, type TurnOutcome } from './run';
 import { MemoryAnalystStore, type MessageRow, type NewMessage } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
 import type { Flag } from './verify';
@@ -222,7 +222,7 @@ export async function replayFixture(fixture: ReplayFixture): Promise<ReplayTurnR
       onProposals: async (texts) => ({ saved: 0, skipped: texts.length }),
     });
     const rows = (await store.listMessages(thread.id)).filter((r) => r.turnId === turn.id);
-    out.push({ outcome, events, rows, repairs: events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length });
+    out.push({ outcome, events, rows, repairs: countRepairs(events) });
   }
   return out;
 }

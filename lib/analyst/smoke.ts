@@ -9,7 +9,7 @@
 
 import { executeTurn, prepareTurn, type TurnRequest } from './service';
 import { MemoryAnalystStore } from './store';
-import { costLine, type AnalystEvent, type TurnOutcome } from './run';
+import { costLine, countRepairs, type AnalystEvent, type RepairProblem, type TurnOutcome } from './run';
 import { SECTION_LABELS } from './schema';
 import type { RenderedAnswer } from './render';
 import { SNAPSHOT_PREFIX } from './starter';
@@ -31,6 +31,8 @@ export interface SmokeTurnLine {
   flagged: number;
   /** Repair turns this turn took, counted from ITS OWN events (0 or 1). */
   repairs: number;
+  /** Item 4: the rule behind each problem of the repair turn(s), counted by kind (digits × 2, ref × 1 …). */
+  repairKinds?: Record<string, number>;
   /** The answer's note proposals (kept in memory by the smoke — nothing is written). */
   proposals: string[];
   sections: string[];
@@ -130,7 +132,7 @@ export const SMOKE_TURNS: SmokeTurn[] = [
 const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l.costUsd >= l.estimateUsd ? '+' : ''}${Math.round(((l.costUsd - l.estimateUsd) / l.estimateUsd) * 100)}%)` : '');
 
 /**
- *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 0 · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (-20%) · sections …
+ *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 1 (digits×2, ref×1) · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (-20%) · sections …
  *        ↳ headline
  *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.50 USD; cache round 2 71% < 80%
  */
@@ -142,8 +144,37 @@ export function prefixLine(rounds: SmokeTurnLine['rounds']): string {
   return first.cacheReadTokens > 0 ? `prefix: hit (${k(first.cacheReadTokens)} read)` : `prefix: written (${k(first.cacheWriteTokens)}, 1h on Opus)`;
 }
 
+/** " (digits×2, ref×1)" — the kinds behind a turn's repairs, most frequent first; empty when there were none. */
+export function repairKindsLine(kinds: Record<string, number> | undefined): string {
+  const entries = Object.entries(kinds ?? {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return entries.length ? ` (${entries.map(([k, n]) => `${k}×${n}`).join(', ')})` : '';
+}
+
+/** The repair problems of a turn, from its own events, in order. */
+export function repairProblems(events: ReadonlyArray<AnalystEvent>): RepairProblem[] {
+  return events.flatMap((e) => (e.type === 'repair' ? e.problems : []));
+}
+
+export function repairKinds(problems: readonly RepairProblem[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of problems) out[p.kind] = (out[p.kind] ?? 0) + 1;
+  return out;
+}
+
+/** One line per repair problem: `repair 1 · digits (what_happened): "8" — reason`. */
+export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   '): string[] {
+  const out: string[] = [];
+  let n = 0;
+  for (const e of events) {
+    if (e.type !== 'repair') continue;
+    n += 1;
+    for (const p of e.problems) out.push(`${indent}repair ${n} · ${p.kind} (${p.section})${p.text ? `: "${p.text}"` : ''} — ${p.reason}`);
+  }
+  return out;
+}
+
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${pctOf(l)}` : ''}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
@@ -293,8 +324,10 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, null), { tools, cost: costLine(out.usage, out.costUsd), costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, seconds, cacheRead, rounds });
       break;
     }
-    // Counted from this turn's own events, so the line and the "Repairing…" log lines above it agree.
-    const repairs = turn?.events.filter((e) => e.type === 'status' && (e as { text?: string }).text === 'Repairing the answer…').length ?? 0;
+    // Counted from this turn's own events, so the line and the repair lines above it agree.
+    const turnEvents = (turn?.events ?? []) as AnalystEvent[];
+    const repairs = countRepairs(turnEvents);
+    for (const line of formatRepairs(turnEvents)) opts.log?.(line);
     if (recorder && out.status === 'done') {
       const rows = (await store.listMessages(prepared.thread.id)).filter((r) => r.turnId === prepared.turn.id).map((r) => ({ role: r.role, apiJson: r.apiJson, display: r.display }));
       recorded.push({
@@ -331,6 +364,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       headline: out.rendered?.headline ?? null,
       flagged: out.flagged.length,
       repairs,
+      repairKinds: repairKinds(repairProblems(turnEvents)),
       sections: out.answer?.sections.map((s) => s.key) ?? [],
       proposals,
       error: out.error ?? (out.status !== 'done' ? out.status : memoryMiss ? 'memory check: the owner stated a durable fact but the answer proposed no note' : null),

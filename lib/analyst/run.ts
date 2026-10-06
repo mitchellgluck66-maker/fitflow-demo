@@ -34,9 +34,26 @@ import { SNAPSHOT_PREFIX } from './starter';
 import type { AnalystStore, MessageRow, NewMessage, TurnRow } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
 
+/** Why an answer was sent back: the verifier's flag kinds, a structure failure, or a spend action on stale data. */
+export type RepairKind = Flag['kind'] | 'structure' | 'stale_spend';
+export interface RepairProblem {
+  kind: RepairKind;
+  section: string;
+  text: string;
+  reason: string;
+}
+
+/** Repair turns a turn took, from its own events (the `repair` event; the status line for a turn stored before it existed). */
+export function countRepairs(events: ReadonlyArray<Record<string, unknown>>): number {
+  const marked = events.filter((e) => e.type === 'repair').length;
+  return marked || events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length;
+}
+
 export type AnalystEvent =
   | { type: 'notice'; text: string; stale: boolean }
   | { type: 'status'; text: string }
+  /** Item 4 (2026-10-06): a repair turn, with every problem that triggered it and the rule each came from. */
+  | { type: 'repair'; problems: RepairProblem[] }
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
   | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
@@ -241,7 +258,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   }
   const { ledger } = ledgerFromLog(rows);
   let calls = ledgerFromLog(rows).calls;
-  let repairs = turn.events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length;
+  let repairs = countRepairs(turn.events);
   const toolDefs: BetaTool[] = deps.tools.map((t) => t.definition);
   const model = thread.model as AnalystModel;
   const effort = thread.effort as Effort;
@@ -362,13 +379,15 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     const structural = answer ? checkStructure(answer) : problem;
     let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore, question: turn.question }) : null;
     const spendOnStale = answer && deps.freshness.stale ? answer.actions.filter((a) => a.kind === 'spend').length : 0;
-    const problems: string[] = [];
-    if (structural) problems.push(structural);
-    if (verification && !verification.ok) problems.push(...verification.flagged.map((f) => `${f.section}: "${f.text}" — ${f.reason}`));
-    if (spendOnStale) problems.push(`remove the ${spendOnStale} spend action(s): a data source is stale (${deps.freshness.line}); say what you would recommend once the sync completes instead`);
+    const repairProblems: RepairProblem[] = [];
+    if (structural) repairProblems.push({ kind: 'structure', section: 'answer', text: '', reason: structural });
+    if (verification && !verification.ok) repairProblems.push(...verification.flagged.map((f) => ({ kind: f.kind, section: f.section, text: f.text, reason: f.reason })));
+    if (spendOnStale) repairProblems.push({ kind: 'stale_spend', section: 'actions', text: `${spendOnStale} spend action(s)`, reason: `remove the ${spendOnStale} spend action(s): a data source is stale (${deps.freshness.line}); say what you would recommend once the sync completes instead` });
+    const problems = repairProblems.map((p) => (p.kind === 'structure' || p.kind === 'stale_spend' ? p.reason : `${p.section}: "${p.text}" — ${p.reason}`));
 
     if (problems.length && repairs < 1) {
       repairs += 1;
+      await emit({ type: 'repair', problems: repairProblems });
       await store.appendMessages(threadId, [
         { turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { rejected: true, problems } },
         { turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: repairMessage(problems) } satisfies BetaMessageParam), display: { repair: true } },

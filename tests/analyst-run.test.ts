@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import { runMigrations } from '@/db/migrate';
 import { MemoryAnalystStore, DbAnalystStore, type AnalystStore } from '@/lib/analyst/store';
-import { historyFromLog, ledgerFromLog, runAnalystTurn, sweepOrphanTurns, ORPHAN_REASON, type AnalystClient, type AnalystEvent, type RunDeps } from '@/lib/analyst/run';
+import { historyFromLog, ledgerFromLog, runAnalystTurn, sweepOrphanTurns, ORPHAN_REASON, type AnalystClient, type AnalystEvent, type RunDeps, countRepairs } from '@/lib/analyst/run';
 import type { AnalystTool, Freshness } from '@/lib/analyst/tools';
 import type { BetaMessage } from '@/lib/analyst/api';
 import { ANALYST_BETAS } from '@/lib/analyst/config';
@@ -192,7 +192,10 @@ describe('the loop (memory store)', () => {
     expect(out.flagged).toEqual([]);
     expect(events.some((e) => e.type === 'status' && e.text === 'Repairing the answer…')).toBe(true);
     expect(events.find((e) => e.type === 'answer')).toMatchObject({ repaired: true, repairs: 1 });
-    expect(events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length).toBe(1); // the count the smoke line prints
+    expect(events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length).toBe(1);
+    // Item 4: the repair event names every problem and the rule it came from — the count the smoke line prints.
+    expect(countRepairs(events)).toBe(1);
+    expect(events.filter((e) => e.type === 'repair')).toEqual([{ type: 'repair', problems: [{ kind: 'digits', section: 'headline', text: '9', reason: expect.stringContaining('"9" is a number written as digits') }] }]);
     const roles = (await store.listMessages(thread.id)).map((r) => r.role);
     expect(roles).toEqual(['user', 'assistant', 'tool_results', 'assistant', 'user', 'assistant']);
     const repair = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };

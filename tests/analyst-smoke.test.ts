@@ -1,6 +1,6 @@
 /** The smoke's pure parts (tuning items 7, 8, 10): which turns run, the per-turn line, the targets and the budget rule. */
 import { describe, it, expect } from 'vitest';
-import { formatSmokeTurn, sectionsMiss, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine } from '@/lib/analyst/smoke';
+import { formatSmokeTurn, sectionsMiss, runMisses, smokeTurns, SMOKE_TARGETS, SMOKE_TURNS, turnMisses, type SmokeTurnLine, formatRepairs, repairKinds, repairProblems } from '@/lib/analyst/smoke';
 
 const line = (over: Partial<SmokeTurnLine> = {}): SmokeTurnLine => ({ status: 'PASS', turn: 1, question: 'q', tools: 3, cost: '18.2K in (15.9K cached) · 2.4K out · $0.19 USD', costUsd: 0.19, split: null, estimateUsd: 0.21, seconds: 21, headline: 'Enrollments doubled.', flagged: 0, repairs: 0, proposals: [], sections: ['what_happened'], error: null, cacheRead: 15_900, rounds: [{ toolCalls: 2, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 35_700 }, { toolCalls: 1, cacheSharePct: 91.2, cacheReadTokens: 35_700, cacheWriteTokens: 2_000 }, { toolCalls: 0, cacheSharePct: 94.8, cacheReadTokens: 40_000, cacheWriteTokens: 1_000 }], misses: [], ...over });
 
@@ -18,6 +18,10 @@ describe('item 7: one turn by default, the whole conversation with --full', () =
 describe('item 10: the per-turn line and the targets', () => {
   it('prints rounds, tools per round, cache per round, repairs, flagged, seconds, cost vs estimate; a FAIL names what it missed', () => {
     expect(formatSmokeTurn(line())).toBe('PASS turn 1 · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened)\n     ↳ Enrollments doubled.');
+    expect(formatSmokeTurn(line({ repairs: 1, repairKinds: { ref: 1, digits: 2 }, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 (digits×2, ref×1) · flagged 2');
+    expect(formatSmokeTurn(line({ repairs: 0, repairKinds: {} }))).toContain(' · repairs 0 · flagged 0');
+    expect(formatRepairs([{ type: 'repair', problems: [{ kind: 'digits', section: 'what_happened', text: '8', reason: '"8" is a number written as digits' }, { kind: 'structure', section: 'answer', text: '', reason: 'sections out of order' }] }, { type: 'status', text: 'Repairing the answer…' }])).toEqual(['   repair 1 · digits (what_happened): "8" — "8" is a number written as digits', '   repair 1 · structure (answer) — sections out of order']);
+    expect(repairKinds(repairProblems([{ type: 'repair', problems: [{ kind: 'ref', section: 'why', text: '{r2:data.x}', reason: 'no such ref' }, { kind: 'ref', section: 'why', text: '{r2:data.y}', reason: 'no such ref' }] }]))).toEqual({ ref: 2 });
     expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened) · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
     expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.50 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.50 USD');
     expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · prefix: — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
