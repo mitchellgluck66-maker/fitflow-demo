@@ -16,7 +16,8 @@ import { FUNNEL_STAGES, type Currency, type FunnelStageKey } from './index';
 export interface InsightInput {
   period: { label: string; start: string; end: string; preset: string };
   comparison: { label: string; start: string; end: string } | null;
-  baseline: { start: string; end: string; note: string };
+  /** The clean baselines: stage-history metrics exclude the weeks before complete history; source-dated metrics use all trailing weeks. */
+  baseline: { start: string; end: string; note: string; stageHistory: string; enrollmentsPerWeek: number | null; newPayingClientsPerWeek: number | null; initialCashPerWeekCents: number | null; spendPerWeekCents: number | null };
   funnel: Array<{
     stage: FunnelStageKey;
     label: string;
@@ -108,7 +109,7 @@ export function buildInsightInput(result: ScorecardResult): InsightInput {
   return {
     period: { label: range.resolvedLabel, start: range.start, end: range.end, preset: range.preset },
     comparison: comparison.range ? { label: comparison.range.resolvedLabel, start: comparison.range.start, end: comparison.range.end } : null,
-    baseline: { ...baseline, note: 'trailing 8 complete Sun–Sat weeks; toneVsBaseline compares each conversion against it' },
+    baseline: { ...baseline, note: 'the trailing 8 complete Sun–Sat weeks; toneVsBaseline compares each conversion against the CLEAN stage-history baseline (weeks before complete history excluded)', stageHistory: result.baselines.stageHistory.summary, enrollmentsPerWeek: result.baselines.averages.enrollmentsPerWeek, newPayingClientsPerWeek: result.baselines.averages.newPayingClientsPerWeek, initialCashPerWeekCents: result.baselines.averages.initialCashPerWeekCents, spendPerWeekCents: result.baselines.averages.spendPerWeekCents },
     funnel,
     showRates: scorecard.showRates.map((s) => ({ type: s.type, showed: s.showed, noShow: s.noShow, undecided: s.undecided, coverage: round(s.coverage), rate: round(s.rate), withheld: s.withheld })),
     money: {

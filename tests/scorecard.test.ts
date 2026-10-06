@@ -2,6 +2,7 @@
  * The shared scorecard assembly (page + email) and its email rendering.
  * Fixture from tests/ask.test.ts' shape: last week vs the week before.
  */
+import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect } from 'vitest';
 import { assembleScorecard, scorecardKindOf, SCORECARD_DEFAULT_PRESET } from '@/lib/scorecard/assemble';
 import { renderScorecardDigest } from '@/lib/email/digests';
@@ -60,6 +61,7 @@ function build(rangeParams: { range: string; start?: string }): ScorecardResult 
     range,
     comparison,
     baseline: { start: '2026-06-21', end: '2026-08-15' },
+    baselines: scorecardBaselines(INPUT, range, { today: TODAY }),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: computeTrend(INPUT, [{ ...range, label: range.resolvedLabel }]), comparison: null },

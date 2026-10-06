@@ -8,7 +8,6 @@ import {
   resolveComparison,
   rangeFromParams,
   comparisonFromParam,
-  trailingWeeks,
   weekBuckets,
   dayBuckets,
   trendGrain,
@@ -19,6 +18,7 @@ import {
 } from '../dates';
 import { getTimezone, getSetting, SETTING_KEYS } from '../settings';
 import { computeMaturity, isMaturingMetric, type DataMaturity } from './maturity';
+import { scorecardBaselines, trailingBaseline, type ScorecardBaselines } from './baseline';
 import { loadMetricsInput } from './load';
 import { fxNote, DEFAULT_MONEY_CONTEXT, type Currency, type FxNote } from '../money';
 import { type InputHealth,
@@ -42,8 +42,10 @@ export interface ScorecardResult {
   today: string;
   range: DateRange;
   comparison: Comparison;
-  /** The trailing 8 complete Sun–Sat weeks before the range — chip baseline. */
+  /** The trailing 8 complete Sun–Sat weeks before the range (the candidate window; the trend below walks it). */
   baseline: { start: string; end: string };
+  /** THE baselines (lib/metrics/baseline.ts): stage-history metrics over the clean weeks only, source-dated metrics over all 8; with the per-week averages. */
+  baselines: ScorecardBaselines;
   scorecard: Scorecard;
   trend: { grain: 'day' | 'week'; current: TrendPoint[]; comparison: TrendPoint[] | null };
   /** Always Sun–Sat weeks (range padded to whole weeks) — for conversion-over-time charts. */
@@ -85,7 +87,9 @@ export async function getScorecard(params: {
   const range = rangeFromParams(params, today);
   const mode: ComparisonMode = comparisonFromParam(params.compare);
   const comparison = resolveComparison(range, mode, today);
-  const baseline = trailingWeeks(range.start, 8);
+  const [historyCompleteSince, sunset] = await Promise.all([getSetting(SETTING_KEYS.historyCompleteSince), getSetting(SETTING_KEYS.disclaimerSunset)]);
+  const candidate = trailingBaseline({ before: range.start, metric: 'initial_cash', historyCompleteSince, sunset, today }).candidate;
+  const baseline = { start: candidate[0].start, end: candidate[candidate.length - 1].end };
 
   // Widest window needed by any computation below.
   const starts = [range.start, comparison.range?.start ?? range.start, baseline.start];
@@ -97,7 +101,9 @@ export async function getScorecard(params: {
     pipelineId: params.pipelineId,
   });
 
-  const scorecard = computeScorecard(input, range, comparison.range, { start: baseline.start, end: baseline.end });
+  // The chips are judged against the CLEAN stage-history baseline only (none when fewer than 4 clean weeks).
+  const baselines = scorecardBaselines(input, range, { historyCompleteSince, sunset, today });
+  const scorecard = computeScorecard(input, range, comparison.range, baselines.stageHistory.range);
 
   const grain = trendGrain(range);
   const bucketsFor = (r: { start: string; end: string }) =>
@@ -109,6 +115,7 @@ export async function getScorecard(params: {
     range,
     comparison,
     baseline: { start: baseline.start, end: baseline.end },
+    baselines,
     scorecard,
     inputHealth: input.health ?? { applicantsWithoutDate: [], appliedFromMove: 0 },
     trend: {

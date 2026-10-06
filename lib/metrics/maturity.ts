@@ -5,9 +5,9 @@
  * kept only each contact's LAST stage change, so every number that depends
  * on intermediate stage moves (consults booked, roadmaps booked, the costs
  * per lead / consult / roadmap, stage→stage conversion) runs low or high
- * for windows touching pre-Sept-1 dates. Enrollments, initial cash, Paid /
- * Blended CAC, ROAS, LTV:CAC and spend do not depend on that history and
- * never carry the caveat.
+ * for windows touching pre-Sept-1 dates — and so does anything built on a
+ * stage entry: enrollments and the CACs (2026-10-06). Applied, cash, ROAS,
+ * spend and show rates are dated by their own source and never carry it.
  *
  * The caveat is active only while BOTH hold: the selected range includes
  * days before `historyCompleteSince`, and today is before `sunset`. After
@@ -43,10 +43,25 @@ export interface DataMaturity {
 }
 
 /**
- * Metric keys (as used by tiles, the scorecard assembly and the trend
- * registry) whose value depends on intermediate stage history.
+ * Metric keys (as used by tiles, the scorecard assembly, the glossary and the trend registry) whose value
+ * depends on a GHL STAGE ENTRY — and so on intermediate stage history. DECISION 2026-10-06 (Oct 4 smoke,
+ * design-review follow-up): the catch-up week (12 "enrolled" entries in one pre-history week against 5 first
+ * payments) showed that enrollments are stage entries too, so everything derived from one is here: the
+ * counts, the costs per stage, both CACs, LTV:CAC and cost per client. NOT here, because their own source
+ * dates them: applied (opportunity created), initial / recurring / collected cash, refunds, failed (Stripe),
+ * spend (Meta), ROAS (Stripe ÷ Meta), show rates (calendar outcomes).
  */
-export const HISTORY_DEPENDENT_METRICS: ReadonlySet<string> = new Set(['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap']);
+export const HISTORY_DEPENDENT_METRICS: ReadonlySet<string> = new Set(['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap', 'enrollments', 'paid_cac', 'blended_cac', 'cost_client', 'ltv_cac']);
+
+/** The metric keys above that a reader sees as "affected" / "not affected" — one wording for the caveats. */
+export const HISTORY_DEPENDENT_LABEL = 'enrollments, consults booked, roadmaps booked, cost per lead / consult / roadmap / client, Paid CAC, Blended CAC, LTV:CAC, and every stage→stage conversion';
+export const HISTORY_INDEPENDENT_LABEL = 'applied, initial cash, recurring cash, ROAS, spend, show rates';
+
+/** The scorecard `kpis` key → the metric key the badge / glossary / trend registry use. */
+export function metricKeyOfKpi(kpi: string): string {
+  const map: Record<string, string> = { consultsBooked: 'consults_booked', roadmapsBooked: 'roadmaps_booked', costPerRoadmapCents: 'cost_roadmap', paidCacCents: 'paid_cac', blendedCacCents: 'blended_cac', cacCents: 'blended_cac', ltvToCac: 'ltv_cac', initialCents: 'initial_cash', revenueCents: 'collected' };
+  return map[kpi] ?? kpi;
+}
 
 /** Funnel stages whose count / chip depends on intermediate stage history. */
 export const HISTORY_DEPENDENT_STAGES: ReadonlySet<string> = new Set(['consult_booked', 'roadmap_booked']);
@@ -107,6 +122,6 @@ export function maturingCaveatText(m: Pick<DataMaturity, 'historyCompleteSince' 
 export function dataCaveats(m: DataMaturity | null | undefined): string[] {
   if (!m?.active) return [];
   return [
-    `${maturingCaveatText(m)} Affected in this snapshot: consults booked, roadmaps booked, cost per lead / consult / roadmap, and every stage→stage conversion. NOT affected: enrollments, initial cash, Paid CAC, Blended CAC, ROAS, LTV:CAC, spend. Mention the caveat whenever you cite an affected number.`,
+    `${maturingCaveatText(m)} Affected in this snapshot: ${HISTORY_DEPENDENT_LABEL}. NOT affected: ${HISTORY_INDEPENDENT_LABEL}. Mention the caveat whenever you cite an affected number. A baseline for an affected metric EXCLUDES the weeks before ${m.historyCompleteSince}.`,
   ];
 }

@@ -7,6 +7,7 @@
  * Range R = Sun 2026-08-02 … Sat 2026-08-08. Three enrolled clients, all CAD
  * contract values; Meta spend in USD; payments in both currencies.
  */
+import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect } from 'vitest';
 import {
   computeMarketing,
@@ -237,6 +238,7 @@ describe('scorecard assembly labels every money value with the active currency',
       range: { ...R, preset: 'last_week', presetLabel: 'Last week', resolvedLabel: 'Aug 2–8' },
       comparison: { mode: 'off', range: null, label: 'No comparison' },
       baseline: { start: '2026-06-07', end: '2026-08-01' },
+      baselines: scorecardBaselines(input, R, { today: '2026-08-10' }),
       scorecard,
       trend: { grain: 'day', current: [], comparison: null },
       trendWeekly: { current: [], comparison: null },

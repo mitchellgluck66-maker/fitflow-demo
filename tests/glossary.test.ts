@@ -87,7 +87,8 @@ describe('coverage', () => {
     const text = glossaryText();
     for (const k of GLOSSARY_KEYS) expect(text).toContain(`(${k})`);
     expect(glossaryText(['consults_booked'])).toContain('History-dependent');
-    expect(glossaryText(['enrollments'])).not.toContain('History-dependent');
+    expect(glossaryText(['enrollments'])).toContain('History-dependent'); // a stage entry (2026-10-06)
+    expect(glossaryText(['initial_cash'])).not.toContain('History-dependent');
     expect(glossaryText(['nope'])).toBe('');
   });
   it('the Applied entry names the review and where the ledger lives', () => {
@@ -95,8 +96,8 @@ describe('coverage', () => {
     expect(glossaryEntry('applied')!.definition).toContain('Setup → Reconciliation');
   });
   it('maturing flags follow lib/metrics/maturity.ts', () => {
-    expect(['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap', 'consult_booked', 'roadmap_booked'].every((k) => glossaryEntry(k)!.maturing)).toBe(true);
-    expect(['enrollments', 'initial_cash', 'paid_cac', 'blended_cac', 'roas', 'ltv_cac', 'spend', 'consult_show_rate'].some((k) => glossaryEntry(k)!.maturing)).toBe(false);
+    expect(['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap', 'consult_booked', 'roadmap_booked', 'enrollments', 'paid_cac', 'blended_cac', 'ltv_cac'].every((k) => glossaryEntry(k)!.maturing)).toBe(true);
+    expect(['initial_cash', 'roas', 'spend', 'consult_show_rate', 'applied'].some((k) => glossaryEntry(k)!.maturing)).toBe(false);
   });
 });
 

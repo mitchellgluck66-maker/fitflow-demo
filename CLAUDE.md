@@ -112,11 +112,23 @@ large changes. This file is the standing contract.
      the same-mode trailing-8-week baseline.
    - *History-dependent metrics (maturing data)*: live stage-history observation
      began 2026-09-01; before that GHL kept only each contact's last stage
-     change. Consults booked, roadmaps booked, cost per lead / consult /
-     roadmap and every stage→stage conversion are therefore under/over-counted
-     for ranges touching earlier dates. Enrollments, initial cash, Paid /
-     Blended CAC, ROAS, LTV:CAC, spend and show rates do NOT depend on that
-     history and never carry the caveat. `lib/metrics/maturity.ts` owns the
+     change. Everything derived from a GHL STAGE ENTRY is therefore
+     under/over-counted for ranges touching earlier dates — DECISION
+     2026-10-06 (the Oct 4 smoke's catch-up week: 12 "enrolled" entries in one
+     pre-history week against 5 Stripe first payments): consults booked,
+     roadmaps booked, ENROLLMENTS, cost per lead / consult / roadmap / client,
+     Paid CAC, Blended CAC, LTV:CAC and every stage→stage conversion. Applied
+     (opportunity created), initial / recurring cash, ROAS, spend and show
+     rates are dated by their own source and never carry the caveat.
+     **Baselines** (`lib/metrics/baseline.ts`, the ONE rule for the chips,
+     `get_scorecard.baseline`, the starter snapshot, the brief, the insight and
+     ask contexts): for a history-dependent metric the weeks that start before
+     `history_complete_since` are EXCLUDED, never averaged in; a source-dated
+     metric uses every trailing complete week; fewer than 4 usable weeks → no
+     number, the note "baseline needs 4 complete weeks of complete stage
+     history; have N". A conversion chip with no clean baseline is neutral —
+     never the previous period in disguise. A "new client" for a verdict is a
+     Stripe first payment; a GHL "enrolled" entry is a stage move. `lib/metrics/maturity.ts` owns the
      rule and the one wording; settings `history_complete_since` (2026-09-01)
      and `disclaimer_sunset` (2026-10-15, Setup → Data caveats) make it
      self-expiring — after the sunset nothing renders and the AI

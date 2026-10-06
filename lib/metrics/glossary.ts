@@ -694,7 +694,8 @@ const tileAlias = (key: string, stage: FunnelStageKey, label: string): GlossaryE
   return { ...base, key, label, definition: `${label}: ${base.definition}`, differsFrom: `Same definition as the funnel's ${base.label} stage in in-period mode; the funnel strip on the Command Center shows the cohort count, which can differ.`, worked: (input, range) => base.worked(input, range, 'period') };
 };
 
-export const GLOSSARY: readonly GlossaryEntry[] = [
+/** `maturing` follows HISTORY_DEPENDENT_METRICS (one list) — an entry's own flag can only add to it. */
+export const GLOSSARY: readonly GlossaryEntry[] = ([
   ...moneyEntries,
   ...stageEntries,
   tileAlias('enrollments', 'enrolled', 'Enrollments'),
@@ -708,7 +709,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
   ...marketingEntries,
   ...campaignEntries,
   ...timeEntries,
-];
+] as GlossaryEntry[]).map((e) => ({ ...e, maturing: e.maturing || HISTORY_DEPENDENT_METRICS.has(e.key) }));
 
 const BY_KEY = new Map(GLOSSARY.map((e) => [e.key, e]));
 

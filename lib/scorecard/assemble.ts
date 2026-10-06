@@ -12,7 +12,7 @@
 import type { ScorecardResult } from '../metrics/service';
 import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Coverage, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
-import { isMaturingMetric, maturingCaveatText, type DataMaturity } from '../metrics/maturity';
+import { isMaturingMetric, maturingCaveatText, HISTORY_DEPENDENT_LABEL, type DataMaturity } from '../metrics/maturity';
 
 /** The Scorecard's period when the URL has none: last full Sun–Sat week. The page, its API and its date picker all read this ONE constant (P1 #9). */
 export const SCORECARD_DEFAULT_PRESET = 'last_week' as const;
@@ -226,7 +226,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
   for (const r of scorecard.showRates) if (r.withheld) notes.push({ text: `${r.type} show rate not shown: ${r.withheld}.`, tone: 'warn' });
   notes.push({ text: `Money ${result.money.fx.text}.`, tone: 'info' });
   if (result.money.unsupportedRows > 0) notes.push({ text: `${result.money.unsupportedRows} payment/spend row(s) in a currency other than CAD or USD are excluded.`, tone: 'warn' });
-  if (result.maturity.active) notes.push({ text: `Maturing data — ${maturingCaveatText(result.maturity)} Affected here: consults booked, roadmaps booked, cost per lead / consult / roadmap and the funnel conversions.`, tone: 'warn' });
+  if (result.maturity.active) notes.push({ text: `Maturing data — ${maturingCaveatText(result.maturity)} Affected here: ${HISTORY_DEPENDENT_LABEL}. Baselines for them exclude the weeks before ${result.maturity.historyCompleteSince}.`, tone: 'warn' });
 
   const title = periodTitle(r);
   return {

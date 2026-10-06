@@ -2,6 +2,7 @@
  * Phase G item 8 — Ask-the-dashboard: context assembly, number grounding,
  * rate limit, and the DB-backed flow against a mocked Anthropic API.
  */
+import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
@@ -42,6 +43,7 @@ function fakeResult(): ScorecardResult {
     range: { ...R, preset: 'last_week', presetLabel: 'Last week', resolvedLabel: 'Aug 16–22' },
     comparison: { mode: 'previous_period', range: { ...P, preset: 'custom', presetLabel: 'Previous period', resolvedLabel: 'Aug 9–15' }, label: 'vs previous period · Aug 9–15' },
     baseline: { start: '2026-06-21', end: '2026-08-15' },
+    baselines: scorecardBaselines(INPUT, R, { today: '2026-08-26' }),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: computeTrend(INPUT, [weeks[1]]), comparison: computeTrend(INPUT, [weeks[0]]) },

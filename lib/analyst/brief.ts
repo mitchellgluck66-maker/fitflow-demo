@@ -1,7 +1,7 @@
 /**
  * The business brief (plan item 3) — PURE. Assembled from engine calls only:
  * every KPI week by week since the first data, trailing 8- and 12-week
- * baselines (each saying how many maturing weeks it includes — amendment 2),
+ * baselines (stage-history metrics over the clean weeks only — amendment 2, redone 2026-10-06),
  * conversions over time in both funnel modes, per-campaign weekly history,
  * the revenue split by month, seasonality computed from the series, the
  * glossary, the decisions log, the owner profile (with its gaps — amendment
@@ -24,7 +24,8 @@ import {
   type Currency,
   type MetricsInput,
 } from '../metrics';
-import { computeMaturity, HISTORY_DEPENDENT_METRICS } from '../metrics/maturity';
+import { computeMaturity, HISTORY_DEPENDENT_LABEL, HISTORY_INDEPENDENT_LABEL } from '../metrics/maturity';
+import { cleanBaseline } from '../metrics/baseline';
 import { glossaryText, METRIC_DEFINITION_VERSION } from '../metrics/glossary';
 import { weekBuckets, formatRangeLabel, addDays, monthStart, monthEnd } from '../dates';
 import { profileGaps, withheldLine, type OwnerProfile } from './notes';
@@ -60,6 +61,8 @@ export interface BriefWeek {
   consultsBooked: number;
   roadmapsBooked: number;
   enrolled: number;
+  /** Stripe first payments in the week — the ground truth for "new clients". */
+  newPayingClients: number;
   initialCents: number;
   recurringCents: number;
   spendCents: number;
@@ -108,6 +111,7 @@ function weekRow(input: MetricsInput, w: { start: string; end: string; label: st
     consultsBooked: sc.kpis.consultsBooked.current ?? 0,
     roadmapsBooked: sc.kpis.roadmapsBooked.current ?? 0,
     enrolled: sc.kpis.enrollments.current ?? 0,
+    newPayingClients: sc.revenue.awaitingStripe ? 0 : sc.revenue.initialCount,
     initialCents: sc.revenue.awaitingStripe ? 0 : sc.revenue.initialCents,
     recurringCents: sc.revenue.awaitingStripe ? 0 : sc.revenue.recurringCents,
     spendCents: m.spendCents,
@@ -118,20 +122,24 @@ function weekRow(input: MetricsInput, w: { start: string; end: string; label: st
   };
 }
 
-function baseline(label: string, weeks: BriefWeek[], ccy: Currency): string {
-  if (weeks.length === 0) return `- ${label}: no complete weeks yet.`;
-  const n = weeks.length;
-  const maturing = weeks.filter((w) => w.maturing).length;
-  const sum = (f: (w: BriefWeek) => number) => weeks.reduce((a, w) => a + f(w), 0);
-  const applied = sum((w) => w.applied);
-  const consults = sum((w) => w.consultsBooked);
-  const roadmaps = sum((w) => w.roadmapsBooked);
-  const enrolled = sum((w) => w.enrolled);
-  const spend = sum((w) => w.spendCents);
-  const initial = sum((w) => w.initialCents);
-  const blended = enrolled > 0 && spend > 0 ? Math.round(spend / enrolled) : null;
-  const flag = maturing > 0 ? ` Includes ${maturing} maturing week${maturing === 1 ? '' : 's'} (consults, roadmaps and stage conversions under/over-counted there); enrollments, cash, spend and CAC do not depend on that history.` : ' Includes no maturing weeks.';
-  return `- ${label} (${formatRangeLabel(weeks[0].start, weeks[n - 1].end)}, ${n} weeks): per week avg ${(applied / n).toFixed(1)} applied · ${(consults / n).toFixed(1)} consults booked · ${(roadmaps / n).toFixed(1)} roadmaps booked · ${(enrolled / n).toFixed(1)} enrolled · ${money(Math.round(spend / n), ccy)} spend · ${money(Math.round(initial / n), ccy)} initial cash; totals ${applied} applied, ${enrolled} enrolled, ${money(spend, ccy)} spend, ${money(initial, ccy)} initial cash; Blended CAC from totals ${money(blended, ccy)} (recomputed from totals, never an average of weekly ratios).${flag}`;
+function baseline(label: string, candidate: BriefWeek[], ccy: Currency, settings: { historyCompleteSince: string | null; sunset: string | null; today: string }): string {
+  if (candidate.length === 0) return `- ${label}: no complete weeks yet.`;
+  const buckets = candidate.map((w) => ({ start: w.start, end: w.end, label: w.label }));
+  // THE baseline rule (lib/metrics/baseline.ts): stage-history metrics over the clean weeks only; source-dated over every week.
+  const stage = cleanBaseline({ candidate: buckets, metric: 'enrollments', ...settings });
+  const source = cleanBaseline({ candidate: buckets, metric: 'initial_cash', ...settings });
+  const byStart = new Map(candidate.map((w) => [w.start, w]));
+  const avg = (ws: typeof buckets, f: (w: BriefWeek) => number) => (ws.length ? ws.reduce((a, w) => a + f(byStart.get(w.start)!), 0) / ws.length : null);
+  const n1 = (n: number | null) => (n === null ? '—' : n.toFixed(1));
+  const stageLine = stage.enough
+    ? `enrolled ${n1(avg(stage.weeks, (w) => w.enrolled))}/week · consults booked ${n1(avg(stage.weeks, (w) => w.consultsBooked))}/week · roadmaps booked ${n1(avg(stage.weeks, (w) => w.roadmapsBooked))}/week`
+    : `enrolled / consults / roadmaps per week: not computed — ${stage.note}`;
+  const spend = avg(source.weeks, (w) => w.spendCents);
+  const initial = avg(source.weeks, (w) => w.initialCents);
+  const paying = avg(source.weeks, (w) => w.newPayingClients);
+  const sourceLine = `applied ${n1(avg(source.weeks, (w) => w.applied))}/week · new paying clients (Stripe first payments) ${n1(paying)}/week · initial cash ${money(initial === null ? null : Math.round(initial), ccy)}/week · spend ${money(spend === null ? null : Math.round(spend), ccy)}/week`;
+  const totalsStage = stage.enough ? `; Blended CAC from the clean weeks' totals ${money((() => { const e = stage.weeks.reduce((a, w) => a + byStart.get(w.start)!.enrolled, 0); const sp = stage.weeks.reduce((a, w) => a + byStart.get(w.start)!.spendCents, 0); return e > 0 && sp > 0 ? Math.round(sp / e) : null; })(), ccy)} (recomputed from totals, never an average of weekly ratios)` : '';
+  return `- ${label}: stage-history metrics over ${stage.summary} — ${stageLine}${totalsStage}. Source-dated metrics over ${source.summary} — ${sourceLine}. A week is judged against THESE figures; the GHL "enrolled" count of a maturing week is never a baseline.`;
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -184,7 +192,7 @@ export function buildBrief(b: BriefInputs): Brief {
   const hcs = b.historyCompleteSince ?? '2026-09-01';
   const maturingWeeks = weeks.filter((w) => w.maturing);
   if (maturingWeeks.length) {
-    lines.push(`- Live stage-history observation began ${hcs}. Weeks before it are MATURING for ${[...HISTORY_DEPENDENT_METRICS].join(', ')} and every stage→stage conversion (marked "maturing" below): a change against one of those weeks is not a real change and must be said so. Enrollments, initial cash, spend, Paid/Blended CAC, ROAS, LTV:CAC and show rates do not depend on that history and carry no caveat.`);
+    lines.push(`- Live stage-history observation began ${hcs}. Weeks before it are MATURING for ${HISTORY_DEPENDENT_LABEL} (marked "maturing" below): a change against one of those weeks is not a real change and must be said so, and the baselines above EXCLUDE those weeks for these metrics. ${HISTORY_INDEPENDENT_LABEL} are dated by their own source and carry no caveat. A new client is a Stripe first payment; a GHL "enrolled" entry is a stage move.`);
     lines.push(`- Maturing weeks: ${maturingWeeks.map((w) => w.label).join('; ')}.`);
   } else {
     lines.push('- No maturing weeks: every week in this brief is inside complete stage history (or the disclaimer has sunset).');
@@ -200,8 +208,9 @@ export function buildBrief(b: BriefInputs): Brief {
   lines.push('');
 
   lines.push('## Baselines (complete weeks only)');
-  lines.push(baseline('Trailing 8 weeks', complete.slice(-8), ccy));
-  lines.push(baseline('Trailing 12 weeks', complete.slice(-12), ccy));
+  const settings = { historyCompleteSince: b.historyCompleteSince, sunset: b.disclaimerSunset, today: b.today };
+  lines.push(baseline('Trailing 8 weeks', complete.slice(-8), ccy, settings));
+  lines.push(baseline('Trailing 12 weeks', complete.slice(-12), ccy, settings));
   lines.push('');
 
   lines.push('## Stage conversions over time');

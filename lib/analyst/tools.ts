@@ -25,7 +25,7 @@ import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service
 import { computeRevenueSummary, computeSourceBreakdown, formatCents, formatPct, FUNNEL_STAGES, TODO_LABELS, REBOOK_LABELS, type Coverage, type Currency, type FunnelStageKey } from '../metrics';
 import { loadMetricsInput } from '../metrics/load';
 import { glossaryEntry, GLOSSARY_KEYS } from '../metrics/glossary';
-import { isMaturingMetric, isMaturingStage } from '../metrics/maturity';
+import { isMaturingMetric, isMaturingStage, metricKeyOfKpi, HISTORY_DEPENDENT_LABEL } from '../metrics/maturity';
 import { TREND_METRICS, TREND_WINDOWS, type TrendWindow } from '../metrics/trendMetrics';
 import { listClients, getClientProfile } from '../queries/clients';
 import { getTimezone } from '../settings';
@@ -173,6 +173,7 @@ async function namesFor(contactIds: string[]): Promise<Array<{ contactId: string
 }
 
 const money = (cents: number | null, ccy: Currency) => formatCents(cents, ccy);
+const rangeOrNull = (r: { start: string; end: string } | null) => (r ? { start: r.start, end: r.end } : { start: '', end: '' });
 
 /** A coverage block for a tool result (names only). */
 const cov = (c: Coverage) => ({ used: c.used, total: c.total, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
@@ -226,7 +227,7 @@ const getScorecardTool = tool(
     const res = await getScorecard({ ...rangeParams(r), compare: String(input.compare ?? 'previous_period') });
     const sc = res.scorecard;
     const kpis = Object.fromEntries(
-      Object.entries(sc.kpis).map(([k, d]) => [k, { current: d.current, previous: d.previous, abs: d.abs, pct: d.pct, maturing: isMaturingMetric(k === 'consultsBooked' ? 'consults_booked' : k === 'roadmapsBooked' ? 'roadmaps_booked' : k === 'costPerRoadmapCents' ? 'cost_roadmap' : k, res.maturity) }]),
+      Object.entries(sc.kpis).map(([k, d]) => [k, { current: d.current, previous: d.previous, abs: d.abs, pct: d.pct, maturing: isMaturingMetric(metricKeyOfKpi(k), res.maturity) }]),
     );
     const m = sc.marketing;
     return {
@@ -272,11 +273,25 @@ const getScorecardTool = tool(
         },
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
-        /** The trailing 8 complete Sun–Sat weeks: each stage→stage conversion now vs that baseline, with the chip's tone. */
-        baseline: { start: res.baseline.start, end: res.baseline.end, note: 'trailing 8 complete Sun–Sat weeks before the period', conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, baseline: c.previous, tone: c.tone })) },
+        /**
+         * THE baselines (lib/metrics/baseline.ts): stage-history metrics (enrollments, consults, roadmaps, CAC, conversions) over
+         * the clean weeks only — weeks before complete stage history are EXCLUDED, never averaged in; source-dated metrics
+         * (Stripe cash and new paying clients, Meta spend) over all trailing complete weeks. A null average carries its note.
+         */
+        baseline: {
+          window: { start: res.baseline.start, end: res.baseline.end, note: 'the trailing 8 complete Sun–Sat weeks before the period' },
+          stageHistory: { ...rangeOrNull(res.baselines.stageHistory.range), weeksUsed: res.baselines.stageHistory.weeks.length, weeksExcluded: res.baselines.stageHistory.excluded.length, summary: res.baselines.stageHistory.summary, note: res.baselines.stageHistory.note },
+          sourceDated: { ...rangeOrNull(res.baselines.sourceDated.range), weeksUsed: res.baselines.sourceDated.weeks.length, summary: res.baselines.sourceDated.summary, note: res.baselines.sourceDated.note },
+          enrollmentsPerWeek: res.baselines.averages.enrollmentsPerWeek,
+          newPayingClientsPerWeek: res.baselines.averages.newPayingClientsPerWeek,
+          initialCashPerWeekCents: res.baselines.averages.initialCashPerWeekCents,
+          spendPerWeekCents: res.baselines.averages.spendPerWeekCents,
+          /** Each stage→stage conversion now vs the clean baseline (null baseline = not enough clean weeks → neutral tone). */
+          conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, baseline: c.baseline, tone: c.tone })),
+        },
         showRates: sc.showRates.map((s) => ({ type: s.type, rate: s.rate, showed: s.showed, noShow: s.noShow, cancelled: s.cancelled, past: s.past, coverage: s.coverage, withheld: s.withheld })),
         sources: sc.sources.slice(0, 12).map((s) => ({ source: s.source, applied: s.counts.applied, consultBooked: s.counts.consult_booked, enrolled: s.counts.enrolled, appliedToEnrolled: s.appliedToEnrolled })),
-        maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? 'History-dependent metrics (consults booked, roadmaps booked, cost per lead / consult / roadmap, stage→stage conversions) are maturing for this range or its comparison: a change in them is not a real change.' : null },
+        maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? `History-dependent metrics (${HISTORY_DEPENDENT_LABEL}) are maturing for this range or its comparison: a change in them is not a real change. Baselines for them exclude the weeks before ${res.maturity.historyCompleteSince}.` : null },
         appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.length, otherPipelines: sc.appliedCaveat.otherPipelines.length },
         dataHealth: { applicantsWithoutDate: res.inputHealth?.applicantsWithoutDate.length ?? 0, appliedFromMove: res.inputHealth?.appliedFromMove ?? 0, unsupportedMoneyRows: res.money.unsupportedRows },
       },
@@ -659,7 +674,7 @@ const comparePeriodsTool = tool(
       const prev = b.scorecard.kpis[k].current;
       const abs = cur === null || prev === null ? null : cur - prev;
       const pct = abs === null || prev === null || prev === 0 ? null : abs / Math.abs(prev);
-      const metricKey = k === 'consultsBooked' ? 'consults_booked' : k === 'roadmapsBooked' ? 'roadmaps_booked' : k === 'costPerRoadmapCents' ? 'cost_roadmap' : k;
+      const metricKey = metricKeyOfKpi(k);
       // The row names its unit: `kpis[3].current` says nothing by itself (the ledger and the verifier read `unit`).
       const unit = /Cents$/.test(k) ? 'cents' : /^(roas|ltvToCac)$/.test(k) ? 'ratio' : 'count';
       return { kpi: k, unit, current: cur, against: prev, abs, pct, maturing: isMaturingMetric(metricKey, a.maturity) || isMaturingMetric(metricKey, b.maturity) };

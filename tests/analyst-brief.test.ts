@@ -70,7 +70,9 @@ describe('buildBrief (pure)', () => {
     expect(brief.weeks.filter((w) => w.maturing).map((w) => w.start)).toEqual(['2026-08-02', '2026-08-09', '2026-08-16', '2026-08-23', '2026-08-30']);
     expect(brief.weeks.filter((w) => !w.maturing).map((w) => w.start)).toEqual(['2026-09-06', '2026-09-13']);
     expect(brief.text).toContain('Maturing weeks: Aug 2–8; Aug 9–15; Aug 16–22; Aug 23–29; Aug 30 – Sep 5.');
-    expect(brief.text).toMatch(/Trailing 8 weeks \(Aug 2 – Sep 12, 6 weeks\).*Includes 5 maturing weeks/);
+    // THE baseline rule: stage-history metrics over the clean weeks only (here 1 of 6 → not enough), source-dated over all 6.
+    expect(brief.text).toMatch(/Trailing 8 weeks: stage-history metrics over baseline needs 4 complete weeks of complete stage history; have 1 \(Sep 6–12\) · 5 maturing weeks excluded \(Aug 2 – Sep 5\) — enrolled \/ consults \/ roadmaps per week: not computed/);
+    expect(brief.text).toMatch(/Source-dated metrics over 6 weeks \(Aug 2 – Sep 12\) — applied [\d.]+\/week · new paying clients \(Stripe first payments\) [\d.]+\/week/);
     // After the sunset nothing is maturing and the text says so.
     const after = buildBrief({ ...base, today: '2026-10-20' });
     expect(after.weeks.some((w) => w.maturing)).toBe(false);

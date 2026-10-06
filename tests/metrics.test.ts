@@ -454,10 +454,11 @@ describe('scorecard (what tiles + emails render)', () => {
     expect(s.empty).toBe(false);
   });
 
-  it('conversion chips fall back to the comparison period when no baseline is given', () => {
+  it('conversion chips are NEUTRAL with no clean baseline — the comparison period is never a baseline in disguise (2026-10-06)', () => {
     const first = s.conversions[0];
-    expect(first).toMatchObject({ from: 'applied', to: 'consult_booked', current: 0.6, previous: 1 });
-    expect(first.tone).toBe('warn');
+    expect(first).toMatchObject({ from: 'applied', to: 'consult_booked', current: 0.6, previous: 1, baseline: null });
+    expect(first.tone).toBe('neutral');
+    expect(computeScorecard(FIXTURE, R, P, P).conversions[0]).toMatchObject({ baseline: 1, tone: 'warn' }); // a baseline given → judged against it
   });
 
   it('flags an empty period so digests skip sending', () => {

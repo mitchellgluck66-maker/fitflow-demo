@@ -1436,7 +1436,8 @@ export interface Scorecard {
     applied: Delta;
   };
   /** Stage→stage conversion deltas vs the comparison period (in-period mode). */
-  conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped: boolean; tone: ChipTone }>;
+  /** `previous` = the comparison period; `baseline` = the clean trailing baseline the tone is judged against (null = none → neutral). */
+  conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; baseline: number | null; capped: boolean; tone: ChipTone }>;
   sources: SourceBreakdown[];
   /**
    * The same funnel in cohort (journey) mode: the people who applied in
@@ -1446,7 +1447,8 @@ export interface Scorecard {
   cohort: {
     funnel: Funnel;
     previousFunnel: Funnel | null;
-    conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped: boolean; tone: ChipTone }>;
+    /** `previous` = the comparison period; `baseline` = the clean trailing baseline the tone is judged against (null = none → neutral). */
+  conversions: Array<{ from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; baseline: number | null; capped: boolean; tone: ChipTone }>;
     sources: SourceBreakdown[];
   };
   timeInStage: TimeInStage[];
@@ -1482,8 +1484,9 @@ export function computeScorecard(
       .map((s) => {
         const at = (g: Funnel | null) => g?.stages.find((x) => x.key === s.key) ?? null;
         const prev = at(prevF)?.conversionFromPrevious ?? null;
-        const base = at(baseF)?.conversionFromPrevious ?? prev;
-        return { from: s.conversionFrom!, to: s.key, current: s.conversionFromPrevious, previous: prev, capped: s.capped, tone: conversionTone(s.conversionFromPrevious, base) };
+        // The tone is judged ONLY against a clean baseline (lib/metrics/baseline.ts); with none, it is neutral — never the previous period in disguise.
+        const base = at(baseF)?.conversionFromPrevious ?? null;
+        return { from: s.conversionFrom!, to: s.key, current: s.conversionFromPrevious, previous: prev, baseline: base, capped: s.capped, tone: conversionTone(s.conversionFromPrevious, base) };
       });
   const conversions = chips(funnel, previousFunnel, baselineFunnel);
 

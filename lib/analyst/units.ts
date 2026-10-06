@@ -76,6 +76,11 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   used: 'count',
   withoutFormRecord: 'count',
   activeSubscriptions: 'count',
+  weeksUsed: 'count',
+  weeksExcluded: 'count',
+  // per-week averages of a baseline (fractional)
+  enrollmentsPerWeek: 'number',
+  newPayingClientsPerWeek: 'number',
   // shares (0–1, shown as %)
   appliedToEnrolled: 'pct',
   consultShowRate: 'pct',
