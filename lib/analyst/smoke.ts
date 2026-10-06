@@ -284,6 +284,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     }
     const seconds = Math.round((Date.now() - started) / 1000);
     if (out.rendered) opts.log?.(formatRenderedAnswer(out.rendered));
+    for (const f of out.flagged) opts.log?.(`   flagged · ${f.kind} · ${f.section} · ${f.text} · ${f.reason}`);
     if (out.split) opts.log?.(`   cost split · ${formatSplit(out.split)}`);
     const turn = await store.getTurn(prepared.turn.id);
     spentUsd += out.costUsd;

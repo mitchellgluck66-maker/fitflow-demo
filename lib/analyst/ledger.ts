@@ -14,10 +14,15 @@ import { DECLARED_UNITS, resolveUnit, type DeclaredUnit, type LedgerUnit, type R
 
 export type { LedgerUnit } from './units';
 
+/** Which string leaves are refs the model may cite as text (names, reasons, labels) — the rest of a result's strings are not indexed. */
+export const TEXT_REF_KEYS: ReadonlySet<string> = new Set(['name', 'campaign', 'campaignName', 'label', 'verdict', 'reason', 'text', 'source', 'stage', 'type', 'note', 'summary', 'withheld', 'kpi', 'metric', 'key', 'from', 'to', 'state', 'owner', 'pipeline', 'status', 'rule', 'baselineSummary', 'line', 'definition', 'formula', 'worked', 'tone', 'grain', 'kind', 'platform', 'description']);
+
 export interface LedgerEntry {
   ref: string;
   value: number | null;
-  unit: LedgerUnit;
+  /** A TEXT ref (unit 'text'): the string itself — names, reasons, the verdict word — rendered verbatim. */
+  text?: string;
+  unit: LedgerUnit | 'text';
   /** For a ratio: shown as a percentage (`pct`) or a multiple (`multiple`); null for other units. */
   reading: Reading;
   /** ISO time the tool result was produced (stale-ref check). */
@@ -79,6 +84,10 @@ export function ledgerEntries(ref: string, data: unknown, fetchedAt: string, cur
   const walk = (v: unknown, path: string, declared: DeclaredUnit | null, metric: string | null, deltaRow: boolean) => {
     if (v === null) return push(path, null, declared, metric, deltaRow);
     if (typeof v === 'number') return Number.isFinite(v) ? push(path, v, declared, metric, deltaRow) : undefined;
+    if (typeof v === 'string') {
+      if (TEXT_REF_KEYS.has(lastKey(path)) && v.trim()) out.push({ ref: `${ref}:${path}`, value: null, text: v, unit: 'text', reading: null, fetchedAt, currency, delta: false, metric: null });
+      return;
+    }
     if (Array.isArray(v)) return v.forEach((x, i) => walk(x, `${path}[${i}]`, declared, metric, deltaRow));
     if (v && typeof v === 'object') {
       const o = v as Record<string, unknown>;
@@ -103,16 +112,21 @@ export class Ledger {
     return this.entries.get(ref.trim());
   }
 
-  /** For `calculate`: the value, null when withheld, undefined when the ref is unknown. */
+  /** For `calculate`: the value, null when withheld, undefined when the ref is unknown or a text ref. */
   resolve(ref: string): number | null | undefined {
     const e = this.get(ref);
-    return e ? e.value : undefined;
+    return e && e.unit !== 'text' ? e.value : undefined;
+  }
+
+  /** The refs the ledger holds, for "did you mean" suggestions on an unknown ref. */
+  refs(): string[] {
+    return [...this.entries.keys()];
   }
 
   /** For `calculate`: the unit and currency the renderer will hold this ref to (hours and unknown are plain numbers there). */
   info(ref: string): { unit: 'cents' | 'count' | 'ratio' | 'number'; currency: string | null; metric: string | null; delta: boolean } | undefined {
     const e = this.get(ref);
-    return e ? { unit: e.unit === 'hours' || e.unit === 'unknown' ? 'number' : e.unit, currency: e.currency ?? null, metric: e.metric, delta: e.delta } : undefined;
+    return e && e.unit !== 'text' ? { unit: e.unit === 'hours' || e.unit === 'unknown' ? 'number' : e.unit, currency: e.currency ?? null, metric: e.metric, delta: e.delta } : undefined;
   }
 
   size(): number {

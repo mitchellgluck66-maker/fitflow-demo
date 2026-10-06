@@ -117,6 +117,38 @@ export function tokens(text: string): Token[] {
   return out;
 }
 
+/**
+ * " — the index has {r2:data.kpis.paidCacCents.current}": the same call's refs ranked by how much of the
+ * path's tail they share (leaf and parent key, `Cents` ignored); only the best-scoring ones (≤ 3) are named.
+ */
+export function suggest(ledger: Ledger, ref: string): string {
+  const norm = (x: string) => x.toLowerCase().replace(/cents$/, '');
+  const split = (path: string) => path.split(/[.[]/).filter(Boolean).map((x) => norm(x.replace(/\]$/, '')));
+  const [call, path = ''] = ref.split(':');
+  const segs = split(path);
+  const leaf = segs[segs.length - 1] ?? '';
+  const parent = segs[segs.length - 2] ?? '';
+  const scored = ledger
+    .refs()
+    .filter((r) => r.startsWith(`${call}:`))
+    .map((r) => {
+      const rs = split(r.split(':')[1]);
+      const rl = rs[rs.length - 1] ?? '';
+      const rp = rs[rs.length - 2] ?? '';
+      // The leaf (the metric's name) is the most specific signal; the parent only breaks ties.
+      let score = 0;
+      if (rl === leaf) score += 3;
+      else if (leaf.length > 2 && rs.some((x) => x.includes(leaf))) score += 2;
+      if (parent && rp === parent) score += 1;
+      else if (parent.length > 2 && rs.some((x) => x.includes(parent))) score += 1;
+      return { r, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const best = scored.length ? scored.filter((x) => x.score === scored[0].score).slice(0, 3) : [];
+  return best.length ? ` — the index has ${best.map((x) => `{${x.r}}`).join(', ')}` : '';
+}
+
 export interface VerifyOptions {
   /** ISO: a ref fetched before this is stale (the newest sync marker since the turn began). */
   staleBefore?: string | null;
@@ -147,8 +179,8 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
     // 1. Tokens resolve.
     for (const t of refTokens(text)) {
       const entry = ledger.get(t.ref);
-      if (!entry) flagged.push({ kind: 'ref', section, text: t.text, reason: `no such ref "${t.ref}" — cite a number from a tool result in this conversation` });
-      else if (entry.value === null) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" is withheld (null) — this number has no source; say why it is withheld instead` });
+      if (!entry) flagged.push({ kind: 'ref', section, text: t.text, reason: `no such ref "${t.ref}" — copy a token from a tool result's refs index, never compose a path${suggest(ledger, t.ref)}` });
+      else if (entry.unit === 'text' ? entry.text === undefined : entry.value === null) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" is withheld (null) — this number has no source; say why it is withheld instead` });
       else if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" predates the latest sync — re-fetch` });
       else verified += 1;
     }

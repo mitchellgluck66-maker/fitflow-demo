@@ -19,6 +19,7 @@ import { readRatioSummary } from '../reconcile/appliedRatio';
 import { CLASS_LABELS, type ApplicationClass } from '../reconcile/applied';
 import { CANDIDATE_LABEL, CURRENT_LABEL } from '../reconcile/definitions';
 import type { BetaTool } from './api';
+import { refIndex } from './refIndex';
 import { z } from 'zod';
 import { describeZodIssues, zodFromJsonSchema } from '../anthropic/jsonSchemaToZod';
 import { getScorecard, getMetricTrend, getTodoBuckets } from '../metrics/service';
@@ -66,6 +67,8 @@ export interface ToolResult {
   /** Set instead of `data` when the call could not run — the model reads it and corrects its input. */
   error?: string;
   truncated?: boolean;
+  /** The ref index (lib/analyst/refIndex.ts): every citeable leaf as "label → {token}". Copy tokens from here; never compose a path. */
+  refs?: string[];
 }
 
 export interface AnalystTool {
@@ -969,8 +972,9 @@ export async function runAnalystTool(name: string, input: unknown, ctx: ToolCont
   const scrubbed = scrubContact(result);
   const full: ToolResult = { ...base, ...scrubbed };
   const json = JSON.stringify(full);
-  if (json.length <= MAX_RESULT_CHARS) return full;
-  return truncateResult(full);
+  const fitted = json.length <= MAX_RESULT_CHARS ? full : truncateResult(full);
+  // Item 2: the index is built from the DATA THAT IS SENT (after any truncation), so every token in it resolves.
+  return fitted.data === null ? fitted : { ...fitted, refs: refIndex(ctx.ref, fitted.data) };
 }
 
 /** Cut the largest arrays until the result fits; say so. */

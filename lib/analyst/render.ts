@@ -14,6 +14,7 @@ import type { LedgerEntry } from './ledger';
 export type RenderHint = '%' | 'x' | 'k' | null;
 
 export function renderRef(entry: LedgerEntry, hint: RenderHint = null): string {
+  if (entry.unit === 'text') return entry.text ?? '—';
   if (entry.value === null) return '—';
   const abs = Math.abs(entry.value);
   switch (entry.unit) {
@@ -63,7 +64,7 @@ export function renderText(text: string, ledger: Ledger, flags: Flag[] = []): st
   for (const t of refTokens(marked)) {
     out += marked.slice(last, t.index);
     const entry = ledger.get(t.ref);
-    out += entry && entry.value !== null ? renderRef(entry, t.hint) : NO_SOURCE;
+    out += entry && (entry.unit === 'text' ? entry.text !== undefined : entry.value !== null) ? renderRef(entry, t.hint) : NO_SOURCE;
     last = t.index + t.text.length;
   }
   out += marked.slice(last);
