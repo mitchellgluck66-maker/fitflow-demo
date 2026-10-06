@@ -1041,6 +1041,44 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
   `tests/seed-demo-classes`) and the engine has NO sample-data branch — the demo tenant is a tenant.
 - Costs are USD everywhere (amendment 6). Prices in `cost.ts` (Opus 5.5 $4/$20, cache read $0.20;
   Fable 5.1 $10/$50, cache read $0.25) — verified 2026-09-30.
+- **Oct 4 smoke findings (2026-10-06, plan approved; commits 6b7c902..a9a71e8).** Two runs on the same data
+  read "a normal week" and "double your normal week"; 10 `[no source]` on core KPIs; "$[unverified: 2],153.45";
+  repairs with no cause; one estimate for cold and warm turns. Fixed as a class, in order:
+  1. **Baselines** (`lib/metrics/baseline.ts#cleanBaseline` / `trailingBaseline` / `scorecardBaselines`): ONE
+     rule, every caller on it (scorecard chips, get_scorecard / the starter snapshot, the brief, insights, ask
+     context). DECISION: everything derived from a GHL stage entry is history-dependent — enrollments, both CACs,
+     cost per client, LTV:CAC joined `HISTORY_DEPENDENT_METRICS` — and weeks starting before
+     `history_complete_since` are EXCLUDED from their baselines (not flagged; a pre-history catch-up week put
+     12 "enrolled" in one week against Stripe's 5). Fewer than `BASELINE_MIN_WEEKS` (4) clean weeks → null +
+     "baseline needs 4 complete weeks of complete stage history; have 2". Stripe / Meta / calendar-dated metrics
+     keep every week. Tile values did not change; badges, chip baselines and the brief/snapshot baselines did.
+     **Verdict** (`lib/metrics/verdict.ts`, glossary `week_verdict`): strong / normal / weak / unavailable from
+     Stripe-confirmed new paying clients + new-client cash vs the clean 8-week averages (1.3× / 0.7×, 4 weeks
+     min), delivered as `get_scorecard.data.verdict` (text refs) — the model explains it, never decides it; the
+     smoke fails a headline whose verdict word differs. **Cross-source**
+     (`lib/metrics#computeEnrollmentReconciliation`): "8 enrolled in GHL, 4 have paid · unpaid: …" in the
+     snapshot, the brief's `paid` column and the Command Center data-health notice; "awaiting Stripe" now means
+     no payment rows at all (`hasPaymentRows`). `tests/analyst-consistency.test.ts`: the snapshot built twice is
+     identical.
+  2. **Ref index + text refs** (`lib/analyst/refIndex.ts`): every tool result ends with `refs: ["label →
+     {token}", …]` built from the ledger walk (outside `data`, never indexed itself); the model COPIES tokens,
+     never composes a path. Strings under `TEXT_REF_KEYS` (name, campaign, verdict, reason, note…) are text
+     refs (`unit: 'text'`), rendered verbatim, ignored by the direction check, refused by `calculate`. An
+     unknown ref's repair names the nearest index tokens (`verify#suggest`).
+  3. **Marks by position** (`lib/analyst/refToken.ts`, `render#renderWithSpans`, `verify#rawDigits`): the digit
+     scan runs on the RENDERED text with the token spans excluded; a `digits` flag carries its rendered offset,
+     a `direction` flag its sentence offset; `renderText` marks right to left by position. "$2,153.45 CAD",
+     "1,234", "41.6%", "2.1×", "$3.7k" are one unit each.
+  4. **Repairs explained**: the loop emits `{type:'repair', problems:[{kind, section, text, reason}]}` (kinds =
+     the verifier's + `structure` + `stale_spend`); `run#countRepairs` is the one counter; the smoke prints
+     `repair 1 · digits (what_happened): "8" — …` and `repairs 1 (digits×2, ref×1)`. Target: repairs 0 · flagged 0.
+  5. **Estimate by prefix state** (`cost#prefixState`, migration 0020 `analyst_turns.prefix` + `brief_hash`):
+     warm when a turn with the same brief hash on the same model finished inside the TTL minus a margin (55 min
+     Opus, 4 min Fable) → the prefix priced at the cache-read rate; else cold → the TTL's write rate.
+     Calibration buckets by (kind, prefix). The smoke prints `vs est $0.41 USD (cold)` and
+     ` · prefix predicted cold, measured hit` on a disagreement.
+  Nothing live verified by Claude; Mitchell runs `npm run smoke:analyst` twice. Deploy: `npm run db:migrate`
+  (0020, additive) before the push.
 
 ## Applied reconciliation — daily (2026-09-30, `docs/plan-reconciliation-2026-09-30.md`)
 
