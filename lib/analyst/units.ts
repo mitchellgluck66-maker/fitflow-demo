@@ -14,8 +14,9 @@
  * `ratio` with a `reading`. A delta's `pct` is always a percentage.
  */
 
-export type DeclaredUnit = 'cents' | 'count' | 'pct' | 'multiple' | 'ratio' | 'hours' | 'number';
-export type LedgerUnit = 'cents' | 'ratio' | 'count' | 'number' | 'hours' | 'unknown';
+/** `fraction` (Oct 7 item 3): a share of two COUNTS — rendered "4 of 8" (the row carries numerator / denominator), "50%" with the `|%` hint. */
+export type DeclaredUnit = 'cents' | 'count' | 'pct' | 'multiple' | 'ratio' | 'hours' | 'number' | 'fraction';
+export type LedgerUnit = 'cents' | 'ratio' | 'count' | 'number' | 'hours' | 'fraction' | 'unknown';
 export type Reading = 'pct' | 'multiple' | null;
 
 export const GENERIC_VALUE_KEYS = /^(value|current|previous|against|abs|baseline|spanValue|previousSpanValue)$/;
@@ -83,6 +84,8 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   weeksExcluded: 'count',
   oldestAgeMinutes: 'count',
   days: 'count',
+  numerator: 'count',
+  denominator: 'count',
   // per-week averages of a baseline (fractional) and the verdict's inputs
   enrollmentsPerWeek: 'number',
   newPayingClientsPerWeek: 'number',
@@ -112,7 +115,7 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   timeInStageHours: 'hours',
 };
 
-export const DECLARED_UNITS: ReadonlySet<string> = new Set<string>(['cents', 'count', 'pct', 'multiple', 'ratio', 'hours', 'number']);
+export const DECLARED_UNITS: ReadonlySet<string> = new Set<string>(['cents', 'count', 'pct', 'multiple', 'ratio', 'hours', 'number', 'fraction']);
 
 export function toLedgerUnit(u: DeclaredUnit): LedgerUnit {
   return u === 'pct' || u === 'multiple' || u === 'ratio' ? 'ratio' : u;

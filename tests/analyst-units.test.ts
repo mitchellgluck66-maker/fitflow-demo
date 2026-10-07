@@ -103,13 +103,16 @@ describe('calculate rows are tool results like any other', () => {
     expect(rows).toEqual([
       { label: 'blended', op: 'per_unit', ref: 'r7:data.results[0].value', value: 493_750, unit: 'cents', delta: false, metric: null, error: null },
       { label: 'organic', op: 'difference', ref: 'r7:data.results[1].value', value: 1, unit: 'count', delta: true, metric: null, error: null },
-      { label: 'paid_share', op: 'ratio', ref: 'r7:data.results[2].value', value: 0.75, unit: 'pct', delta: false, metric: null, error: null },
+      // Oct 7 item 3: count ÷ count is a fraction row — the server prints "3 of 4" (or "75%" with |%), never "0.75" / "0.8×".
+      { label: 'paid_share', op: 'ratio', ref: 'r7:data.results[2].value', value: 0.75, unit: 'fraction', numerator: 3, denominator: 4, delta: false, metric: null, error: null },
       { label: 'cac_change', op: 'percent_change', ref: 'r7:data.results[3].value', value: -0.07558, unit: 'pct', delta: true, metric: 'paidCacCents', error: null },
       { label: 'roas_like', op: 'ratio', ref: 'r7:data.results[4].value', value: 21.364748, unit: 'multiple', delta: false, metric: null, error: null },
     ]);
     const ledger = new Ledger();
     ledger.add('r7', { results: rows, failed: 0 }, T0, 'CAD');
-    expect(['r7:data.results[0].value', 'r7:data.results[1].value', 'r7:data.results[2].value', 'r7:data.results[3].value'].map((r) => ledger.get(r)?.unit)).toEqual(['cents', 'count', 'ratio', 'ratio']);
+    expect(['r7:data.results[0].value', 'r7:data.results[1].value', 'r7:data.results[2].value', 'r7:data.results[3].value'].map((r) => ledger.get(r)?.unit)).toEqual(['cents', 'count', 'fraction', 'ratio']);
+    expect(renderRef(ledger.get('r7:data.results[2].value')!)).toBe('3 of 4');
+    expect(renderRef(ledger.get('r7:data.results[2].value')!, '%')).toBe('75%');
     expect(renderRef(ledger.get('r7:data.results[0].value')!)).toBe('$4,937.50 CAD'); // the recorded false flag, rendered by the server
     expect(renderRef(ledger.get('r7:data.results[3].value')!)).toBe('7.6%');
     expect(renderRef(ledger.get('r7:data.results[4].value')!)).toBe('21.4×');

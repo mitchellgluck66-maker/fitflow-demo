@@ -15,11 +15,32 @@ import type { Flag } from './verify';
 /** A reading hint from a ref token: `{ref|%}` share, `{ref|x}` multiple, `{ref|k}` compact money. */
 export type RenderHint = '%' | 'x' | 'k' | null;
 
-export function renderRef(entry: LedgerEntry, hint: RenderHint = null): string {
+/**
+ * Oct 7 item 3: a hint that conflicts with the unit is ignored here and flagged by the verifier (`hint`) — a count
+ * never renders as × or % ("0.8× extra enrollments"), money never as a share; `|k` applies to money only.
+ */
+export function hintConflict(unit: LedgerEntry['unit'], hint: RenderHint): string | null {
+  if (!hint) return null;
+  if (unit === 'ratio') return hint === 'k' ? 'a ratio has no k form' : null;
+  if (unit === 'fraction') return hint === '%' ? null : `a fraction renders "4 of 8" or, with |%, a percentage — not ${hint === 'x' ? '×' : 'k'}`;
+  if (unit === 'cents') return hint === 'k' ? null : `money never renders as ${hint === 'x' ? '×' : '%'}`;
+  if (unit === 'text') return 'a text ref takes no hint';
+  return `a ${unit === 'unknown' ? 'number' : unit} never renders as ${hint === 'x' ? '×' : hint === '%' ? '%' : 'k'}; for a share of two counts use calculate ratio (it renders "4 of 8")`;
+}
+
+export function renderRef(entry: LedgerEntry, rawHint: RenderHint = null): string {
   if (entry.unit === 'text') return entry.text ?? '—';
   if (entry.value === null) return '—';
+  const hint = hintConflict(entry.unit, rawHint) ? null : rawHint;
   const abs = Math.abs(entry.value);
   switch (entry.unit) {
+    case 'fraction': {
+      if (hint === '%') {
+        const pct = Math.round(abs * 1000) / 10;
+        return Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(1)}%`;
+      }
+      return entry.fraction ? `${entry.fraction.numerator.toLocaleString('en-US')} of ${entry.fraction.denominator.toLocaleString('en-US')}` : String(Math.round(abs * 100) / 100);
+    }
     case 'cents': {
       const dollars = abs / 100;
       if (hint === 'k' && dollars >= 10_000) return `$${(dollars / 1000).toFixed(1)}k ${entry.currency}`;

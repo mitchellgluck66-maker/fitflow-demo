@@ -42,6 +42,8 @@ export interface LedgerEntry {
   delta: boolean;
   /** The metric key this value belongs to, when the result names one (kpis.<key>, a row's `kpi` / `metric`). */
   metric: string | null;
+  /** A `fraction` value's two counts (Oct 7 item 3), read from the row beside it — rendered "4 of 8". */
+  fraction?: { numerator: number; denominator: number };
 }
 
 /** The `unit` an object declares (valid names only), or the inherited one. */
@@ -104,6 +106,11 @@ export function ledgerEntries(ref: string, data: unknown, fetchedAt: string, cur
       const m = declaredMetric(v, metric);
       const isDelta = o.delta === true || deltaRow;
       for (const [k, x] of Object.entries(o)) walk(x, `${path}.${k}`, d, m, isDelta);
+      // A fraction row: its `value` entry carries the two counts so the renderer can print "4 of 8".
+      if (d === 'fraction' && typeof o.numerator === 'number' && typeof o.denominator === 'number' && typeof o.value === 'number') {
+        const e = out.find((x) => x.ref === `${ref}:${path}.value`);
+        if (e) e.fraction = { numerator: o.numerator, denominator: o.denominator };
+      }
     }
   };
   walk(data, 'data', null, null, false);
@@ -135,7 +142,8 @@ export class Ledger {
   /** For `calculate`: the unit and currency the renderer will hold this ref to (hours and unknown are plain numbers there). */
   info(ref: string): { unit: 'cents' | 'count' | 'ratio' | 'number'; currency: string | null; metric: string | null; delta: boolean } | undefined {
     const e = this.get(ref);
-    return e && e.unit !== 'text' ? { unit: e.unit === 'hours' || e.unit === 'unknown' ? 'number' : e.unit, currency: e.currency ?? null, metric: e.metric, delta: e.delta } : undefined;
+    // A fraction is a ratio to arithmetic (its value is the share).
+    return e && e.unit !== 'text' ? { unit: e.unit === 'hours' || e.unit === 'unknown' ? 'number' : e.unit === 'fraction' ? 'ratio' : e.unit, currency: e.currency ?? null, metric: e.metric, delta: e.delta } : undefined;
   }
 
   size(): number {

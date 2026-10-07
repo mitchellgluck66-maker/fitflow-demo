@@ -9,7 +9,8 @@
  *      string the owner wrote verbatim in THIS question — a formatted number ("$2,153.45 CAD", "1,234",
  *      "41.6%", "2.1×", "$3.7k") is ONE unit and a flag carries its position, so the mark goes exactly there;
  *   3. findings' evidence refs exist;
- *   4. direction words agree with the sign / polarity of the delta they sit next to (direction.ts).
+ *   4. direction words agree with the sign / polarity of the delta they sit next to (direction.ts);
+ *   5. a hint never conflicts with the unit (`{count|x}`, `{cents|%}`) — rendered plain and flagged `hint` (Oct 7 item 3).
  *
  * ONE repair turn with the exact problems; after that the renderer shows `[no source]` for an unresolved
  * token and `[unverified: 8]` around a raw digit — marked, never silent. The old verifier compared the
@@ -20,9 +21,9 @@ import { NOTE_KEYS, type Ledger } from './ledger';
 import type { Answer } from './schema';
 import { checkDirection } from './direction';
 import { refTokens } from './refToken';
-import { renderWithSpans, type RenderedSpan } from './render';
+import { hintConflict, renderWithSpans, type RenderedSpan } from './render';
 
-export type FlagKind = 'ref' | 'digits' | 'evidence' | 'direction';
+export type FlagKind = 'ref' | 'digits' | 'evidence' | 'direction' | 'hint';
 
 export interface Flag {
   kind: FlagKind;
@@ -186,6 +187,7 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
       }
       else if (entry.unit === 'text' ? entry.text === undefined : entry.value === null) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" is withheld (null) — this number has no source; say why it is withheld instead` });
       else if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" predates the latest sync — re-fetch` });
+      else if (hintConflict(entry.unit, t.hint)) flagged.push({ kind: 'hint', section, text: t.text, reason: `${t.text}: ${hintConflict(entry.unit, t.hint)} — drop the |${t.hint} hint` });
       else verified += 1;
     }
     // 2. No raw digits outside a rendered token span — scanned on the rendered text, flagged by position.

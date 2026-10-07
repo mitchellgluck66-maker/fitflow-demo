@@ -129,6 +129,33 @@ describe('formatted numbers are one unit; marks land by position (item 3, 2026-1
   });
 });
 
+describe('hints that conflict with the unit are refused; a share of two counts is a fraction (Oct 7 item 3)', () => {
+  it('count|x, count|%, cents|%, cents|x and ratio|k render plain and are flagged `hint`; cents|k and ratio|%/|x are fine', () => {
+    expect(renderText('{r1:data.kpis.enrollments.current|x} extra enrollments', ledger)).toBe('8 extra enrollments'); // never "0.8×" / "8×" for a count
+    expect(renderText('{r1:data.kpis.enrollments.current|%}', ledger)).toBe('8');
+    expect(renderText('{r1:data.kpis.paidCacCents.current|%} · {r1:data.kpis.paidCacCents.current|x} · {r1:data.marketing.spendCents|k}', ledger)).toBe('$924.42 CAD · $924.42 CAD · $3,697.68 CAD'); // k below $10,000 stays exact
+    expect(renderText('{r1:data.kpis.roas.current|k}', ledger)).toBe('2.1×'); // |k ignored on a ratio: its own reading (a multiple) stands
+    const a = base({ sections: [sec('what_happened', '{r1:data.kpis.enrollments.current|x} extra, CAC {r1:data.kpis.paidCacCents.current|%}, ROAS {r1:data.kpis.roas.current|x}, spend {r1:data.marketing.spendCents|k}.')] });
+    const v = verifyAnswer(a, ledger);
+    expect(v.flagged.map((f) => [f.kind, f.text, f.reason])).toEqual([
+      ['hint', '{r1:data.kpis.enrollments.current|x}', '{r1:data.kpis.enrollments.current|x}: a count never renders as ×; for a share of two counts use calculate ratio (it renders "4 of 8") — drop the |x hint'],
+      ['hint', '{r1:data.kpis.paidCacCents.current|%}', '{r1:data.kpis.paidCacCents.current|%}: money never renders as % — drop the |% hint'],
+    ]);
+    expect(v.verified).toBe(3); // the headline's token + ROAS|x + spend|k
+    expect(renderAnswer(a, ledger, v.flagged).sections[0].body_md).toBe('8 extra, CAC $924.42 CAD, ROAS 2.1×, spend $3,697.68 CAD.');
+  });
+  it('a fraction row renders "4 of 8", "50%" with |%, and is a ratio to further arithmetic', () => {
+    const L = new Ledger();
+    L.add('r7', { results: [{ label: 'paid_share', op: 'ratio', unit: 'fraction', numerator: 4, denominator: 8, value: 0.5, delta: false, metric: null, error: null }], failed: 0 }, T0, 'CAD');
+    const e = L.get('r7:data.results[0].value')!;
+    expect(e).toMatchObject({ unit: 'fraction', value: 0.5, fraction: { numerator: 4, denominator: 8 } });
+    expect(renderText('{r7:data.results[0].value} paid ({r7:data.results[0].value|%}); {r7:data.results[0].value|x}', L)).toBe('4 of 8 paid (50%); 4 of 8');
+    expect(verifyAnswer(base({ headline: { text: '{r7:data.results[0].value|x} paid.' } }), L).flagged.map((f) => f.kind)).toEqual(['hint']);
+    expect(L.info('r7:data.results[0].value')).toMatchObject({ unit: 'ratio' });
+    expect(L.get('r7:data.results[0].numerator')).toMatchObject({ unit: 'count', value: 4 });
+  });
+});
+
 describe('exempt contexts', () => {
   const check = (body: string, expected: boolean) => {
     const t = tokens(body).filter((x) => !x.money && x.suffix === '');

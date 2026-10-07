@@ -51,7 +51,10 @@ describe('calculate (pure)', () => {
   it('units come from the ledger: counts stay counts, like ÷ like is a ratio, cents carry their currency, two currencies never mix', () => {
     const c = (op: Parameters<typeof calculate>[0], a: string, b: string, inf = info) => calculate(op, { kind: 'ref', ref: a, value: 0 }, { kind: 'ref', ref: b, value: 0 }, resolve, inf);
     expect(c('difference', 'r1:data.marketing.ltvCoverage.total', 'r1:data.marketing.ltvCoverage.used')).toMatchObject({ value: 3, unit: 'count', currency: null });
-    expect(c('ratio', 'r1:data.marketing.ltvCoverage.used', 'r1:data.marketing.ltvCoverage.total')).toMatchObject({ value: 0.875, unit: 'ratio' });
+    // Oct 7 item 3: count ÷ count is a FRACTION with both counts — the server prints "7 of 8", never "0.875" or "0.9×".
+    expect(c('ratio', 'r1:data.marketing.ltvCoverage.used', 'r1:data.marketing.ltvCoverage.total')).toMatchObject({ value: 0.875, unit: 'fraction', text: '21 of 24', fraction: { numerator: 21, denominator: 24 } });
+    expect(c('product', 'r1:data.marketing.enrollments', 'r1:data.marketing.ltvCoverage.used')).toMatchObject({ unit: 'count' }); // count × count stays a count
+    expect(calculate('product', { kind: 'ref', ref: 'r1:data.marketing.enrollments', value: 0 }, { kind: 'value', ref: '', value: 0.5 }, resolve, info)).toMatchObject({ unit: 'number' }); // "half of the enrollments" is not a count of anything — ratio is the op for a share
     expect(c('ratio', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents')).toMatchObject({ unit: 'ratio', currency: null });
     expect(c('sum', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents')).toMatchObject({ value: 669_768, unit: 'cents', currency: 'CAD' });
     expect(() => c('sum', 'r1:data.marketing.spendCents', 'r2:data.marketing.spendCents', (r) => ({ unit: 'cents' as const, currency: r.startsWith('r1') ? 'CAD' : 'USD', metric: null, delta: false }))).toThrow(/CAD and USD amounts cannot be combined/);
