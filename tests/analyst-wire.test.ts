@@ -6,12 +6,12 @@
  * tools, and a compaction request with no output format.
  */
 import { describe, it, expect } from 'vitest';
-import { buildCompactionRequest, buildCountRequest, buildTurnRequest, cacheSharePct, withMessageBreakpoints, SUBMIT_ANSWER_TOOL, type BetaMessageParam, type BetaTool } from '@/lib/analyst/api';
+import { buildCompactionRequest, buildCountRequest, buildTurnRequest, cacheSharePct, withMessageBreakpoints, SUBMIT_ANSWER_TOOL, type BetaMessageParam, type BetaTool, buildRepairRequest } from '@/lib/analyst/api';
 import { ANALYST_BETAS } from '@/lib/analyst/config';
 import { findUnsupportedKeywords } from '@/lib/anthropic/strictSchema';
 import { ANALYST_PRICES, formatUsd, priceUsage, usageTotals } from '@/lib/analyst/cost';
 import { ANALYST_TOOL_DEFINITIONS } from '@/lib/analyst/tools';
-import { ANSWER_SCHEMA } from '@/lib/analyst/schema';
+import { ANSWER_SCHEMA, REPAIR_SCHEMA } from '@/lib/analyst/schema';
 
 const tools: BetaTool[] = [
   { name: 'get_scorecard', description: 'b', strict: true, input_schema: { type: 'object', properties: { range: { type: 'string' } }, required: ['range'], additionalProperties: false } },
@@ -99,6 +99,24 @@ describe('turn request', () => {
     const submit = (fb.tools ?? []).find((t) => (t as BetaTool).name === SUBMIT_ANSWER_TOOL) as BetaTool;
     expect(submit.strict).toBe(true);
     expect(submit.input_schema).toEqual(schema);
+  });
+  it('the targeted repair request (Oct 7 item 2a): same prefix, tools and breakpoints; the repair format replaces the answer format; submit mode swaps submit_answer for a strict submit_repair; within budget', () => {
+    const prod = { ...base, tools: [...ANALYST_TOOL_DEFINITIONS] };
+    const turn = buildTurnRequest(prod);
+    const repair = buildRepairRequest({ ...prod, repairSchema: REPAIR_SCHEMA as unknown as Record<string, unknown> });
+    expect(repair.system).toEqual(turn.system);
+    expect(repair.tools).toEqual(turn.tools);
+    expect(repair.messages).toEqual(turn.messages);
+    expect(repair.thinking).toEqual(turn.thinking);
+    expect(repair.tool_choice).toEqual({ type: 'auto' });
+    expect((repair.output_config as { format: { schema: unknown } }).format.schema).toEqual(REPAIR_SCHEMA);
+    expect(findUnsupportedKeywords(REPAIR_SCHEMA as unknown as Record<string, unknown>)).toEqual([]);
+    const submit = buildRepairRequest({ ...prod, answerMode: 'submit_answer', repairSchema: REPAIR_SCHEMA as unknown as Record<string, unknown> });
+    const names = (submit.tools as BetaTool[]).map((t) => t.name);
+    expect(names).toContain('submit_repair');
+    expect(names).not.toContain('submit_answer');
+    expect((submit.tools as BetaTool[]).filter((t) => t.strict).length).toBe(1);
+    expect((submit.output_config as { format?: unknown }).format).toBeUndefined();
   });
   it('two builds of the same input are string-equal (a byte-identical prefix is what preserved thinking needs)', () => {
     expect(JSON.stringify(buildTurnRequest(base))).toBe(JSON.stringify(buildTurnRequest(base)));

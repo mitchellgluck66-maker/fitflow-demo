@@ -20,12 +20,12 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { assistantTurn, buildCompactionRequest, buildTurnRequest, cacheSharePct, inputTransformations, progressUpdates, SUBMIT_ANSWER_TOOL, type BetaMessage, type BetaMessageParam, type BetaTool } from './api';
+import { assistantTurn, buildCompactionRequest, buildRepairRequest, buildTurnRequest, cacheSharePct, inputTransformations, progressUpdates, SUBMIT_ANSWER_TOOL, SUBMIT_REPAIR_TOOL, type BetaMessage, type BetaMessageParam, type BetaTool } from './api';
 import { isTransientError, describeError, RETRY_DELAY_MS } from '../anthropic/client';
 import { noteAnthropicOutcome } from '../anthropic/incident';
-import { ANSWER_SCHEMA, AnswerSchema, checkStructure, type Answer } from './schema';
+import { ANSWER_SCHEMA, AnswerSchema, checkStructure, REPAIR_SCHEMA, RepairSchema, spliceFields, TARGETED_KINDS, type Answer, type RepairFields } from './schema';
 import { Ledger } from './ledger';
-import { repairMessage, verifyAnswer, type Flag } from './verify';
+import { repairMessage, targetedRepairMessage, verifyAnswer, type Flag } from './verify';
 import { renderAnswer, type RenderedAnswer } from './render';
 import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
@@ -52,10 +52,10 @@ export function countRepairs(events: ReadonlyArray<Record<string, unknown>>): nu
 export type AnalystEvent =
   | { type: 'notice'; text: string; stale: boolean }
   | { type: 'status'; text: string }
-  /** Item 4 (2026-10-06): a repair turn, with every problem that triggered it and the rule each came from. */
-  | { type: 'repair'; problems: RepairProblem[] }
+  /** Item 4 (2026-10-06): a repair turn, with every problem that triggered it and the rule each came from. Oct 7 item 2a: `targeted` = only the listed fields are asked for and spliced back; otherwise the whole answer is regenerated. */
+  | { type: 'repair'; problems: RepairProblem[]; targeted: boolean; paths: string[] }
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
-  | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number }
+  | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number; /** Oct 7 item 2a: this round's price, so a repair round's share of the turn is measurable. */ costUsd: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
   | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean; /** Item D: input · cache read · cache write · thinking · answer. */ split: CostSplit }
@@ -211,6 +211,27 @@ function answerFromMessage(message: BetaMessage, mode: AnswerMode): { answer: An
   return { answer: parsed.data, problem: null };
 }
 
+/** The fields a targeted repair returned (Oct 7 item 2a), or the problem. */
+function repairFromMessage(message: BetaMessage, mode: AnswerMode): { fields: RepairFields | null; problem: string | null } {
+  let raw: unknown;
+  if (mode === 'submit_answer') {
+    const block = message.content.find((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use' && b.name === SUBMIT_REPAIR_TOOL);
+    if (!block) return { fields: null, problem: 'the repair ended without calling submit_repair' };
+    raw = block.input;
+  } else {
+    const text = message.content.filter((b): b is Anthropic.Beta.Messages.BetaTextBlock => b.type === 'text').map((b) => b.text).join('');
+    if (!text.trim()) return { fields: null, problem: 'the repair returned no text' };
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      return { fields: null, problem: 'the repair was not valid JSON' };
+    }
+  }
+  const parsed = RepairSchema.safeParse(raw);
+  if (!parsed.success) return { fields: null, problem: `the repair failed validation at ${parsed.error.issues[0]?.path.join('.') || '(root)'}: ${parsed.error.issues[0]?.message}` };
+  return { fields: parsed.data.fields, problem: null };
+}
+
 export async function runAnalystTurn(threadId: string, turnId: string, deps: RunDeps): Promise<TurnOutcome> {
   const now = deps.now ?? Date.now;
   const startedAt = now();
@@ -264,9 +285,12 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   const effort = thread.effort as Effort;
   const answerMode = thread.answerMode as AnswerMode;
 
+  // Oct 7 item 2a: a targeted repair in flight — the next request asks for the listed fields only and they are spliced into the rejected answer.
+  let pendingRepair: { paths: string[]; rejected: Answer } | null = null;
   const request = () => {
     const { messages, carriesCompaction } = historyFromLog(rows);
-    return buildTurnRequest({ model, effort, system: [deps.contract, deps.brief.text], tools: toolDefs, messages, answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode, maxTokens: deps.maxTokens ?? 16_000 }, { carriesCompaction });
+    const input = { model, effort, system: [deps.contract, deps.brief.text] as [string, string], tools: toolDefs, messages, answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode, maxTokens: deps.maxTokens ?? 16_000 };
+    return pendingRepair ? buildRepairRequest({ ...input, repairSchema: REPAIR_SCHEMA as unknown as Record<string, unknown> }, { carriesCompaction }) : buildTurnRequest(input, { carriesCompaction });
   };
 
   const streamRound = async (): Promise<BetaMessage> => {
@@ -331,17 +355,18 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     const t = usageTotals(u);
     usage = addUsage(usage, t);
     visibleOutput += message.content.map((b) => (b.type === 'text' ? b.text : b.type === 'tool_use' ? JSON.stringify(b.input) : '')).join('');
-    costUsd += priceUsage(model, u);
+    const roundUsd = priceUsage(model, u);
+    costUsd += roundUsd;
     lastInputTotal = t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
     const dropped = inputTransformations(message);
     const cacheWriteTokens = t.cacheWrite5mTokens + t.cacheWrite1hTokens;
-    await emit({ type: 'round', stopReason: message.stop_reason, inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens, cacheSharePct: cacheSharePct({ inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens }), outputTokens: t.outputTokens, droppedThinking: dropped.length, progressUpdates: progressUpdates(message).length, toolCalls: message.content.filter((b) => b.type === 'tool_use').length });
+    await emit({ type: 'round', stopReason: message.stop_reason, inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens, cacheSharePct: cacheSharePct({ inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens }), outputTokens: t.outputTokens, droppedThinking: dropped.length, progressUpdates: progressUpdates(message).length, toolCalls: message.content.filter((b) => b.type === 'tool_use').length, costUsd: roundUsd });
     if (dropped.length) await emit({ type: 'status', text: `Earlier reasoning was dropped because the prefix changed (${dropped.map((d) => d.reason ?? d.type).join(', ')}) — expected after a deploy or a brief rebuild.` });
 
     if (message.stop_reason === 'refusal') return fail('Claude declined the request.', true, 'warning');
     if (message.stop_reason === 'max_tokens') return fail('the answer was cut off at max_tokens', true, 'warning');
 
-    const toolUses = message.content.filter((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use' && b.name !== SUBMIT_ANSWER_TOOL);
+    const toolUses = message.content.filter((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use' && b.name !== SUBMIT_ANSWER_TOOL && b.name !== SUBMIT_REPAIR_TOOL);
     if (toolUses.length > 0) {
       const heartbeat = setInterval(() => void store.heartbeat(turnId), 15_000);
       let results: Array<{ id: string; ref: string; name: string; label: string; result: ToolResult }>;
@@ -375,7 +400,20 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     }
 
     // A final answer: parse → structure → verify → (one repair) → accept, flagged if it must be.
-    const { answer, problem } = answerFromMessage(message, answerMode);
+    let parsed: { answer: Answer | null; problem: string | null };
+    if (pendingRepair) {
+      const r = repairFromMessage(message, answerMode);
+      if (r.fields) {
+        const sp = spliceFields(pendingRepair.rejected, r.fields, pendingRepair.paths);
+        await emit({ type: 'status', text: `Repaired ${sp.applied.length} field${sp.applied.length === 1 ? '' : 's'}${sp.applied.length ? ` (${sp.applied.join(', ')})` : ''}${sp.ignored.length ? ` · ignored ${sp.ignored.length} unasked-for (${sp.ignored.join(', ')})` : ''}` });
+        parsed = { answer: sp.answer, problem: null };
+      } else {
+        await emit({ type: 'status', text: `Repair returned nothing usable (${r.problem}) — the original fields stay, marked.` });
+        parsed = { answer: pendingRepair.rejected, problem: null };
+      }
+      pendingRepair = null;
+    } else parsed = answerFromMessage(message, answerMode);
+    const { answer, problem } = parsed;
     const structural = answer ? checkStructure(answer) : problem;
     let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore, question: turn.question }) : null;
     const spendOnStale = answer && deps.freshness.stale ? answer.actions.filter((a) => a.kind === 'spend').length : 0;
@@ -387,10 +425,15 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
 
     if (problems.length && repairs < 1) {
       repairs += 1;
-      await emit({ type: 'repair', problems: repairProblems });
+      // Oct 7 item 2a: text-field problems get a TARGETED repair (only those fields come back and are spliced in);
+      // a structure, stale-spend or gate problem regenerates the whole answer.
+      const targeted = answer !== null && repairProblems.every((p) => TARGETED_KINDS.has(p.kind));
+      const paths = targeted ? [...new Set(repairProblems.map((p) => p.section))] : [];
+      if (targeted) pendingRepair = { paths, rejected: answer };
+      await emit({ type: 'repair', problems: repairProblems, targeted, paths });
       await store.appendMessages(threadId, [
-        { turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { rejected: true, problems } },
-        { turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: repairMessage(problems) } satisfies BetaMessageParam), display: { repair: true } },
+        { turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { rejected: true, problems, targeted } },
+        { turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: targeted ? targetedRepairMessage(repairProblems) : repairMessage(problems) } satisfies BetaMessageParam), display: { repair: true, targeted, paths } },
       ]);
       rows = await store.listMessages(threadId);
       rounds += 1;

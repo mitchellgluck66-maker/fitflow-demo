@@ -32,7 +32,10 @@ import { listClients, getClientProfile } from '../queries/clients';
 import { getTimezone } from '../settings';
 import { todayInTimezone, PRESETS, rangeFromParams } from '../dates';
 import { freshnessSummary, readSyncStatus } from '../sync/sourceFreshness';
-import { holdForStale, type SpendGates } from '../metrics/spendGate';
+import { holdForStale, SPEND_GATE, type SpendGates } from '../metrics/spendGate';
+import { VERDICT_THRESHOLDS } from '../metrics/verdict';
+import { BASELINE_MIN_WEEKS } from '../metrics/baseline';
+import { SHOW_RATE_MIN_COVERAGE } from '../metrics';
 import { activeNotes, getOwnerProfile, profileGaps, withheldLine } from './notes';
 import { DECISIONS_LOG } from './brief';
 
@@ -126,7 +129,22 @@ async function resolveRange(r: RangeInput | null | undefined) {
   return { timezone, today, range, label: `${range.presetLabel} · ${range.resolvedLabel}` };
 }
 
-const rangeOut = (r: { start: string; end: string; presetLabel?: string; resolvedLabel?: string; label?: string }) => ({ start: r.start, end: r.end, label: r.label ?? (r.presetLabel ? `${r.presetLabel} · ${r.resolvedLabel}` : `${r.start} – ${r.end}`) });
+/** Oct 7 item 2b: a range carries its day count, so "7 days" / "the 30-day window" has a ref. */
+const daysBetween = (start: string, end: string) => Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1;
+const rangeOut = (r: { start: string; end: string; presetLabel?: string; resolvedLabel?: string; label?: string }) => ({ start: r.start, end: r.end, days: daysBetween(r.start, r.end), label: r.label ?? (r.presetLabel ? `${r.presetLabel} · ${r.resolvedLabel}` : `${r.start} – ${r.end}`) });
+
+/**
+ * Oct 7 item 2b: the glossary's constants as leaves, so a threshold the model restates ("90%", "4 weeks") has a
+ * ref. One source each — never a literal here.
+ */
+export const CONSTANTS = {
+  showRateMinCoverage: SHOW_RATE_MIN_COVERAGE,
+  verdictStrongMultiple: VERDICT_THRESHOLDS.strong,
+  verdictWeakMultiple: VERDICT_THRESHOLDS.weak,
+  baselineMinWeeks: BASELINE_MIN_WEEKS,
+  spendGateMinEnrollments: SPEND_GATE.minEnrollments,
+  spendGateMinWeeks: SPEND_GATE.minWeeks,
+} as const;
 
 function page(input: Record<string, unknown>): number {
   const p = Number(input.page);
@@ -184,7 +202,7 @@ const money = (cents: number | null, ccy: Currency) => formatCents(cents, ccy);
 const rangeOrNull = (r: { start: string; end: string } | null) => (r ? { start: r.start, end: r.end } : { start: '', end: '' });
 
 /** A coverage block for a tool result (names only). */
-const cov = (c: Coverage) => ({ used: c.used, total: c.total, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
+const cov = (c: Coverage) => ({ used: c.used, total: c.total, missingCount: c.total - c.used, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
 
 /** Oct 7 item 1: the gates as a tool result — stale data holds every gate; counts and phrases, the sentence as a note. */
 function gatesOut(g: SpendGates, freshness: Freshness) {
@@ -294,6 +312,7 @@ const getScorecardTool = tool(
         // Oct 7 item 5: the rule is in the glossary (week_verdict), the baseline summary in `baseline`, the currency on the result.
         verdict: (({ rule: _rule, baselineSummary: _summary, currency: _ccy, ...v }) => ({ ...v, unit: 'number' }))(res.verdict),
         spendGates: gatesOut(res.spendGates, ctx.freshness),
+        constants: CONSTANTS,
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
         /**
@@ -302,7 +321,7 @@ const getScorecardTool = tool(
          * (Stripe cash and new paying clients, Meta spend) over all trailing complete weeks. A null average carries its note.
          */
         baseline: {
-          window: { start: res.baseline.start, end: res.baseline.end, note: 'the trailing 8 complete Sun–Sat weeks before the period' },
+          window: { start: res.baseline.start, end: res.baseline.end, weeksUsed: res.baselines.sourceDated.candidate.length, note: `the trailing ${res.baselines.sourceDated.candidate.length} complete Sun–Sat weeks before the period` },
           stageHistory: { ...rangeOrNull(res.baselines.stageHistory.range), weeksUsed: res.baselines.stageHistory.weeks.length, weeksExcluded: res.baselines.stageHistory.excluded.length, summary: res.baselines.stageHistory.summary, note: res.baselines.stageHistory.note },
           sourceDated: { ...rangeOrNull(res.baselines.sourceDated.range), weeksUsed: res.baselines.sourceDated.weeks.length, summary: res.baselines.sourceDated.summary, note: res.baselines.sourceDated.note },
           enrollmentsPerWeek: res.baselines.averages.enrollmentsPerWeek,
@@ -344,8 +363,8 @@ const getFunnelTool = tool(
         ...summarizeFunnel(f, res.maturity),
         spendCents: f.spendCents,
         conversions: conv.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, previous: c.previous, capped: c.capped, tone: c.tone })),
-        baseline: rangeOut({ ...res.baseline, label: `trailing 8 weeks · ${res.baseline.start} – ${res.baseline.end}` }),
-        appliedCaveat: { text: sc.appliedCaveat.text, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.map((p) => ({ name: p.name, reason: p.reason, link: `/clients/${p.contactId}` })), otherPipelines: sc.appliedCaveat.otherPipelines.map((p) => ({ name: p.name, pipeline: p.pipeline, link: `/clients/${p.contactId}` })) },
+        baseline: { ...rangeOut({ ...res.baseline, label: `trailing ${res.baselines.sourceDated.candidate.length} weeks · ${res.baseline.start} – ${res.baseline.end}` }), weeksUsed: res.baselines.sourceDated.candidate.length },
+        appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecordCount: sc.appliedCaveat.withoutFormRecord.length, otherPipelinesCount: sc.appliedCaveat.otherPipelines.length, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.map((p) => ({ name: p.name, reason: p.reason, link: `/clients/${p.contactId}` })), otherPipelines: sc.appliedCaveat.otherPipelines.map((p) => ({ name: p.name, pipeline: p.pipeline, link: `/clients/${p.contactId}` })) },
         maturityActive: res.maturity.active,
       },
     };
@@ -675,14 +694,15 @@ const getDataHealthTool = tool(
         unclassifiedCount: sc.revenue.unclassifiedCount,
         unmatchedPayments: res.revenue.unmatchedCount,
         contractValueMissing: sc.marketing.contractValueMissing.map((c) => c.name),
-        showRatesWithheld: sc.showRates.filter((s) => s.withheld).map((s) => ({ type: s.type, reason: s.withheld })),
+        showRatesWithheld: sc.showRates.filter((s) => s.withheld).map((s) => ({ type: s.type, reason: s.withheld, coverage: s.coverage, recorded: s.showed + s.noShow + s.cancelled, past: s.past })),
+        constants: CONSTANTS,
         unsupportedMoneyRows: res.money.unsupportedRows,
         awaitingStripe: sc.revenue.awaitingStripe,
         noSpendData: sc.marketing.noSpendData,
         ownerProfileGaps: gaps,
         withheld: withheldLine(gaps),
         spendAdviceAllowed: !ctx.freshness.stale,
-        spendGates: (() => { const g = gatesOut(res.spendGates, ctx.freshness); const may = g.campaigns.filter((c) => c.decision === 'may_change').length; return { mayChange: may, campaigns: g.campaigns.length, account: g.account.decision, phrase: `${may} of ${g.campaigns.length} campaigns may change spend`, note: g.account.reason }; })(),
+        spendGates: (() => { const g = gatesOut(res.spendGates, ctx.freshness); const may = g.campaigns.filter((c) => c.decision === 'may_change').length; return { mayChange: may, campaigns: g.campaigns.length, account: g.account.decision, trackedEnrollments: g.account.trackedEnrollments, weeksWithSpend: g.account.weeksWithSpend, phrase: `${may} of ${g.campaigns.length} campaigns may change spend`, note: g.account.reason }; })(),
         appliedLedger: appliedLedgerBlock,
       },
     };

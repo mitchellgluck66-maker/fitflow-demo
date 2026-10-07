@@ -118,11 +118,11 @@ describe('parity with the page functions on the demo database', () => {
     expect(d.marketing.roas).toBe(page.scorecard.marketing.roas);
     // Partial-data rule: the tool result carries the engine's coverage (names only), so the model can say "based on X of Y".
     const pc = page.scorecard.marketing.ltvCoverage;
-    expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, unit: pc.unit, partial: pc.partial, note: pc.note, missing: pc.missing.map((m) => m.name) });
+    expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, missingCount: pc.total - pc.used, unit: pc.unit, partial: pc.partial, note: pc.note, missing: pc.missing.map((m) => m.name) });
     expect(d.marketing.paidCacCoverage).toMatchObject({ partial: page.scorecard.marketing.paidCacCoverage.partial, note: page.scorecard.marketing.paidCacCoverage.note });
     expect(d.funnelCohort.stages.map((s) => s.count)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => (s.withheld ? null : s.count)));
     expect(d.appliedCaveat.text).toBe(page.scorecard.appliedCaveat.text);
-    expect(tool.range).toEqual({ start: page.range.start, end: page.range.end, label: `${page.range.presetLabel} · ${page.range.resolvedLabel}` });
+    expect(tool.range).toEqual({ start: page.range.start, end: page.range.end, days: 7, label: `${page.range.presetLabel} · ${page.range.resolvedLabel}` });
     expect(tool.currency).toBe(page.money.currency);
     expect(tool.ref).toBe('r1');
     expect(tool.freshness).toEqual(freshness);

@@ -255,3 +255,11 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
 export function repairMessage(problems: string[]): string {
   return `Your answer was not accepted. Fix ONLY these problems and answer again in the same structure:\n${problems.map((p) => `- ${p}`).join('\n')}\nRules: a spend action on a campaign whose gate says hold can only be a hold — the gate is computed by the server and is not negotiable; a metric is never written as digits — write its ref in braces ({r2:data.kpis.enrollments.current}, {r7:data.results[0].value|%}) and the server prints the number; a ref must come from a tool result in this conversation; direction words must match the sign of the change they describe. If a number has no source, remove it or fetch it with a tool.`;
 }
+
+/** The targeted repair message (Oct 7 item 2a): only the failing fields, each with its problems; the model returns those fields alone. */
+export function targetedRepairMessage(problems: ReadonlyArray<{ section: string; text: string; reason: string }>): string {
+  const byField = new Map<string, string[]>();
+  for (const p of problems) byField.set(p.section, [...(byField.get(p.section) ?? []), `"${p.text}" — ${p.reason}`]);
+  const list = [...byField.entries()].map(([field, items]) => `- ${field}:\n${items.map((i) => `    · ${i}`).join('\n')}`).join('\n');
+  return `Your answer was not accepted. Return ONLY these fields, rewritten (path + text), and nothing else — every other field of your answer is kept exactly as it was:\n${list}\nRules: a metric is never written as digits — write its ref in braces ({r2:data.kpis.enrollments.current}) and the server prints the number; a ref must come from a tool result's refs index in this conversation; a hint must match the unit (a count takes no |x or |%); direction words must match the sign of the change they describe. If a number has no source, remove it.`;
+}

@@ -127,6 +127,42 @@ export function buildTurnRequest(input: AnalystRequestInput, opts: { carriesComp
   };
 }
 
+/** The strict tool a repair moves to in submit_answer mode (Oct 7 item 2a). */
+export const SUBMIT_REPAIR_TOOL = 'submit_repair';
+
+/**
+ * The targeted repair request (Oct 7 item 2a): the SAME prefix, tools and history as the turn (so the cache and
+ * the bound thinking hold), with the answer format replaced by the repair format — `{ fields: [{ path, text }] }` —
+ * so the model returns only the failing fields instead of regenerating the whole answer. Still ONE compiled
+ * schema per request: in submit mode the strict `submit_repair` tool stands in for `submit_answer`.
+ */
+export function buildRepairRequest(input: AnalystRequestInput & { repairSchema: Record<string, unknown> }, opts: { carriesCompaction?: boolean } = {}): BetaParams {
+  const sortedTools = [...input.tools].sort((a, b) => a.name.localeCompare(b.name));
+  const tools: BetaTool[] =
+    input.answerMode === 'submit_answer'
+      ? [...sortedTools, { name: SUBMIT_REPAIR_TOOL, description: 'Submit ONLY the fields the repair message listed, rewritten. Call it exactly once.', input_schema: input.repairSchema as BetaTool['input_schema'], strict: true }].sort((a, b) => a.name.localeCompare(b.name))
+      : sortedTools;
+  const betas: string[] = [...TURN_BETAS, ...(opts.carriesCompaction ? [ANALYST_BETAS.compaction] : [])];
+  assertRequestBudget({ tools, format: input.answerMode === 'format' ? { schema: input.repairSchema } : null });
+  return {
+    model: input.model,
+    max_tokens: input.maxTokens,
+    betas,
+    system: [
+      { type: 'text', text: input.system[0], cache_control: prefixCacheControl(input.model) },
+      { type: 'text', text: input.system[1], cache_control: prefixCacheControl(input.model) },
+    ],
+    tools,
+    tool_choice: { type: 'auto' },
+    thinking: { type: 'adaptive', display: 'updates', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
+    output_config: {
+      effort: input.effort,
+      ...(input.answerMode === 'format' ? { format: { type: 'json_schema', schema: input.repairSchema } } : {}),
+    },
+    messages: withMessageBreakpoints(input.messages),
+  };
+}
+
 /**
  * The on-demand compaction request: same model, system and tools (so the kept turns' thinking stays
  * valid), the summarize instruction, and NONE of the fields the API rejects on it (output format,

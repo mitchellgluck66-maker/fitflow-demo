@@ -182,24 +182,55 @@ describe('the loop (memory store)', () => {
     expect(bare.events.some((e) => e.type === 'status' && e.text.startsWith('1 note proposal (not saved — no handler): 2026-09-30: Meta cap'))).toBe(true);
   });
 
-  it('a raw digit gets ONE repair turn; a correct second answer is accepted as repaired', async () => {
+  it('a raw digit gets ONE TARGETED repair: the request carries the repair format, only the listed field comes back and is spliced in, the rest is byte-identical (Oct 7 item 2a)', async () => {
     const store = new MemoryAnalystStore();
     const bad = answerJson({ headline: { text: 'Enrollments hit 9.' } });
-    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)]), msg([text(answerJson())])]);
+    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)]), msg([text(JSON.stringify({ fields: [{ path: 'headline', text: 'Enrollments hit {r1:data.kpis.enrollments.current}.' }, { path: 'what_happened', text: 'NOT asked for' }] }))])]);
     const { thread, turn, events, deps } = await setup(store, { client });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(out.status).toBe('done');
     expect(out.flagged).toEqual([]);
+    const repairReq = client.requests[2] as { output_config: { format?: { schema: { properties: Record<string, unknown> } } }; tools: Array<{ name: string }> };
+    expect(Object.keys(repairReq.output_config.format!.schema.properties)).toEqual(['fields']); // the repair format, not the answer's
+    expect(repairReq.tools.some((t) => t.name === 'submit_repair')).toBe(false);
+    expect(events.filter((e) => e.type === 'repair')).toEqual([{ type: 'repair', targeted: true, paths: ['headline'], problems: [{ kind: 'digits', section: 'headline', text: '9', reason: expect.stringContaining('"9" is a number written as digits') }] }]);
+    expect(events.some((e) => e.type === 'status' && e.text === 'Repaired 1 field (headline) · ignored 1 unasked-for (what_happened)')).toBe(true);
+    expect(out.answer?.headline.text).toBe('Enrollments hit {r1:data.kpis.enrollments.current}.');
+    expect(out.answer?.sections).toEqual(JSON.parse(bad).sections); // untouched
+    expect(out.rendered?.headline).toBe('Enrollments hit 8.');
+    const repairUser = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };
+    expect(repairUser.content).toMatch(/^Your answer was not accepted\. Return ONLY these fields/);
+    expect(repairUser.content).toContain('- headline:\n    · "9" — "9" is a number written as digits');
     expect(events.some((e) => e.type === 'status' && e.text === 'Repairing the answer…')).toBe(true);
     expect(events.find((e) => e.type === 'answer')).toMatchObject({ repaired: true, repairs: 1 });
     expect(events.filter((e) => e.type === 'status' && e.text === 'Repairing the answer…').length).toBe(1);
     // Item 4: the repair event names every problem and the rule it came from — the count the smoke line prints.
     expect(countRepairs(events)).toBe(1);
-    expect(events.filter((e) => e.type === 'repair')).toEqual([{ type: 'repair', problems: [{ kind: 'digits', section: 'headline', text: '9', reason: expect.stringContaining('"9" is a number written as digits') }] }]);
     const roles = (await store.listMessages(thread.id)).map((r) => r.role);
     expect(roles).toEqual(['user', 'assistant', 'tool_results', 'assistant', 'user', 'assistant']);
-    const repair = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };
-    expect(repair.content).toContain('"9" is a number written as digits — write its ref in braces instead');
+  });
+
+  it('a targeted repair that returns nothing usable keeps the original fields, marked; a structure problem regenerates the whole answer (full repair)', async () => {
+    const store = new MemoryAnalystStore();
+    const bad = answerJson({ headline: { text: 'Enrollments hit 9.' } });
+    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)]), msg([text('not json')])]);
+    const { thread, turn, events, deps } = await setup(store, { client });
+    const out = await runAnalystTurn(thread.id, turn.id, deps);
+    expect(out.status).toBe('done');
+    expect(events.some((e) => e.type === 'status' && e.text.startsWith('Repair returned nothing usable (the repair was not valid JSON)'))).toBe(true);
+    expect(out.flagged.map((f) => [f.kind, f.text])).toEqual([['digits', '9']]);
+    expect(out.rendered?.headline).toBe('Enrollments hit [unverified: 9].');
+    // Structure: the sections are out of order → not a text-field problem → the full answer is asked for again (the answer format).
+    const store2 = new MemoryAnalystStore();
+    const disordered = answerJson({ sections: [{ key: 'do_this', body_md: 'x' }, { key: 'what_happened', body_md: 'y' }] });
+    const client2 = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(disordered)]), msg([text(answerJson())])]);
+    const s2 = await setup(store2, { client: client2 });
+    const out2 = await runAnalystTurn(s2.thread.id, s2.turn.id, s2.deps);
+    expect(out2.status).toBe('done');
+    expect(s2.events.filter((e) => e.type === 'repair')).toEqual([{ type: 'repair', targeted: false, paths: [], problems: [{ kind: 'structure', section: 'answer', text: '', reason: expect.stringMatching(/order/) }] }]);
+    const req2 = client2.requests[2] as { output_config: { format?: { schema: { properties: Record<string, unknown> } } } };
+    expect(Object.keys(req2.output_config.format!.schema.properties)).toContain('headline'); // the answer format
+    expect(s2.events.some((e) => e.type === 'round' && typeof e.costUsd === 'number')).toBe(true);
   });
 
   it('still wrong after the repair: the answer is shown with the digit and the unknown ref marked, never silently', async () => {

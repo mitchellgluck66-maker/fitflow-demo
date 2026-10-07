@@ -175,3 +175,70 @@ export function checkStructure(answer: Answer): string | null {
   for (const s of answer.sections) if (!s.body_md.trim()) return `section ${s.key} is empty`;
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Targeted repair (Oct 7 item 2a): the model returns ONLY the failing fields
+// ---------------------------------------------------------------------------
+
+/** The ONE strict schema of a repair request (it replaces the answer format for that request). */
+export const REPAIR_SCHEMA = {
+  type: 'object',
+  properties: {
+    fields: {
+      type: 'array',
+      description: 'Exactly the fields the repair message listed, rewritten. Every other field of the answer stays as it was.',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'The field as the repair message named it: "headline", a section key such as "what_happened", "actions[0].why", "findings[2]".' },
+          text: { type: 'string', description: 'The rewritten text of that field (markdown for a section; a sentence for an action field). Every metric as a ref token.' },
+        },
+        required: ['path', 'text'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['fields'],
+  additionalProperties: false,
+} as const;
+
+export const RepairSchema = z.object({ fields: z.array(z.object({ path: z.string(), text: z.string() })) });
+export type RepairFields = z.infer<typeof RepairSchema>['fields'];
+
+/** The problem kinds a targeted repair can fix: text fields. Structure, stale spend and gate problems regenerate the whole answer. */
+export const TARGETED_KINDS: ReadonlySet<string> = new Set(['ref', 'digits', 'direction', 'hint']);
+
+/** Read the text at a verifier section path, or null when the path names nothing. */
+export function readField(answer: Answer, path: string): string | null {
+  if (path === 'headline') return answer.headline.text;
+  const action = /^actions\[(\d+)\]\.(action|why|expected_impact)$/.exec(path);
+  if (action) return answer.actions[Number(action[1])]?.[action[2] as 'action' | 'why' | 'expected_impact'] ?? null;
+  const finding = /^findings\[(\d+)\]$/.exec(path);
+  if (finding) return answer.findings[Number(finding[1])]?.finding ?? null;
+  return answer.sections.find((s) => s.key === path)?.body_md ?? null;
+}
+
+/**
+ * Splice the returned fields into the rejected answer: only paths in `allowed` (the ones the repair asked for)
+ * that exist are replaced; everything else is byte-identical. Pure — returns a new answer.
+ */
+export function spliceFields(answer: Answer, fields: RepairFields, allowed: readonly string[]): { answer: Answer; applied: string[]; ignored: string[] } {
+  const out: Answer = JSON.parse(JSON.stringify(answer)) as Answer;
+  const applied: string[] = [];
+  const ignored: string[] = [];
+  for (const f of fields) {
+    const path = f.path.trim();
+    if (!allowed.includes(path) || readField(out, path) === null) {
+      ignored.push(path);
+      continue;
+    }
+    if (path === 'headline') out.headline.text = f.text;
+    else if (/^actions\[\d+\]\./.test(path)) {
+      const m = /^actions\[(\d+)\]\.(action|why|expected_impact)$/.exec(path)!;
+      out.actions[Number(m[1])][m[2] as 'action' | 'why' | 'expected_impact'] = f.text;
+    } else if (/^findings\[\d+\]$/.test(path)) out.findings[Number(/\[(\d+)\]/.exec(path)![1])].finding = f.text;
+    else out.sections.find((s) => s.key === path)!.body_md = f.text;
+    applied.push(path);
+  }
+  return { answer: out, applied, ignored };
+}

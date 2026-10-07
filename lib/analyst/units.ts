@@ -94,6 +94,17 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   needsWeeks: 'count',
   mayChange: 'count',
   campaigns: 'count',
+  // glossary constants as leaves (Oct 7 item 2b)
+  showRateMinCoverage: 'pct',
+  verdictStrongMultiple: 'multiple',
+  verdictWeakMultiple: 'multiple',
+  baselineMinWeeks: 'count',
+  spendGateMinEnrollments: 'count',
+  spendGateMinWeeks: 'count',
+  recorded: 'count',
+  missingCount: 'count',
+  withoutFormRecordCount: 'count',
+  otherPipelinesCount: 'count',
   // per-week averages of a baseline (fractional) and the verdict's inputs
   enrollmentsPerWeek: 'number',
   newPayingClientsPerWeek: 'number',

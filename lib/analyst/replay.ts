@@ -22,7 +22,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { buildTurnRequest, type BetaMessage, type BetaMessageParam } from './api';
 import { ANALYST_CONTRACT } from './prompts';
 import { ANALYST_TOOLS, ANALYST_TOOL_DEFINITIONS, type AnalystTool, type Freshness, type ToolResult } from './tools';
-import { ANSWER_SCHEMA } from './schema';
+import { ANSWER_SCHEMA, REPAIR_SCHEMA } from './schema';
 import { SNAPSHOT_PREFIX } from './starter';
 import { countRepairs, runAnalystTurn, type AnalystClient, type AnalystEvent, type TurnOutcome } from './run';
 import { MemoryAnalystStore, type MessageRow, type NewMessage } from './store';
@@ -36,7 +36,7 @@ export const STALE_MESSAGE = 'fixtures stale: re-record (npm run smoke:analyst -
 export function analystWireHash(answerMode: AnswerMode = 'format'): string {
   const sample = buildTurnRequest({ model: 'claude-opus-5-5', effort: 'high', system: ['', ''], tools: [...ANALYST_TOOL_DEFINITIONS], messages: [{ role: 'user', content: 'x' }], answerSchema: ANSWER_SCHEMA as unknown as Record<string, unknown>, answerMode, maxTokens: 1 });
   const { system: _s, messages: _m, max_tokens: _t, ...shape } = sample as unknown as Record<string, unknown>;
-  return createHash('sha256').update(JSON.stringify({ contract: ANALYST_CONTRACT, tools: ANALYST_TOOL_DEFINITIONS, answerSchema: ANSWER_SCHEMA, shape })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ contract: ANALYST_CONTRACT, tools: ANALYST_TOOL_DEFINITIONS, answerSchema: ANSWER_SCHEMA, repairSchema: REPAIR_SCHEMA, shape })).digest('hex');
 }
 
 export interface RecordedTurn {

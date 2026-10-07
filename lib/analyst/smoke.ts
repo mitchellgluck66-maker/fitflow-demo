@@ -35,6 +35,8 @@ export interface SmokeTurnLine {
   estimatePrefix?: PrefixState | null;
   /** Oct 7 item 1: the answer's spend actions ("spend: hold Scaling, hold Testing" / "spend: none"). */
   spend?: string;
+  /** Oct 7 item 2a: the costliest repair round's share of the turn (null when no repair). */
+  repairSharePct?: number | null;
   seconds: number;
   headline: string | null;
   flagged: number;
@@ -57,11 +59,12 @@ export interface SmokeTurnLine {
 }
 
 /** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30; cost target raised to $0.50 on 2026-10-03). The deep model is reported, not judged. */
-export const SMOKE_TARGETS = { p50Seconds: 45, /** Oct 7 item 5: judged by the turn's MEASURED prefix state (a cold turn pays the 1h prefix write). */ maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
+export const SMOKE_TARGETS = { p50Seconds: 45, /** Oct 7 item 5: judged by the turn's MEASURED prefix state (a cold turn pays the 1h prefix write). */ maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, /** Oct 7 item 2a: a repair round costs less than this share of its turn. */ repairSharePctMax: 20, flaggedMax: 0, estimateTolerance: 0.25 } as const;
 
 /** The per-turn misses (pure): cost (by prefix state), cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
-export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'>): string[] {
+export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'> & { repairSharePct?: number | null }): string[] {
   const out: string[] = [];
+  if (typeof l.repairSharePct === 'number' && l.repairSharePct >= SMOKE_TARGETS.repairSharePctMax) out.push(`repair cost ${l.repairSharePct}% of the turn ≥ ${SMOKE_TARGETS.repairSharePctMax}%`);
   const state = measuredPrefix(l.rounds) ?? 'cold';
   if (l.costUsd > SMOKE_TARGETS.maxUsd[state] + 1e-9) out.push(`cost ${formatUsd(l.costUsd)} > ${formatUsd(SMOKE_TARGETS.maxUsd[state])} (${state})`);
   l.rounds.forEach((r, i) => {
@@ -208,15 +211,30 @@ export function repairKinds(problems: readonly RepairProblem[]): Record<string, 
   return out;
 }
 
-/** One line per repair problem: `repair 1 · digits (what_happened): "8" — reason`. */
+/**
+ * The repair rounds of a turn (Oct 7 item 2a): each repair event with the cost of the round that answered it
+ * (the next `round` event) and its share of the turn's total.
+ */
+export function repairRounds(events: ReadonlyArray<AnalystEvent>): Array<{ targeted: boolean; paths: string[]; problems: RepairProblem[]; costUsd: number; sharePct: number | null }> {
+  const total = events.reduce((a, e) => (e.type === 'round' ? a + e.costUsd : a), 0);
+  const out: Array<{ targeted: boolean; paths: string[]; problems: RepairProblem[]; costUsd: number; sharePct: number | null }> = [];
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.type !== 'repair') continue;
+    const round = events.slice(i + 1).find((x) => x.type === 'round');
+    const costUsd = round && round.type === 'round' ? round.costUsd : 0;
+    out.push({ targeted: e.targeted, paths: e.paths, problems: e.problems, costUsd, sharePct: total > 0 ? Math.round((costUsd / total) * 100) : null });
+  }
+  return out;
+}
+
+/** One line per repair problem, then the repair's cost: `repair 1 · targeted (what_happened) · $0.04 (11% of the turn)`. */
 export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   '): string[] {
   const out: string[] = [];
-  let n = 0;
-  for (const e of events) {
-    if (e.type !== 'repair') continue;
-    n += 1;
-    for (const p of e.problems) out.push(`${indent}repair ${n} · ${p.kind} (${p.section})${p.text ? `: "${p.text}"` : ''} — ${p.reason}`);
-  }
+  repairRounds(events).forEach((r, i) => {
+    for (const p of r.problems) out.push(`${indent}repair ${i + 1} · ${p.kind} (${p.section})${p.text ? `: "${p.text}"` : ''} — ${p.reason}`);
+    out.push(`${indent}repair ${i + 1} · ${r.targeted ? `targeted (${r.paths.join(', ')})` : 'full regeneration'} · ${formatUsd(r.costUsd)}${r.sharePct === null ? '' : ` (${r.sharePct}% of the turn)`}`);
+  });
   return out;
 }
 
@@ -410,7 +428,8 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     const wrongVerdict = req.expectsVerdict ? verdictMiss(computed, out.rendered?.headline ?? null) : null;
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
-    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
+    const repairShare = repairRounds(turnEvents).reduce<number | null>((a, r) => (r.sharePct === null ? a : a === null ? r.sharePct : Math.max(a, r.sharePct)), null);
+    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds, repairSharePct: repairShare }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
     lines.push({
       status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,
@@ -429,6 +448,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       repairs,
       repairKinds: repairKinds(repairProblems(turnEvents)),
       spend: out.answer ? spendLine(out.answer.actions) : undefined,
+      repairSharePct: repairShare,
       sections: out.answer?.sections.map((s) => s.key) ?? [],
       proposals,
       error: out.error ?? (out.status !== 'done' ? out.status : memoryMiss ? 'memory check: the owner stated a durable fact but the answer proposed no note' : null),

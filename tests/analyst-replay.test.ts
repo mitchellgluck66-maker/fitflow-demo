@@ -49,7 +49,7 @@ async function recordSynthetic(): Promise<ReplayFixture> {
     scriptedLive([
       msg([{ type: 'tool_use', id: 'tu1', name: 'get_scorecard', input: { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' } }], 'tool_use', { cache_creation_input_tokens: 900 }),
       msg([{ type: 'text', text: answer('Spend was $3,700 CAD.') }], 'end_turn', { cache_read_input_tokens: 900 }), // a raw digit → repair
-      msg([{ type: 'text', text: answer('Spend was {r1:data.marketing.spendCents}.') }], 'end_turn', { cache_read_input_tokens: 1200 }),
+      msg([{ type: 'text', text: JSON.stringify({ fields: [{ path: 'headline', text: 'Spend was {r1:data.marketing.spendCents}.' }] }) }], 'end_turn', { cache_read_input_tokens: 1200 }), // Oct 7 item 2a: a targeted repair returns the failing field only
     ]),
   );
   const events: AnalystEvent[] = [];

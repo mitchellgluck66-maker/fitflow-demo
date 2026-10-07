@@ -340,7 +340,7 @@ const showRate = (key: string, type: 'Consult' | 'Roadmap'): GlossaryEntry => ({
     const r = computeShowRates(input, range).find((x) => x.type === type);
     if (!r) return withheld(`no ${type.toLowerCase()} appointments in the period`, ccy, { showed: null, noShow: null });
     if (r.rate === null) return withheld(r.withheld ?? 'attendance not recorded', ccy, { showed: r.showed, noShow: r.noShow, past: r.past, undecided: r.undecided });
-    return { value: r.rate, text: `${r.showed} showed ÷ (${r.showed} showed + ${r.noShow} no-show) = ${pctText(r.rate)} · attendance recorded for ${formatPct(r.coverage)} of ${r.past}`, reason: null, currency: ccy, inputs: { showed: r.showed, noShow: r.noShow, cancelled: r.cancelled, past: r.past } };
+    return { value: r.rate, text: `${r.showed} showed ÷ (${r.showed} showed + ${r.noShow} no-show) = ${pctText(r.rate)} · attendance recorded for ${formatPct(r.coverage)} of ${r.past}`, reason: null, currency: ccy, inputs: { showed: r.showed, noShow: r.noShow, cancelled: r.cancelled, past: r.past, coverage: r.coverage } };
   },
 });
 
