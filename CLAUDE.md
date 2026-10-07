@@ -1079,6 +1079,54 @@ The runtime, without the panel (Wave 2) or reports (Wave 3). Everything lives in
      ` · prefix predicted cold, measured hit` on a disagreement.
   Nothing live verified by Claude; Mitchell runs `npm run smoke:analyst` twice. Deploy: `npm run db:migrate`
   (0020, additive) before the push.
+- **Oct 7 smoke findings (2026-10-07, plan approved; commits c51e751..9632a5b).** Two runs: verdict "normal"
+  both, 0 flagged, figures right — but the ADVICE differed, every run repaired once (whole answer regenerated),
+  "0.8× extra enrollments", "Verdict: normal. normal: …", the cold prefix at 51.9K tokens ($0.78), and no latency
+  measure. Fixed as a class, in order 5 → 4 → 3 → 1 → 2 → 6:
+  5. **Prefix budget** (`lib/analyst/prefixBudget.ts`): the smoke prints `prefix: contract 2.7K · brief 7.5K ·
+     tools 5.1K · snapshot 4.7K · total 19.9K (count_tokens) — budget 40.0K` (four free counts, differenced);
+     `tests/analyst-prefix-budget.test.ts` holds the demo tenant under `PREFIX_BUDGET_TOKENS` (40K) in `npm run
+     check`. The refs index is ONE line per parent with exact keys (`data.kpis.paidCacCents (Paid CAC) → current ·
+     previous · abs · pct`; `refIndex#indexTokens` is the inverse; it was 3× the data). The brief's glossary is one
+     line per entry (`glossaryBriefText`; formulas via get_metric). `SMOKE_TARGETS.maxUsd = { cold: 0.60, warm:
+     0.45 }` by the measured prefix state.
+  4. **Text refs are phrases** (`ledger#PHRASE_KEYS` citeable vs `NOTE_KEYS` explanations — reason, note, text,
+     line, summary … are NOT in the ledger; citing one is refused with the sibling phrase named). The verdict's
+     `basisClients` / `basisCash` phrases; `reason` never restates the verdict word; `freshness.phrase` ("data
+     fresh", "Meta Ads spend stale for 9.0 h") + `oldestAgeMinutes`. `tests/analyst-text-refs.test.ts` SWEEPS
+     every phrase of all 15 tools: ≤ 12 words, no trailing period, no " — " clause (tenant names exempt), never
+     restating a sibling.
+  3. **Hints vs units** (`render#hintConflict`, verifier kind `hint`): a count / hours / number never renders as ×
+     or %, money never as a share, |k only on money — the hint is ignored and repaired. `calculate` ratio of two
+     COUNTS is a `fraction` row (numerator / denominator) rendered "4 of 8", "50%" with |%; count × number is a
+     plain number (half of a count is not a count).
+  1. **Spend gates** (`lib/metrics/spendGate.ts`, glossary `spend_gate`): per campaign and account over the CLEAN
+     stage-history window, `may_change` only with ≥ 4 tracked enrollments over ≥ 4 weeks with spend
+     (`SPEND_GATE`), else `hold` with the basis phrase ("2 of 4 tracked enrollments, 3 of 4 weeks with spend");
+     stale data holds everything. `ScorecardResult.spendGates`; refs in `get_scorecard.spendGates` (the starter
+     snapshot), `get_campaigns.gates`, `get_data_health.spendGates`; the brief lists them. Actions carry
+     `campaign` + `spend_change` (schema change → `npm run check:schemas`); verifier rule 6 (`gateProblem`): an
+     increase / decrease / shift needs a campaign whose NEWEST gate says may_change; a hold always passes; after
+     the one repair the action is prefixed `[gate: hold]` and counts as flagged. Smoke prints `spend gates: …`
+     under the verdict and `spend: hold Scaling, shift account` on the line; `tests/analyst-consistency` proves
+     the gates and the verifier's spend verdict identical across two builds.
+  2. **Targeted repairs** (`schema#REPAIR_SCHEMA`, `spliceFields`, `api#buildRepairRequest`, `verify#
+     targetedRepairMessage`): a ref / digits / direction / hint problem asks for ONLY the failing fields
+     (`{ fields: [{ path, text }] }`, the one strict schema of that request; `submit_repair` in fallback mode)
+     and splices them in — the rest byte-identical; structure / stale-spend / gate problems still regenerate.
+     The `repair` event carries `targeted` + `paths`; every `round` event its `costUsd`; the smoke prints
+     `repair 1 · targeted (what_happened) · $0.04 USD (10% of the turn)` and fails a repair ≥ 20% of its turn
+     (`repairSharePctMax`). **2b constants as refs**: `constants` (show-rate coverage, verdict 1.3× / 0.7×,
+     baseline min weeks, the gate's 4 and 4) on get_scorecard / get_data_health, `range.days` everywhere,
+     coverage `missingCount`, show-rate `coverage` / `recorded` / `past`, the funnel's applied counts;
+     `tests/analyst-text-numbers.test.ts` sweeps every number inside a note / reason / phrase / label / worked
+     text for a numeric leaf beside it.
+  6. **Latency** (`lib/analyst/partial.ts#firstSection`): the loop verifies the first section the moment it
+     closes in the stream and emits `{ type: 'section', key, verified, seconds }` (what Wave 2 streams);
+     `TurnOutcome.firstSectionSeconds`. Smoke turns have a `shape` (review / metric); the line reads `first
+     section 14s · total 38s`; targets: first verified section ≤ 20 s; p50 ≤ 90 s review / ≤ 45 s metric.
+  Nothing live verified by Claude; Mitchell runs `npm run check:schemas` (the action schema changed) then
+  `npm run smoke:analyst` twice. No migration.
 
 ## Applied reconciliation — daily (2026-09-30, `docs/plan-reconciliation-2026-09-30.md`)
 
