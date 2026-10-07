@@ -16,7 +16,11 @@ import type { RenderedAnswer } from './render';
 import { SNAPSHOT_PREFIX } from './starter';
 import { formatSplit, formatUsd, type CostSplit } from './cost';
 import { getAnalystConfig } from './config';
-import { loopClient, makeAnalystClient } from './api';
+import { loopClient, makeAnalystClient, type BetaTool } from './api';
+import type { AnalystModel } from './config';
+import { approxPrefix, formatPrefixLine, measurePrefix, type PrefixParts, type PrefixPieces } from './prefixBudget';
+import { starterMessages } from './starter';
+import type { NewMessage } from './store';
 import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
 import { nonDemoNames } from './fixtureGuard';
 
@@ -51,12 +55,13 @@ export interface SmokeTurnLine {
 }
 
 /** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30; cost target raised to $0.50 on 2026-10-03). The deep model is reported, not judged. */
-export const SMOKE_TARGETS = { p50Seconds: 45, maxUsd: 0.5, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
+export const SMOKE_TARGETS = { p50Seconds: 45, /** Oct 7 item 5: judged by the turn's MEASURED prefix state (a cold turn pays the 1h prefix write). */ maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 } as const;
 
-/** The per-turn misses (pure): cost, cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
+/** The per-turn misses (pure): cost (by prefix state), cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
 export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'>): string[] {
   const out: string[] = [];
-  if (l.costUsd > SMOKE_TARGETS.maxUsd + 1e-9) out.push(`cost ${formatUsd(l.costUsd)} > ${formatUsd(SMOKE_TARGETS.maxUsd)}`);
+  const state = measuredPrefix(l.rounds) ?? 'cold';
+  if (l.costUsd > SMOKE_TARGETS.maxUsd[state] + 1e-9) out.push(`cost ${formatUsd(l.costUsd)} > ${formatUsd(SMOKE_TARGETS.maxUsd[state])} (${state})`);
   l.rounds.forEach((r, i) => {
     if (i >= 1 && r.cacheSharePct < SMOKE_TARGETS.cacheSharePctFromRound2) out.push(`cache round ${i + 1} ${r.cacheSharePct}% < ${SMOKE_TARGETS.cacheSharePctFromRound2}%`);
   });
@@ -240,6 +245,18 @@ export interface SmokeOptions {
 
 export const DEFAULT_MAX_USD = 1;
 
+/** Oct 7 item 5: the cold prefix per piece — measured with count_tokens when a key is configured, else approximated. */
+async function prefixForSmoke(prepared: { thread: { model: AnalystModel }; deps: { contract: string; brief: { text: string }; tools: readonly { definition: BetaTool }[]; starterRows?: NewMessage[] | null; userTurn?: string } }, key: string | null): Promise<PrefixPieces> {
+  const parts: PrefixParts = { contract: prepared.deps.contract, brief: prepared.deps.brief.text, tools: prepared.deps.tools.map((t) => t.definition), messages: prepared.deps.starterRows ? starterMessages(prepared.deps.starterRows) : [{ role: 'user', content: prepared.deps.userTurn ?? '' }] };
+  if (!key) return approxPrefix(parts);
+  const client = makeAnalystClient(key);
+  try {
+    return await measurePrefix(prepared.thread.model, parts, async (params) => (await client.beta.messages.countTokens(params)).input_tokens);
+  } catch {
+    return approxPrefix(parts);
+  }
+}
+
 /** "Stopped at $0.84 of $1.00 USD budget — the next request was estimated at $0.31 USD" */
 export function budgetStopMessage(spentUsd: number, maxUsd: number, nextUsd: number | null): string {
   return `Stopped at ${formatUsd(spentUsd)} of ${formatUsd(maxUsd)} budget${nextUsd !== null ? ` — the next request was estimated at ${formatUsd(nextUsd)}` : ''}`;
@@ -322,6 +339,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, prepared.estimate.usd), { estimateUsd: prepared.estimate.usd });
       break;
     }
+    if (i === 0) opts.log?.(`   ${formatPrefixLine(await prefixForSmoke(prepared, config.key))}`);
     let out: TurnOutcome;
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);

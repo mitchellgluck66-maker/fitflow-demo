@@ -279,7 +279,8 @@ const getScorecardTool = tool(
          * (lib/metrics/verdict.ts; thresholds in the glossary entry week_verdict). Use it and explain its inputs; never
          * decide strong / normal / weak yourself. `unavailable` carries its reason.
          */
-        verdict: { ...res.verdict, unit: 'number' },
+        // Oct 7 item 5: the rule is in the glossary (week_verdict), the baseline summary in `baseline`, the currency on the result.
+        verdict: (({ rule: _rule, baselineSummary: _summary, currency: _ccy, ...v }) => ({ ...v, unit: 'number' }))(res.verdict),
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
         /**

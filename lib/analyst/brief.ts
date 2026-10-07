@@ -26,7 +26,7 @@ import {
 } from '../metrics';
 import { computeMaturity, HISTORY_DEPENDENT_LABEL, HISTORY_INDEPENDENT_LABEL } from '../metrics/maturity';
 import { cleanBaseline } from '../metrics/baseline';
-import { glossaryText, METRIC_DEFINITION_VERSION } from '../metrics/glossary';
+import { glossaryBriefText, METRIC_DEFINITION_VERSION } from '../metrics/glossary';
 import { weekBuckets, formatRangeLabel, addDays, monthStart, monthEnd } from '../dates';
 import { profileGaps, withheldLine, type OwnerProfile } from './notes';
 
@@ -286,7 +286,7 @@ export function buildBrief(b: BriefInputs): Brief {
   lines.push('');
 
   lines.push('## Metric glossary (the single source of definitions)');
-  lines.push(glossaryText());
+  lines.push(glossaryBriefText());
 
   const text = lines.join('\n');
   const hash = createHash('sha256').update(text).digest('hex');

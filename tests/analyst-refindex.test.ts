@@ -5,7 +5,7 @@
  * repair text points at the index.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { labelForPath, refIndex } from '@/lib/analyst/refIndex';
+import { indexRule, indexTokens, labelForPath, refIndex } from '@/lib/analyst/refIndex';
 import { Ledger, ledgerEntries } from '@/lib/analyst/ledger';
 import { renderText, NO_SOURCE } from '@/lib/analyst/render';
 import { refTokens, suggest, verifyAnswer } from '@/lib/analyst/verify';
@@ -26,28 +26,31 @@ const DATA = {
 };
 
 describe('refIndex', () => {
-  it('one line per citeable leaf, labelled; text refs marked; strings outside the text-ref keys are not indexed', () => {
+  it('compact (Oct 7 item 5): the rule, then one line per parent with its exact keys; text refs marked; strings outside the text-ref keys absent; every listed key composes to a resolving token', () => {
     const idx = refIndex('r2', DATA);
-    expect(idx).toContain('kpis · Paid CAC · current → {r2:data.kpis.paidCacCents.current}');
-    expect(idx).toContain('kpis · Paid CAC · change % → {r2:data.kpis.paidCacCents.pct}');
-    expect(idx).toContain('kpis · Enrollments · current → {r2:data.kpis.enrollments.current}');
-    expect(idx).toContain('marketing · Spend → {r2:data.marketing.spendCents}');
-    expect(idx).toContain('marketing · LTV:CAC coverage · records used → {r2:data.marketing.ltvCoverage.used}'.replace('LTV:CAC coverage', 'ltvCoverage'));
-    expect(idx).toContain('marketing · ltvCoverage · note (text) → {r2:data.marketing.ltvCoverage.note}');
-    expect(idx).toContain('verdict · verdict (text) → {r2:data.verdict.verdict}');
-    expect(idx).toContain('verdict · reason (text) → {r2:data.verdict.reason}');
-    expect(idx).toContain('campaigns · Summer Shred — Broad · Spend → {r2:data.campaigns[0].spendCents}');
-    expect(idx).toContain('campaigns · Brand Search · ROAS → {r2:data.campaigns[1].roas}');
-    expect(idx).toContain('baseline · conversions · applied→consult_booked · current → {r2:data.baseline.conversions[0].current}');
-    expect(idx).toContain('sources · Facebook · Applied → {r2:data.sources[0].applied}');
-    expect(idx.some((l) => l.includes('longText') || l.includes('internal · id'))).toBe(false); // not a text-ref key
+    expect(idx[0]).toBe(indexRule('r2'));
+    expect(idx[0]).toBe('token = {r2:data.<parent>.<key>} — paths and keys exactly as listed; (text) marks a text ref');
+    expect(idx).toContain('data.kpis.paidCacCents (Paid CAC) → current · previous · abs · pct');
+    expect(idx).toContain('data.kpis.enrollments (Enrollments) → current · previous');
+    expect(idx).toContain('data.marketing → spendCents');
+    expect(idx).toContain('data.marketing.ltvCoverage (LTV:CAC coverage) → used · total · note(text)');
+    expect(idx).toContain('data.verdict → verdict(text) · reason(text) · clients');
+    expect(idx).toContain('data.campaigns[0] "Summer Shred — Broad" → campaign(text) · spendCents · roas');
+    expect(idx).toContain('data.campaigns[1] "Brand Search" → campaign(text) · spendCents · roas'); // roas null is listed: a withheld ref the verifier names as withheld
+    expect(idx).toContain('data.baseline.conversions[0] "applied→consult_booked" → from(text) · to(text) · current · baseline');
+    expect(idx).toContain('data.sources[0] "Facebook" → source(text) · applied');
+    expect(idx.some((l) => l.includes('longText') || l.includes('internal'))).toBe(false); // not a text-ref key
     expect(labelForPath('data.kpis.paidCacCents.current', DATA)).toBe('kpis · Paid CAC · current');
-    // The index is OUTSIDE data: a result's refs are never themselves refs.
     const ledger = new Ledger();
     ledger.add('r2', DATA, '2026-10-06T00:00:00.000Z', 'CAD');
-    expect(ledger.refs().some((r) => r.includes('refs'))).toBe(false);
-    // Every token in the index resolves in the ledger built from the same data.
-    for (const line of idx) expect(ledger.get(refTokens(line)[0].ref), line).toBeDefined();
+    expect(ledger.refs().some((r) => r.includes('refs'))).toBe(false); // the index is outside data
+    const composed = indexTokens('r2', idx);
+    expect(composed).toContain('{r2:data.kpis.paidCacCents.current}');
+    expect(composed).toContain('{r2:data.campaigns[0].campaign}');
+    for (const t of composed) expect(ledger.get(refTokens(t)[0].ref), t).toBeDefined();
+    expect(composed.length).toBe(ledger.refs().length); // the index licenses exactly the ledger's refs
+    // The index is a fraction of the data it indexes, not a multiple of it.
+    expect(JSON.stringify(idx).length).toBeLessThan(JSON.stringify(DATA).length);
   });
 
   it('text refs render verbatim, verify like any ref, are ignored by the direction check and refused by calculate', () => {
@@ -85,12 +88,17 @@ describe('every real tool result carries its index (demo database)', () => {
     const r = await runAnalystTool('get_scorecard', { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' }, ctx('r2'));
     expect(r.error).toBeUndefined();
     const idx = r.refs!;
-    for (const want of ['kpis · Paid CAC · current → {r2:data.kpis.paidCacCents.current}', 'kpis · Blended CAC · current → {r2:data.kpis.blendedCacCents.current}', 'kpis · Initial cash · current → {r2:data.kpis.initialCents.current}', 'kpis · ROAS · current → {r2:data.kpis.roas.current}', 'kpis · LTV:CAC · current → {r2:data.kpis.ltvToCac.current}', 'verdict · verdict (text) → {r2:data.verdict.verdict}', 'baseline · new paying clients/week → {r2:data.baseline.newPayingClientsPerWeek}', 'enrollmentReconciliation · text (text) → {r2:data.enrollmentReconciliation.text}']) expect(idx, want).toContain(want);
+    const composed = indexTokens('r2', idx);
+    for (const want of ['{r2:data.kpis.paidCacCents.current}', '{r2:data.kpis.blendedCacCents.current}', '{r2:data.kpis.initialCents.current}', '{r2:data.kpis.roas.current}', '{r2:data.kpis.ltvToCac.current}', '{r2:data.verdict.verdict}', '{r2:data.baseline.newPayingClientsPerWeek}', '{r2:data.enrollmentReconciliation.text}']) expect(composed, want).toContain(want);
+    expect(idx.find((l) => l.startsWith('data.kpis.paidCacCents'))).toContain('(Paid CAC) → current');
+    expect(idx.some((l) => l.startsWith('data.verdict →') && l.includes('rule'))).toBe(false); // the rule lives in the glossary, not in the prefix
     const ledger = new Ledger();
     ledger.add('r2', r.data, '2026-10-06T00:00:00.000Z', r.currency);
-    for (const line of idx) expect(ledger.get(refTokens(line)[0].ref), line).toBeDefined();
-    expect(idx.length).toBeLessThan(400);
-    expect(JSON.stringify(idx).length).toBeLessThan(30_000);
+    for (const t of composed) expect(ledger.get(refTokens(t)[0].ref), t).toBeDefined();
+    expect(composed.length).toBe(ledger.refs().length);
+    // Oct 7 item 5: the index is a fraction of the data (it was 3× before).
+    expect(JSON.stringify(idx).length).toBeLessThan(JSON.stringify(r.data).length);
+    expect(JSON.stringify(idx).length).toBeLessThan(8_000);
     expect(JSON.stringify(ledgerEntries('r2', r.data, '', '').filter((e) => e.unit === 'text').length)).not.toBe('0');
   });
 });

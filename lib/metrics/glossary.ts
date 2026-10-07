@@ -750,6 +750,16 @@ export function glossaryText(keys?: readonly string[]): string {
   return entries.map((e) => `- ${e.label} (${e.key}): ${e.definition} Formula: ${e.formula}.${e.maturing ? ' History-dependent: maturing before the history-complete date.' : ''}`).join('\n');
 }
 
+/**
+ * The brief's glossary (Oct 7 item 5): one line per entry — label, key, definition; † marks history-dependent
+ * entries. Formulas and "differs from" live in get_metric and the explain turn, not in the cached prefix
+ * (the full text was half the brief).
+ */
+export function glossaryBriefText(keys?: readonly string[]): string {
+  const entries = keys ? keys.map((k) => BY_KEY.get(k)).filter((e): e is GlossaryEntry => Boolean(e)) : GLOSSARY;
+  return [`† = history-dependent (maturing before the history-complete date). Formulas: get_metric.`, ...entries.map((e) => `- ${e.label} (${e.key})${e.maturing ? '†' : ''}: ${e.definition}`)].join('\n');
+}
+
 /** Sanity used by tests and the catalog check: every registered UI key has a glossary entry. */
 export function missingGlossaryKeys(): string[] {
   const wanted = new Set<string>([...TREND_METRICS.map((m) => m.key), ...DISPLAY_METRICS.map((m) => m.key), ...FUNNEL_STAGES.map((s) => s.key)]);

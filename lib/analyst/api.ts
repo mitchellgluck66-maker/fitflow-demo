@@ -155,10 +155,8 @@ export function buildCountRequest(input: Pick<AnalystRequestInput, 'model' | 'sy
   return {
     model: input.model,
     betas: [...TURN_BETAS],
-    system: [
-      { type: 'text', text: input.system[0], cache_control: prefixCacheControl(input.model) },
-      { type: 'text', text: input.system[1], cache_control: prefixCacheControl(input.model) },
-    ],
+    // An empty block is skipped (the prefix measurement counts the contract without the brief); the API rejects empty text.
+    system: input.system.filter((t) => t.length > 0).map((text) => ({ type: 'text' as const, text, cache_control: prefixCacheControl(input.model) })),
     tools: [...input.tools].sort((a, b) => a.name.localeCompare(b.name)),
     thinking: { type: 'adaptive', display: 'updates', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
     messages: input.messages,

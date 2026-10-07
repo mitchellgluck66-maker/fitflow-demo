@@ -23,13 +23,17 @@ describe('item 10: the per-turn line and the targets', () => {
     expect(formatRepairs([{ type: 'repair', problems: [{ kind: 'digits', section: 'what_happened', text: '8', reason: '"8" is a number written as digits' }, { kind: 'structure', section: 'answer', text: '', reason: 'sections out of order' }] }, { type: 'status', text: 'Repairing the answer…' }])).toEqual(['   repair 1 · digits (what_happened): "8" — "8" is a number written as digits', '   repair 1 · structure (answer) — sections out of order']);
     expect(repairKinds(repairProblems([{ type: 'repair', problems: [{ kind: 'ref', section: 'why', text: '{r2:data.x}', reason: 'no such ref' }, { kind: 'ref', section: 'why', text: '{r2:data.y}', reason: 'no such ref' }] }]))).toEqual({ ref: 2 });
     expect(formatSmokeTurn(line({ repairs: 1, flagged: 2, proposals: ['2026-09-30: cap $4,000 CAD'] }))).toContain(' · repairs 1 · flagged 2 · 21s · $0.19 USD vs est $0.21 USD (-10%) · sections 1 (what_happened) · 1 note proposal(s): "2026-09-30: cap $4,000 CAD"');
-    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.50 USD'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.50 USD');
+    expect(formatSmokeTurn(line({ status: 'FAIL', costUsd: 0.62, misses: ['cost $0.62 USD > $0.60 USD (cold)'] }))).toBe('FAIL turn 1 · "q" · 3 rounds · tools/round 2,1,0 · cache 0%/91%/95% · prefix: written (35.7K, 1h on Opus) · repairs 0 · flagged 0 · 21s · $0.62 USD vs est $0.21 USD (+195%) · missed: cost $0.62 USD > $0.60 USD (cold)');
     expect(formatSmokeTurn(line({ status: 'FAIL', rounds: [], seconds: 0, costUsd: 0, estimateUsd: null, error: 'memory check: the owner stated a durable fact but the answer proposed no note' }))).toBe('FAIL turn 1 · "q" · 0 rounds · tools/round — · cache — · prefix: — · repairs 0 · flagged 0 · 0s · $0.00 USD · memory check: the owner stated a durable fact but the answer proposed no note');
   });
-  it('per-turn targets: cost ≤ $0.50, cache ≥ 80% from round 2, estimate within ±25%; run-level: p50 ≤ 45 s, repairs < 20%, 0 flagged', async () => {
-    expect(SMOKE_TARGETS).toEqual({ p50Seconds: 45, maxUsd: 0.5, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 });
+  it('per-turn targets: cost ≤ $0.60 cold / $0.45 warm (by the measured prefix), cache ≥ 80% from round 2, estimate within ±25%; run-level: p50 ≤ 45 s, repairs < 20%, 0 flagged', async () => {
+    expect(SMOKE_TARGETS).toEqual({ p50Seconds: 45, maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, flaggedMax: 0, estimateTolerance: 0.25 });
+    const warmRounds = [{ toolCalls: 2, cacheSharePct: 90, cacheReadTokens: 35_700, cacheWriteTokens: 300 }];
+    expect(turnMisses({ costUsd: 0.5, estimateUsd: 0.5, rounds: line().rounds })).toEqual([]); // cold: ≤ $0.60
+    expect(turnMisses({ costUsd: 0.5, estimateUsd: 0.5, rounds: warmRounds })).toEqual(['cost $0.50 USD > $0.45 USD (warm)']);
+    expect(turnMisses({ costUsd: 0.61, estimateUsd: 0.61, rounds: line().rounds })).toEqual(['cost $0.61 USD > $0.60 USD (cold)']);
     expect(turnMisses(line())).toEqual([]);
-    expect(turnMisses(line({ costUsd: 0.62, estimateUsd: 0.4 }))).toEqual(['cost $0.62 USD > $0.50 USD', 'estimate +55% outside ±25%']);
+    expect(turnMisses(line({ costUsd: 0.62, estimateUsd: 0.4 }))).toEqual(['cost $0.62 USD > $0.60 USD (cold)', 'estimate +55% outside ±25%']);
     expect(turnMisses(line({ rounds: [{ toolCalls: 3, cacheSharePct: 0, cacheReadTokens: 0, cacheWriteTokens: 1 }, { toolCalls: 0, cacheSharePct: 71.4, cacheReadTokens: 1, cacheWriteTokens: 0 }] }))).toEqual(['cache round 2 71.4% < 80%']);
     expect(turnMisses(line({ costUsd: 0.1, estimateUsd: 0.2 }))).toEqual(['estimate -50% outside ±25%']);
     expect(turnMisses(line({ estimateUsd: null }))).toEqual([]);
