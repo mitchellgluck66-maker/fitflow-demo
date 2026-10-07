@@ -8,6 +8,7 @@
  * contract values; Meta spend in USD; payments in both currencies.
  */
 import { weekVerdictFor } from '@/lib/metrics/verdict';
+import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect } from 'vitest';
 import {
@@ -241,6 +242,7 @@ describe('scorecard assembly labels every money value with the active currency',
       baseline: { start: '2026-06-07', end: '2026-08-01' },
       baselines: scorecardBaselines(input, R, { today: '2026-08-10' }),
       verdict: weekVerdictFor(input, R, scorecardBaselines(input, R, { today: '2026-08-10' }).sourceDated),
+      spendGates: computeSpendGates(input, scorecardBaselines(input, R, { today: '2026-08-10' }).stageHistory.weeks),
       scorecard,
       trend: { grain: 'day', current: [], comparison: null },
       trendWeekly: { current: [], comparison: null },

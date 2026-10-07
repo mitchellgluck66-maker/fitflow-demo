@@ -4,6 +4,7 @@
  * is stubbed at fetch level (the SDK is constructed with globalThis.fetch).
  */
 import { weekVerdictFor } from '@/lib/metrics/verdict';
+import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -61,6 +62,7 @@ function fakeResult(): ScorecardResult {
     baseline: { start: '2026-06-21', end: '2026-08-15' },
     baselines: scorecardBaselines(INPUT, R, { today: '2026-08-26' }),
     verdict: weekVerdictFor(INPUT, R, scorecardBaselines(INPUT, R, { today: '2026-08-26' }).sourceDated),
+    spendGates: computeSpendGates(INPUT, scorecardBaselines(INPUT, R, { today: '2026-08-26' }).stageHistory.weeks),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: [], comparison: null },

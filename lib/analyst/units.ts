@@ -86,6 +86,14 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   days: 'count',
   numerator: 'count',
   denominator: 'count',
+  // spend gates (Oct 7 item 1)
+  trackedEnrollments: 'count',
+  weeksWithSpend: 'count',
+  weeksInWindow: 'count',
+  needsEnrollments: 'count',
+  needsWeeks: 'count',
+  mayChange: 'count',
+  campaigns: 'count',
   // per-week averages of a baseline (fractional) and the verdict's inputs
   enrollmentsPerWeek: 'number',
   newPayingClientsPerWeek: 'number',

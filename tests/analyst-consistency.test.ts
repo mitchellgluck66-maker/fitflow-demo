@@ -9,6 +9,9 @@ import { runMigrations } from '@/db/migrate';
 import { seedDemo } from '@/db/seed-demo';
 import { runStarterCalls, STARTER_CALLS } from '@/lib/analyst/starter';
 import { ANALYST_TOOLS, type Freshness } from '@/lib/analyst/tools';
+import { Ledger } from '@/lib/analyst/ledger';
+import { verifyAnswer } from '@/lib/analyst/verify';
+import type { Answer } from '@/lib/analyst/schema';
 import { getScorecard } from '@/lib/metrics/service';
 import { computeWeekVerdict } from '@/lib/metrics/verdict';
 import { loadMetricsInput } from '@/lib/metrics/load';
@@ -35,6 +38,27 @@ describe('same data → same snapshot, same verdict', () => {
     expect(r2.verdict.basisClients).toMatch(/^\d+ new paying clients? vs /);
     expect(r2.verdict.verdict).not.toBe('unavailable'); // the demo tenant has Stripe-dated payments and 8 complete weeks
     expect(r2.baseline.newPayingClientsPerWeek).not.toBeNull();
+  });
+
+  it('Oct 7 item 1: the spend gates are identical across two builds and the verifier gives the same spend verdict both times', async () => {
+    const res1 = await getScorecard({ range: 'last_week', compare: 'previous_period' });
+    const res2 = await getScorecard({ range: 'last_week', compare: 'previous_period' });
+    expect(res1.spendGates).toEqual(res2.spendGates);
+    expect(['may_change', 'hold']).toContain(res1.spendGates.account.decision);
+    expect(res1.spendGates.campaigns.length).toBeGreaterThan(0);
+    for (const g of [res1.spendGates.account, ...res1.spendGates.campaigns]) expect(g.decision === 'may_change' ? g.trackedEnrollments >= 4 && g.weeksWithSpend >= 4 : g.trackedEnrollments < 4 || g.weeksWithSpend < 4 || g.spendCents === 0, `${g.campaign}: ${g.reason}`).toBe(true);
+    // The same canned answer, verified twice against two snapshots: the same flags with the same reasons.
+    const snap = await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS);
+    const verdicts = [snap, await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS)].map((results) => {
+      const ledger = new Ledger();
+      for (const r of results) ledger.add(r.ref, r.result.data, '2026-10-07T00:00:00.000Z', r.result.currency);
+      const actions = [res1.spendGates.account, ...res1.spendGates.campaigns].map((g) => ({ action: `Increase ${g.campaign}`, why: 'x', owner: 'Jake', kind: 'spend' as const, campaign: g.campaign, spend_change: 'increase' as const, expected_impact: 'unknown', confidence: 'low' as const, metric: 'paid_cac', check_date: '2026-10-14' }));
+      const answer: Answer = { kind: 'answer', headline: { text: 'x' }, sections: [{ key: 'do_this', body_md: 'y' }], actions, findings: [], note_proposals: [], clarifying_question: '' };
+      return verifyAnswer(answer, ledger).flagged.map((f) => [f.kind, f.text, f.reason]);
+    });
+    expect(verdicts[0]).toEqual(verdicts[1]);
+    const held = [res1.spendGates.account, ...res1.spendGates.campaigns].filter((g) => g.decision === 'hold').length;
+    expect(verdicts[0].length).toBe(held); // exactly the held gates refuse an increase; a hold action never flags
   });
 
   it('the verdict is a pure function of the input: twice from the same rows, and equal to the scorecard route', async () => {

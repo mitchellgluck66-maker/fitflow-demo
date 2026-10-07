@@ -39,6 +39,7 @@ import {
 } from './index';
 import { HISTORY_DEPENDENT_METRICS, HISTORY_DEPENDENT_STAGES } from './maturity';
 import { trailingBaseline } from './baseline';
+import { computeSpendGates, SPEND_GATE, SPEND_GATE_RULE } from './spendGate';
 import { weekVerdictFor, VERDICT_RULE } from './verdict';
 import { DISPLAY_METRICS } from './display';
 import { TREND_METRICS } from './trendMetrics';
@@ -715,10 +716,29 @@ const weekVerdictEntry: GlossaryEntry = {
   },
 };
 
+const spendGateEntry: GlossaryEntry = {
+  key: 'spend_gate',
+  label: 'Spend gate',
+  group: 'marketing',
+  unit: 'count',
+  lowerIsBetter: false,
+  definition: `Whether a campaign's (or the account's) spend may change, decided by the server — never by the Analyst: ${SPEND_GATE_RULE}. A hold IS the advice: say what is missing and when to re-check.`,
+  differsFrom: 'ROAS and CAC say how a campaign performed; the gate says whether the sample is big enough to act on it. Stale data holds every gate.',
+  formula: `may_change when tracked enrollments ≥ ${SPEND_GATE.minEnrollments} and weeks with spend ≥ ${SPEND_GATE.minWeeks} over the clean trailing window; else hold`,
+  maturing: true,
+  worked: (input, range) => {
+    const base = trailingBaseline({ before: range.start, metric: 'enrollments', today: range.end });
+    const g = computeSpendGates(input, base.weeks, base.enough ? null : base.note);
+    const inputs = { trackedEnrollments: g.account.trackedEnrollments, weeksWithSpend: g.account.weeksWithSpend, weeksInWindow: g.account.weeksInWindow, mayChange: g.campaigns.filter((c) => c.decision === 'may_change').length, campaigns: g.campaigns.length };
+    return { value: inputs.mayChange, text: `${g.account.campaign}: ${g.account.reason}; ${inputs.mayChange} of ${inputs.campaigns} campaigns may change`, reason: null, currency: (g.account.currency ?? 'CAD') as Currency, inputs };
+  },
+};
+
 /** `maturing` follows HISTORY_DEPENDENT_METRICS (one list) — an entry's own flag can only add to it. */
 export const GLOSSARY: readonly GlossaryEntry[] = ([
   ...moneyEntries,
   weekVerdictEntry,
+  spendGateEntry,
   ...stageEntries,
   tileAlias('enrollments', 'enrolled', 'Enrollments'),
   tileAlias('consults_booked', 'consult_booked', 'Consults booked'),

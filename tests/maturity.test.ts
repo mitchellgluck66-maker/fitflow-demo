@@ -3,6 +3,7 @@
  * the AI caveat, and the scorecard/email wiring.
  */
 import { weekVerdictFor } from '@/lib/metrics/verdict';
+import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { describe, it, expect } from 'vitest';
 import { computeMaturity, isMaturingMetric, isMaturingStage, dataCaveats, maturingCaveatText, HISTORY_DEPENDENT_METRICS, MATURITY_DEFAULTS } from '@/lib/metrics/maturity';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
@@ -143,6 +144,7 @@ function build(rangeKey: string, today: string): ScorecardResult {
     baseline: { start: '2026-06-21', end: '2026-08-15' },
     baselines: scorecardBaselines(INPUT, range, { today }),
     verdict: weekVerdictFor(INPUT, range, scorecardBaselines(INPUT, range, { today }).sourceDated),
+    spendGates: computeSpendGates(INPUT, scorecardBaselines(INPUT, range, { today }).stageHistory.weeks),
     scorecard: computeScorecard(INPUT, range, P, null),
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: computeTrend(INPUT, [{ ...range, label: range.resolvedLabel }]), comparison: null },

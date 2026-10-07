@@ -3,6 +3,7 @@
  * Fixture from tests/ask.test.ts' shape: last week vs the week before.
  */
 import { weekVerdictFor } from '@/lib/metrics/verdict';
+import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect } from 'vitest';
 import { assembleScorecard, scorecardKindOf, SCORECARD_DEFAULT_PRESET } from '@/lib/scorecard/assemble';
@@ -64,6 +65,7 @@ function build(rangeParams: { range: string; start?: string }): ScorecardResult 
     baseline: { start: '2026-06-21', end: '2026-08-15' },
     baselines: scorecardBaselines(INPUT, range, { today: TODAY }),
     verdict: weekVerdictFor(INPUT, range, scorecardBaselines(INPUT, range, { today: TODAY }).sourceDated),
+    spendGates: computeSpendGates(INPUT, scorecardBaselines(INPUT, range, { today: TODAY }).stageHistory.weeks),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: computeTrend(INPUT, [{ ...range, label: range.resolvedLabel }]), comparison: null },

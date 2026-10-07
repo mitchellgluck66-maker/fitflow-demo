@@ -26,6 +26,7 @@ import {
 } from '../metrics';
 import { computeMaturity, HISTORY_DEPENDENT_LABEL, HISTORY_INDEPENDENT_LABEL } from '../metrics/maturity';
 import { cleanBaseline } from '../metrics/baseline';
+import { computeSpendGates } from '../metrics/spendGate';
 import { glossaryBriefText, METRIC_DEFINITION_VERSION } from '../metrics/glossary';
 import { weekBuckets, formatRangeLabel, addDays, monthStart, monthEnd } from '../dates';
 import { profileGaps, withheldLine, type OwnerProfile } from './notes';
@@ -242,6 +243,13 @@ export function buildBrief(b: BriefInputs): Brief {
     }
   }
   if (campaignRows === 0) lines.push('(no campaign rows yet)');
+  lines.push('');
+
+  // Oct 7 item 1: the spend gates over the clean trailing window — computed by code; a hold is the advice.
+  lines.push('## Spend gates (computed by the server over the clean trailing 8 complete weeks; the Analyst never argues past a hold)');
+  const gateWeeks = cleanBaseline({ candidate: complete.slice(-8).map((w) => ({ start: w.start, end: w.end, label: w.label })), metric: 'enrollments', historyCompleteSince: b.historyCompleteSince, sunset: b.disclaimerSunset, today: b.today });
+  const gates = computeSpendGates(b.input, gateWeeks.weeks, gateWeeks.enough ? null : gateWeeks.note);
+  for (const g of [gates.account, ...gates.campaigns]) lines.push(`- ${g.campaign}${g.platform ? ` (${g.platform})` : ''}: ${g.decision === 'may_change' ? 'may change' : 'HOLD'} — ${g.reason}`);
   lines.push('');
 
   lines.push('## Revenue by month (calendar months, net of refunds)');

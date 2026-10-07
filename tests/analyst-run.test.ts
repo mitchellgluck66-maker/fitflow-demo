@@ -313,7 +313,7 @@ describe('the loop (memory store)', () => {
 
   it('a spend action on stale data is repaired, then stripped with a stated reason', async () => {
     const store = new MemoryAnalystStore();
-    const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
+    const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(spend)]), msg([text(spend)])]);
     const { thread, turn, events, deps } = await setup(store, { client, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', phrase: 'Meta Ads spend stale for 9.0 h', oldestAgeMinutes: 540, sources: [] } });
     const out = await runAnalystTurn(thread.id, turn.id, deps);

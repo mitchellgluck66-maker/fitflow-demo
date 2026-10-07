@@ -54,6 +54,15 @@ describe('item 10: the per-turn line and the targets', () => {
     expect(prefixMismatchLine({ estimatePrefix: 'cold', rounds: [{ toolCalls: 1, cacheSharePct: 90, cacheReadTokens: 35_700, cacheWriteTokens: 300 }] })).toBe(' · prefix predicted cold, measured hit');
     expect(prefixMismatchLine({ estimatePrefix: 'cold', rounds: line().rounds })).toBe('');
     expect(prefixMismatchLine({ estimatePrefix: null, rounds: line().rounds })).toBe('');
+    // Oct 7 item 1: the gates from the snapshot and the answer's spend decisions, comparable across runs.
+    const { spendLine, starterGates } = await import('@/lib/analyst/smoke');
+    const { SNAPSHOT_PREFIX } = await import('@/lib/analyst/starter');
+    expect(spendLine([{ kind: 'spend', campaign: 'Scaling', spend_change: 'hold' }, { kind: 'creative', campaign: '', spend_change: 'none' }, { kind: 'spend', campaign: '', spend_change: 'shift' }])).toBe('spend: hold Scaling, shift account');
+    expect(spendLine([])).toBe('spend: none');
+    expect(formatSmokeTurn(line({ spend: 'spend: hold Scaling' }))).toContain(' · sections 1 (what_happened) · spend: hold Scaling');
+    const row = { apiJson: JSON.stringify({ role: 'user', content: [{ type: 'text', text: `${SNAPSHOT_PREFIX}${JSON.stringify({ ref: 'r2', data: { spendGates: { account: { campaign: 'account', decision: 'hold', basis: '3 of 4 tracked enrollments, 5 of 4 weeks with spend' }, campaigns: [{ campaign: 'Scaling', decision: 'may_change', basis: '6 tracked enrollments over 5 weeks with spend' }] } } })}` }] }) };
+    expect(starterGates([row])).toBe('spend gates: account hold (3 of 4 tracked enrollments, 5 of 4 weeks with spend) · Scaling may change (6 tracked enrollments over 5 weeks with spend)');
+    expect(starterGates(null)).toBeNull();
     expect(runMisses([line({ seconds: 0, rounds: [] })])).toEqual([]); // a turn that never ran is not judged
   });
 });
@@ -100,7 +109,7 @@ describe('G: the smoke prints the full rendered answer', () => {
       kind: 'answer',
       headline: 'Enrollments doubled to 8.',
       sections: [{ key: 'what_happened', body_md: `**8** enrollments.\nSecond line.` }, { key: 'do_this', body_md: long }],
-      actions: [{ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', expected_impact: '$1,000 CAD', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07' }],
+      actions: [{ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: '$1,000 CAD', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07' }],
       findings: [{ area: 'funnel', metric: 'applied', finding: '52 applied', direction: 'flat', severity: 'info', evidence_refs: ['r1:data.stages[0].count'] }],
       note_proposals: ['2026-10-03: cap $4,000 CAD'],
       clarifying_question: '',

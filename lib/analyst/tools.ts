@@ -32,6 +32,7 @@ import { listClients, getClientProfile } from '../queries/clients';
 import { getTimezone } from '../settings';
 import { todayInTimezone, PRESETS, rangeFromParams } from '../dates';
 import { freshnessSummary, readSyncStatus } from '../sync/sourceFreshness';
+import { holdForStale, type SpendGates } from '../metrics/spendGate';
 import { activeNotes, getOwnerProfile, profileGaps, withheldLine } from './notes';
 import { DECISIONS_LOG } from './brief';
 
@@ -185,6 +186,13 @@ const rangeOrNull = (r: { start: string; end: string } | null) => (r ? { start: 
 /** A coverage block for a tool result (names only). */
 const cov = (c: Coverage) => ({ used: c.used, total: c.total, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
 
+/** Oct 7 item 1: the gates as a tool result — stale data holds every gate; counts and phrases, the sentence as a note. */
+function gatesOut(g: SpendGates, freshness: Freshness) {
+  const gates = freshness.stale ? holdForStale(g, freshness.phrase) : g;
+  const row = (x: SpendGates['account']) => ({ campaign: x.campaign, platform: x.platform ?? '', decision: x.decision, basis: x.basis, reason: x.reason, trackedEnrollments: x.trackedEnrollments, weeksWithSpend: x.weeksWithSpend, weeksInWindow: x.weeksInWindow, needsEnrollments: x.needsEnrollments, needsWeeks: x.needsWeeks, spendCents: x.spendCents });
+  return { window: gates.window, rule: 'computed by the server: may_change needs ≥ 4 tracked enrollments over ≥ 4 weeks with spend in the clean window; a hold IS the advice', account: row(gates.account), campaigns: gates.campaigns.map(row) };
+}
+
 function summarizeFunnel(f: { mode: string; stages: Array<{ key: FunnelStageKey; label: string; count: number; shareOfApplied: number | null; conversionFromPrevious: number | null; conversionFrom: FunnelStageKey | null; capped: boolean; dropOff: number; costPerCents: number | null; withheld?: string | null }>; previousLeads: { count: number } }, maturity: { active: boolean } | null) {
   return {
     mode: f.mode,
@@ -229,7 +237,7 @@ const getScorecardTool = tool(
       additionalProperties: false,
     },
   },
-  async (input) => {
+  async (input, ctx) => {
     const r = input.range as RangeInput;
     const res = await getScorecard({ ...rangeParams(r), compare: String(input.compare ?? 'previous_period') });
     const sc = res.scorecard;
@@ -285,6 +293,7 @@ const getScorecardTool = tool(
          */
         // Oct 7 item 5: the rule is in the glossary (week_verdict), the baseline summary in `baseline`, the currency on the result.
         verdict: (({ rule: _rule, baselineSummary: _summary, currency: _ccy, ...v }) => ({ ...v, unit: 'number' }))(res.verdict),
+        spendGates: gatesOut(res.spendGates, ctx.freshness),
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
         /**
@@ -369,7 +378,7 @@ const getCampaignsTool = tool(
     description: 'The Ads campaign table for a period (and the comparison period): spend, impressions, link clicks, CPM, CPC, platform leads, FitFlow-tracked applied/consults/roadmaps/enrolled with cost per each, matched initial cash and ROAS per campaign. A campaign with no matched applicant is "not tracked yet".',
     input_schema: { type: 'object', properties: { range: RANGE_SCHEMA, compare: { type: 'string', enum: ['previous_period', 'last_year', 'off'] } }, required: ['range', 'compare'], additionalProperties: false },
   },
-  async (input) => {
+  async (input, ctx) => {
     const res = await getScorecard({ ...rangeParams(input.range as RangeInput), compare: String(input.compare ?? 'previous_period') });
     const row = (c: (typeof res.ads.campaigns)[number]) => ({
       campaign: c.campaignName,
@@ -401,6 +410,7 @@ const getCampaignsTool = tool(
     /** The prior period's table, trimmed to what a comparison cites (the full row is in `campaigns`). */
     const priorRow = (c: (typeof res.ads.campaigns)[number]) => ({ campaign: c.campaignName, spendCents: c.spendCents, trackedApplied: c.tracked.applied, trackedEnrolled: c.tracked.enrolled, costPerClientCents: c.costPer.enrolled, roas: c.roas });
     const k = res.ads.kpis;
+    const gates = gatesOut(res.spendGates, ctx.freshness);
     return {
       range: rangeOut(res.range),
       currency: res.money.currency,
@@ -408,6 +418,8 @@ const getCampaignsTool = tool(
       data: {
         kpis: { spendCents: k.spendCents, costPerLeadCents: k.costPerLeadCents, costPerConsultCents: k.costPerConsultCents, costPerRoadmapCents: k.costPerRoadmapCents, paidCacCents: k.paidCacCents, blendedCacCents: k.blendedCacCents, roas: k.roas, paidCacCoverage: cov(k.paidCacCoverage), roasCoverage: cov(k.roasCoverage), apiConnected: k.apiConnected, byPlatform: k.byPlatform },
         campaigns: res.ads.campaigns.map(row),
+        /** Oct 7 item 1: the spend gate per campaign and for the account — every spend action is held to it. */
+        gates,
         comparison: res.comparison.range ? { ...rangeOut(res.comparison.range), campaigns: (res.ads.previousCampaigns ?? []).map(priorRow) } : null,
         maturityActive: res.maturity.active,
       },
@@ -670,6 +682,7 @@ const getDataHealthTool = tool(
         ownerProfileGaps: gaps,
         withheld: withheldLine(gaps),
         spendAdviceAllowed: !ctx.freshness.stale,
+        spendGates: (() => { const g = gatesOut(res.spendGates, ctx.freshness); const may = g.campaigns.filter((c) => c.decision === 'may_change').length; return { mayChange: may, campaigns: g.campaigns.length, account: g.account.decision, phrase: `${may} of ${g.campaigns.length} campaigns may change spend`, note: g.account.reason }; })(),
         appliedLedger: appliedLedgerBlock,
       },
     };

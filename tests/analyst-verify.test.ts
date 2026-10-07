@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Ledger, ledgerEntries, unitForPath } from '@/lib/analyst/ledger';
-import { isExemptContext, rawDigits, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
+import { gateInLedger, isExemptContext, rawDigits, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
 import { renderAnswer, renderText, renderWithSpans, toRenderedIndex, NO_SOURCE } from '@/lib/analyst/render';
 import { checkDirection, lowerIsBetter, sentences } from '@/lib/analyst/direction';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, expectedSections, SECTION_KEYS, type Answer } from '@/lib/analyst/schema';
@@ -23,6 +23,13 @@ ledger.add(
     stages: [{ key: 'applied', count: 52 }, { key: 'consult_booked', count: 7, conversionFromPrevious: 0.1346 }],
     frequency: 2.37,
     timeInStageHours: 41.6,
+    spendGates: {
+      account: { campaign: 'account', decision: 'may_change', basis: '9 tracked enrollments over 6 weeks with spend', trackedEnrollments: 9, weeksWithSpend: 6 },
+      campaigns: [
+        { campaign: 'Summer Shred — Broad', decision: 'may_change', basis: '6 tracked enrollments over 6 weeks with spend', trackedEnrollments: 6, weeksWithSpend: 6 },
+        { campaign: 'Scaling', decision: 'hold', basis: '2 of 4 tracked enrollments, 3 of 4 weeks with spend', trackedEnrollments: 2, weeksWithSpend: 3 },
+      ],
+    },
   },
   T0,
   'CAD',
@@ -40,7 +47,7 @@ const base = (over: Partial<Answer> = {}): Answer => ({
   ...over,
 });
 const sec = (key: Answer['sections'][number]['key'], body_md: string) => ({ key, body_md });
-const action = (over: Partial<Answer['actions'][number]> = {}): Answer['actions'][number] => ({ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', expected_impact: 'unknown', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07', ...over });
+const action = (over: Partial<Answer['actions'][number]> = {}): Answer['actions'][number] => ({ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: 'unknown', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07', ...over });
 
 describe('schema', () => {
   it('is strict-compatible (0 optional, 0 unions), every field required, and the zod schema accepts a full answer', () => {
@@ -201,6 +208,22 @@ describe('verifyAnswer v2', () => {
   it('actions and findings are checked like sections', () => {
     const a = base({ actions: [action({ expected_impact: 'about {r9:data.gone} more', why: 'CAC is 924 dollars' })], findings: [{ area: 'funnel', metric: 'applied', finding: '{r1:data.stages[0].count} applied', direction: 'flat', severity: 'info', evidence_refs: [] }] });
     expect(verifyAnswer(a, ledger).flagged.map((f) => [f.kind, f.section])).toEqual([['digits', 'actions[0].why'], ['ref', 'actions[0].expected_impact']]);
+  });
+  it('spend gates (Oct 7 item 1): a spend change needs a campaign whose newest gate says may_change; a hold always passes; the newest call wins', () => {
+    const ok = base({ actions: [action({ campaign: 'Summer Shred — Broad', spend_change: 'increase' }), action({ campaign: 'account', spend_change: 'shift' }), action({ campaign: 'Scaling', spend_change: 'hold' }), action({ kind: 'creative', campaign: '', spend_change: 'none' })] });
+    expect(verifyAnswer(ok, ledger).flagged).toEqual([]);
+    const held = base({ actions: [action({ action: 'Move half of Scaling to Testing', campaign: 'Scaling', spend_change: 'shift' })] });
+    expect(verifyAnswer(held, ledger).flagged).toEqual([{ kind: 'gate', section: 'actions[0].action', text: 'Move half of Scaling to Testing', reason: 'spend action on "Scaling" (shift): the gate says hold — 2 of 4 tracked enrollments, 3 of 4 weeks with spend; write it as a hold (spend_change "hold") or drop it' }]);
+    expect(renderAnswer(held, ledger, verifyAnswer(held, ledger).flagged).actions[0].action).toBe('[gate: hold] Move half of Scaling to Testing');
+    expect(verifyAnswer(base({ actions: [action({ campaign: 'Testing', spend_change: 'increase' })] }), ledger).flagged[0].reason).toBe('spend action on "Testing" (increase): no spend gate for it in this conversation — fetch get_campaigns first and name the campaign exactly as it gives it');
+    expect(verifyAnswer(base({ actions: [action({ campaign: 'account', spend_change: 'none' })] }), ledger).flagged[0].reason).toMatch(/spend_change is "none"/);
+    // A later get_campaigns call (r3, `gates`) overrides the snapshot's verdict for the same campaign; names match case- and space-insensitively.
+    const L2 = new Ledger();
+    L2.add('r1', { spendGates: { account: { decision: 'hold', basis: 'no spend in the window' }, campaigns: [{ campaign: 'Scaling', decision: 'hold', basis: 'x' }] } }, T0, 'CAD');
+    L2.add('r3', { gates: { account: { decision: 'may_change', basis: 'y' }, campaigns: [{ campaign: 'Scaling', decision: 'may_change', basis: '5 tracked enrollments over 4 weeks with spend' }] } }, T0, 'CAD');
+    expect(verifyAnswer(base({ headline: { text: 'x' }, actions: [action({ campaign: ' scaling ', spend_change: 'increase' }), action({ campaign: '', spend_change: 'decrease' })] }), L2).flagged).toEqual([]);
+    expect(gateInLedger(L2, 'Scaling')).toEqual({ decision: 'may_change', basis: '5 tracked enrollments over 4 weeks with spend', ref: 'r3:data.gates.campaigns[0].decision' });
+    expect(repairMessage(['x'])).toMatch(/a spend action on a campaign whose gate says hold can only be a hold/);
   });
   it('the repair message explains the token rule', () => {
     expect(repairMessage(['x'])).toMatch(/write its ref in braces/);

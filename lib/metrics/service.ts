@@ -20,6 +20,7 @@ import { getTimezone, getSetting, SETTING_KEYS } from '../settings';
 import { computeMaturity, isMaturingMetric, type DataMaturity } from './maturity';
 import { scorecardBaselines, trailingBaseline, type ScorecardBaselines } from './baseline';
 import { weekVerdictFor, type WeekVerdict } from './verdict';
+import { computeSpendGates, type SpendGates } from './spendGate';
 import { loadMetricsInput } from './load';
 import { fxNote, DEFAULT_MONEY_CONTEXT, type Currency, type FxNote } from '../money';
 import { type InputHealth,
@@ -49,6 +50,8 @@ export interface ScorecardResult {
   baselines: ScorecardBaselines;
   /** The deterministic week verdict (lib/metrics/verdict.ts) — Stripe first payments and new-client cash vs the clean baseline; `unavailable` with the reason for a range that is not one Sun–Sat week. */
   verdict: WeekVerdict;
+  /** Oct 7 item 1: per-campaign (and account) spend decision gates over the clean stage-history window (lib/metrics/spendGate.ts). */
+  spendGates: SpendGates;
   scorecard: Scorecard;
   trend: { grain: 'day' | 'week'; current: TrendPoint[]; comparison: TrendPoint[] | null };
   /** Always Sun–Sat weeks (range padded to whole weeks) — for conversion-over-time charts. */
@@ -108,6 +111,7 @@ export async function getScorecard(params: {
   const baselines = scorecardBaselines(input, range, { historyCompleteSince, sunset, today });
   const scorecard = computeScorecard(input, range, comparison.range, baselines.stageHistory.range);
   const verdict = weekVerdictFor(input, range, baselines.sourceDated);
+  const spendGates = computeSpendGates(input, baselines.stageHistory.weeks, baselines.stageHistory.enough ? null : baselines.stageHistory.note);
 
   const grain = trendGrain(range);
   const bucketsFor = (r: { start: string; end: string }) =>
@@ -121,6 +125,7 @@ export async function getScorecard(params: {
     baseline: { start: baseline.start, end: baseline.end },
     baselines,
     verdict,
+    spendGates,
     scorecard,
     inputHealth: input.health ?? { applicantsWithoutDate: [], appliedFromMove: 0 },
     trend: {

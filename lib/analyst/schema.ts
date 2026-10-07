@@ -45,6 +45,8 @@ export const EXPLAIN_SECTIONS: SectionKey[] = ['what_it_is', 'what_yours_says', 
 export const REPORT_SECTIONS: SectionKey[] = ['executive_summary', 'scorecard_vs_normal', 'marketing', 'funnel_deep_dive', 'sales_conversion', 'revenue_and_cash', 'data_health', 'actions'];
 
 export const ACTION_KINDS = ['spend', 'creative', 'sales_process', 'follow_up', 'pricing', 'data', 'other'] as const;
+/** Oct 7 item 1: what a spend action does; the verifier holds it to the server's gate. */
+export const SPEND_CHANGES = ['increase', 'decrease', 'shift', 'hold', 'none'] as const;
 export const CONFIDENCE = ['low', 'medium', 'high'] as const;
 export const DIRECTIONS = ['up', 'down', 'flat'] as const;
 export const SEVERITIES = ['info', 'good', 'warning'] as const;
@@ -78,12 +80,14 @@ export const ANSWER_SCHEMA = {
           why: { type: 'string' },
           owner: { type: 'string', description: 'Who does it (a role or a name from the team).' },
           kind: { type: 'string', enum: [...ACTION_KINDS] },
+          campaign: { type: 'string', description: 'For a spend action: the campaign name exactly as a tool result gives it, or "account" for total spend. "" for other kinds.' },
+          spend_change: { type: 'string', enum: [...SPEND_CHANGES], description: 'For a spend action: increase / decrease / shift / hold. The server\'s spend gate decides what is allowed — a campaign whose gate says hold can only get "hold". "none" for other kinds.' },
           expected_impact: { type: 'string', description: 'The expected impact in words; any number as a ref token ({r7:data.results[2].value}), or "unknown".' },
           confidence: { type: 'string', enum: [...CONFIDENCE] },
           metric: { type: 'string', description: 'The metric to watch (a glossary key).' },
           check_date: { type: 'string', description: 'YYYY-MM-DD when to check.' },
         },
-        required: ['action', 'why', 'owner', 'kind', 'expected_impact', 'confidence', 'metric', 'check_date'],
+        required: ['action', 'why', 'owner', 'kind', 'campaign', 'spend_change', 'expected_impact', 'confidence', 'metric', 'check_date'],
         additionalProperties: false,
       },
     },
@@ -121,6 +125,8 @@ export const AnswerSchema = z.object({
       why: z.string(),
       owner: z.string(),
       kind: z.enum(ACTION_KINDS),
+      campaign: z.string(),
+      spend_change: z.enum(SPEND_CHANGES),
       expected_impact: z.string(),
       confidence: z.enum(CONFIDENCE),
       metric: z.string(),

@@ -33,6 +33,8 @@ export interface SmokeTurnLine {
   estimateUsd: number | null;
   /** Oct 4 item 5: how the estimate priced the prefix; printed beside the measured hit / written. */
   estimatePrefix?: PrefixState | null;
+  /** Oct 7 item 1: the answer's spend actions ("spend: hold Scaling, hold Testing" / "spend: none"). */
+  spend?: string;
   seconds: number;
   headline: string | null;
   flagged: number;
@@ -111,6 +113,30 @@ export function starterVerdict(rows: ReadonlyArray<{ apiJson: string }> | null |
     }
   }
   return null;
+}
+
+/** Oct 7 item 1: the spend gates from the starter snapshot (r2), printed so two runs are comparable line by line. */
+export function starterGates(rows: ReadonlyArray<{ apiJson: string }> | null | undefined): string | null {
+  for (const r of rows ?? []) {
+    const msg = JSON.parse(r.apiJson) as { content?: Array<{ type: string; text?: string }> };
+    for (const b of msg.content ?? []) {
+      if (b.type !== 'text' || !b.text?.startsWith(SNAPSHOT_PREFIX)) continue;
+      try {
+        const res = JSON.parse(b.text.slice(SNAPSHOT_PREFIX.length)) as { data?: { spendGates?: { account: { campaign: string; decision: string; basis: string }; campaigns: Array<{ campaign: string; decision: string; basis: string }> } } };
+        const g = res.data?.spendGates;
+        if (g) return `spend gates: ${[g.account, ...g.campaigns].map((x) => `${x.campaign} ${x.decision === 'may_change' ? 'may change' : 'hold'} (${x.basis})`).join(' · ')}`;
+      } catch {
+        /* not a tool result */
+      }
+    }
+  }
+  return null;
+}
+
+/** "spend: hold Scaling, hold Testing" / "spend: none" — the answer's spend actions, for the line. */
+export function spendLine(actions: ReadonlyArray<{ kind: string; campaign: string; spend_change: string }>): string {
+  const spend = actions.filter((a) => a.kind === 'spend');
+  return `spend: ${spend.length ? spend.map((a) => `${a.spend_change} ${a.campaign || 'account'}`).join(', ') : 'none'}`;
 }
 
 /** "headline verdict ≠ computed verdict: the headline says "strong", the server computed normal" — or null. */
@@ -197,7 +223,7 @@ export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
-  return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
+  return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.spend ? ` · ${l.spend}` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
 /**
@@ -379,6 +405,8 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     const thin = sectionsMiss(req.expectsSections, out.answer?.sections.map((s) => s.key) ?? []);
     const computed = starterVerdict(prepared.deps.starterRows);
     if (computed) opts.log?.(`   verdict (computed by the server): ${computed.verdict} — ${computed.reason}`);
+    const gatesText = starterGates(prepared.deps.starterRows);
+    if (gatesText) opts.log?.(`   ${gatesText}`);
     const wrongVerdict = req.expectsVerdict ? verdictMiss(computed, out.rendered?.headline ?? null) : null;
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
@@ -400,6 +428,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       flagged: out.flagged.length,
       repairs,
       repairKinds: repairKinds(repairProblems(turnEvents)),
+      spend: out.answer ? spendLine(out.answer.actions) : undefined,
       sections: out.answer?.sections.map((s) => s.key) ?? [],
       proposals,
       error: out.error ?? (out.status !== 'done' ? out.status : memoryMiss ? 'memory check: the owner stated a durable fact but the answer proposed no note' : null),

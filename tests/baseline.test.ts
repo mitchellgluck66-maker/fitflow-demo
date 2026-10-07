@@ -7,6 +7,7 @@
  * the insight input, the ask context.
  */
 import { weekVerdictFor } from '@/lib/metrics/verdict';
+import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -95,6 +96,7 @@ describe('the catch-up week never reaches a baseline — every surface', () => {
     baseline: { start: '2026-08-02', end: '2026-09-26' },
     baselines,
     verdict: weekVerdictFor(INPUT, range, baselines.sourceDated),
+    spendGates: computeSpendGates(INPUT, baselines.stageHistory.weeks),
     scorecard,
     trend: { grain: 'day', current: [], comparison: null },
     trendWeekly: { current: [], comparison: null },

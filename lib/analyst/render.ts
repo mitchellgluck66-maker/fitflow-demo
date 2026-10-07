@@ -112,8 +112,9 @@ export function toRenderedIndex(spans: RenderedSpan[], index: number): number {
 
 /**
  * Replace every ref token in `text` with its rendered value. After the one repair, an unresolved token
- * reads `[no source]`, a raw digit run the verifier flagged is wrapped `[unverified: 8]`, and a sentence
- * with a direction mismatch is prefixed `[check direction]` — marked, never silent.
+ * reads `[no source]`, a raw digit run the verifier flagged is wrapped `[unverified: 8]`, a sentence
+ * with a direction mismatch is prefixed `[check direction]`, and a spend action the gate refused is prefixed
+ * `[gate: hold]` — marked, never silent.
  *
  * Marks are applied BY POSITION (item 3, 2026-10-06): a digits flag carries its offset in the rendered text,
  * a direction flag its sentence's offset in the token-form text (mapped through the spans). Nothing is
@@ -139,6 +140,8 @@ export function renderText(text: string, ledger: Ledger, flags: Flag[] = []): st
       if (at < 0) continue;
       const len = f.length ?? f.text.length;
       edits.push({ at, order: 0, apply: (s) => `${s.slice(0, at)}[unverified: ${s.slice(at, at + len)}]${s.slice(at + len)}` });
+    } else if (f.kind === 'gate') {
+      edits.push({ at: 0, order: 2, apply: (s) => `[gate: hold] ${s}` });
     } else if (f.kind === 'direction') {
       const at = f.index !== undefined ? toRenderedIndex(spans, f.index) : (() => { const i = text.indexOf(f.text); return i < 0 ? -1 : toRenderedIndex(spans, i); })();
       if (at < 0) continue;
