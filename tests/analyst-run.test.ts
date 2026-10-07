@@ -53,10 +53,13 @@ function fakeClient(script: Array<Scripted | Error>, compaction?: Scripted): Ana
         stream: (params) => {
           requests.push(params as unknown as Record<string, unknown>);
           const next = script.shift();
+          // Oct 7 item 6: a scripted message may carry `deltas` — the answer text streamed in chunks (text_delta events).
+          const deltas = ((next as { deltas?: string[] } | undefined)?.deltas ?? []).map((t) => ({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: t } }));
           const events = [
             { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
             { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Reading the scorecard' } },
             { type: 'content_block_stop', index: 0 },
+            ...(deltas.length ? [{ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }, ...deltas, { type: 'content_block_stop', index: 1 }] : []),
           ] as unknown as Anthropic.Beta.Messages.BetaRawMessageStreamEvent[];
           return {
             async *[Symbol.asyncIterator]() {
@@ -208,6 +211,31 @@ describe('the loop (memory store)', () => {
     expect(countRepairs(events)).toBe(1);
     const roles = (await store.listMessages(thread.id)).map((r) => r.role);
     expect(roles).toEqual(['user', 'assistant', 'tool_results', 'assistant', 'user', 'assistant']);
+  });
+
+  it('Oct 7 item 6: the first section is verified the moment it closes in the stream — before the final message — and the turn records the seconds', async () => {
+    const store = new MemoryAnalystStore();
+    const json = answerJson();
+    const cut = json.indexOf('"why"') > 0 ? json.indexOf('"why"') : Math.floor(json.length / 2);
+    let t = 0;
+    const now = () => (t += 5_000); // every clock read is 5 s later
+    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(json)], 'end_turn', {}, { deltas: [json.slice(0, 20), json.slice(20, cut), json.slice(cut)] })]);
+    const { thread, turn, events, deps } = await setup(store, { client, now });
+    const out = await runAnalystTurn(thread.id, turn.id, deps);
+    expect(out.status).toBe('done');
+    const section = events.find((e) => e.type === 'section');
+    expect(section).toMatchObject({ type: 'section', key: 'what_happened', verified: true });
+    expect(events.indexOf(section!)).toBeLessThan(events.findIndex((e) => e.type === 'answer'));
+    expect(out.firstSectionSeconds).toBeGreaterThan(0);
+    expect(events.find((e) => e.type === 'answer')).toMatchObject({ firstSectionSeconds: out.firstSectionSeconds });
+    // A first section with a bad ref streams as NOT verified (and the turn repairs it as usual).
+    const bad = answerJson({ sections: [{ key: 'what_happened', body_md: '{r9:data.nope} enrollments.' }] });
+    const client2 = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(bad)], 'end_turn', {}, { deltas: [bad] }), msg([text(JSON.stringify({ fields: [{ path: 'what_happened', text: '{r1:data.kpis.enrollments.current} enrollments.' }] }))])]);
+    const s2 = await setup(new MemoryAnalystStore(), { client: client2 });
+    const out2 = await runAnalystTurn(s2.thread.id, s2.turn.id, s2.deps);
+    expect(out2.status).toBe('done');
+    expect(s2.events.filter((e) => e.type === 'section')).toEqual([{ type: 'section', key: 'what_happened', verified: false, seconds: expect.any(Number) }]); // once per turn; the repair round does not re-emit
+    expect(out2.flagged).toEqual([]);
   });
 
   it('a targeted repair that returns nothing usable keeps the original fields, marked; a structure problem regenerates the whole answer (full repair)', async () => {

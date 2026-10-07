@@ -26,6 +26,7 @@ import { noteAnthropicOutcome } from '../anthropic/incident';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, REPAIR_SCHEMA, RepairSchema, spliceFields, TARGETED_KINDS, type Answer, type RepairFields } from './schema';
 import { Ledger } from './ledger';
 import { repairMessage, targetedRepairMessage, verifyAnswer, type Flag } from './verify';
+import { firstSection } from './partial';
 import { renderAnswer, type RenderedAnswer } from './render';
 import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
@@ -57,7 +58,9 @@ export type AnalystEvent =
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
   | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number; /** Oct 7 item 2a: this round's price, so a repair round's share of the turn is measurable. */ costUsd: number }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
-  | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number }
+  /** Oct 7 item 6: the first section of the answer completed in the stream and was verified at once — what the owner will see first (Wave 2 streams it). */
+  | { type: 'section'; key: string; verified: boolean; seconds: number }
+  | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number; /** Oct 7 item 6: seconds from the turn's start to the first verified section in the stream (null when none streamed). */ firstSectionSeconds: number | null }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean; /** Item D: input · cache read · cache write · thinking · answer. */ split: CostSplit }
   | { type: 'continue' }
   | { type: 'needs_confirmation'; reason: string; spentUsd: number }
@@ -118,6 +121,8 @@ export interface TurnOutcome {
   compacted: boolean;
   /** Item D (done turns only). */
   split: CostSplit | null;
+  /** Oct 7 item 6: seconds to the first verified section in the stream (null when none streamed). */
+  firstSectionSeconds: number | null;
 }
 
 const emptyUsage = (): UsageTotals => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0 });
@@ -243,7 +248,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     deps.onEvent?.(e);
   };
 
-  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, split: null, ...extra });
+  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, split: null, firstSectionSeconds, ...extra });
   let usage = emptyUsage();
   let costUsd = 0;
   let rounds = 0;
@@ -293,11 +298,26 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     return pendingRepair ? buildRepairRequest({ ...input, repairSchema: REPAIR_SCHEMA as unknown as Record<string, unknown> }, { carriesCompaction }) : buildTurnRequest(input, { carriesCompaction });
   };
 
+  // Oct 7 item 6: time to the first verified section — read from the partial answer JSON as it streams.
+  let firstSectionSeconds: number | null = null;
   const streamRound = async (): Promise<BetaMessage> => {
     const stream = deps.client.beta.messages.stream(request());
     let lastStatus = '';
     let buffer = '';
+    let answerText = '';
+    let answerBlock = false;
     for await (const ev of stream) {
+      if (ev.type === 'content_block_start') answerBlock = ev.content_block.type === 'text' || (ev.content_block.type === 'tool_use' && ev.content_block.name === SUBMIT_ANSWER_TOOL);
+      if (firstSectionSeconds === null && !pendingRepair && answerBlock && ev.type === 'content_block_delta' && (ev.delta.type === 'text_delta' || ev.delta.type === 'input_json_delta')) {
+        answerText += ev.delta.type === 'text_delta' ? ev.delta.text : ev.delta.partial_json;
+        const section = firstSection(answerText);
+        if (section) {
+          const probe: Answer = { kind: 'answer', headline: { text: '' }, sections: [{ key: section.key as Answer['sections'][number]['key'], body_md: section.body_md }], actions: [], findings: [], note_proposals: [], clarifying_question: '' };
+          const verified = verifyAnswer(probe, ledger, { staleBefore: deps.staleBefore, question: turn.question }).ok;
+          firstSectionSeconds = Math.round(((now() - startedAt) / 1000) * 10) / 10;
+          await emit({ type: 'section', key: section.key, verified, seconds: firstSectionSeconds });
+        }
+      }
       if (ev.type === 'content_block_delta' && ev.delta.type === 'thinking_delta' && typeof ev.delta.thinking === 'string') buffer += ev.delta.thinking;
       if (ev.type === 'content_block_stop') {
         const text = buffer.trim();
@@ -458,7 +478,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, rendered, flagged, repaired: repairs > 0, strippedSpendActions } }]);
     await store.updateTurn(turnId, { status: 'done', finishedAt: new Date(), usage: usage as unknown as Record<string, number>, costUsd, rounds });
     await store.updateThread(threadId, { lastTurnAt: new Date(), ...(thread.title ? {} : { title: turn.question.slice(0, 80) }) });
-    await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions });
+    await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions, firstSectionSeconds });
     // Item D: the cost split. The visible output is measured (count_tokens) when a counter is given, else ≈ chars ÷ 3.5.
     let answerTokens = Math.ceil(visibleOutput.length / 3.5);
     let approximate = true;

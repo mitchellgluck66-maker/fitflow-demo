@@ -37,6 +37,10 @@ export interface SmokeTurnLine {
   spend?: string;
   /** Oct 7 item 2a: the costliest repair round's share of the turn (null when no repair). */
   repairSharePct?: number | null;
+  /** Oct 7 item 6: review (a week / period review) or metric (one figure, an explain); sets the p50 target. */
+  shape?: 'review' | 'metric';
+  /** Oct 7 item 6: seconds to the first verified section in the stream (null when none streamed). */
+  firstSectionSeconds?: number | null;
   seconds: number;
   headline: string | null;
   flagged: number;
@@ -59,11 +63,12 @@ export interface SmokeTurnLine {
 }
 
 /** Item 10: the targets per Opus chat turn (Mitchell, 2026-09-30; cost target raised to $0.50 on 2026-10-03). The deep model is reported, not judged. */
-export const SMOKE_TARGETS = { p50Seconds: 45, /** Oct 7 item 5: judged by the turn's MEASURED prefix state (a cold turn pays the 1h prefix write). */ maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, /** Oct 7 item 2a: a repair round costs less than this share of its turn. */ repairSharePctMax: 20, flaggedMax: 0, estimateTolerance: 0.25 } as const;
+export const SMOKE_TARGETS = { /** Oct 7 item 6 (Mitchell): p50 of the full answer per question shape, and the first verified section per turn. */ p50Seconds: { review: 90, metric: 45 }, firstSectionSeconds: 20, /** Oct 7 item 5: judged by the turn's MEASURED prefix state (a cold turn pays the 1h prefix write). */ maxUsd: { cold: 0.6, warm: 0.45 }, cacheSharePctFromRound2: 80, repairRateMax: 0.2, /** Oct 7 item 2a: a repair round costs less than this share of its turn. */ repairSharePctMax: 20, flaggedMax: 0, estimateTolerance: 0.25 } as const;
 
 /** The per-turn misses (pure): cost (by prefix state), cache share from round 2, estimate accuracy. Seconds / repairs / flagged are judged across the run. */
-export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'> & { repairSharePct?: number | null }): string[] {
+export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'rounds'> & { repairSharePct?: number | null; firstSectionSeconds?: number | null }): string[] {
   const out: string[] = [];
+  if (typeof l.firstSectionSeconds === 'number' && l.firstSectionSeconds > SMOKE_TARGETS.firstSectionSeconds) out.push(`first section ${l.firstSectionSeconds}s > ${SMOKE_TARGETS.firstSectionSeconds}s`);
   if (typeof l.repairSharePct === 'number' && l.repairSharePct >= SMOKE_TARGETS.repairSharePctMax) out.push(`repair cost ${l.repairSharePct}% of the turn ≥ ${SMOKE_TARGETS.repairSharePctMax}%`);
   const state = measuredPrefix(l.rounds) ?? 'cold';
   if (l.costUsd > SMOKE_TARGETS.maxUsd[state] + 1e-9) out.push(`cost ${formatUsd(l.costUsd)} > ${formatUsd(SMOKE_TARGETS.maxUsd[state])} (${state})`);
@@ -78,15 +83,22 @@ export function turnMisses(l: Pick<SmokeTurnLine, 'costUsd' | 'estimateUsd' | 'r
 }
 
 /** The run-level verdict (pure): p50 seconds, repair rate, flagged across every PASS/FAIL line that ran. */
+const median = (xs: number[]) => {
+  const v = [...xs].sort((a, b) => a - b);
+  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+};
+
 export function runMisses(lines: SmokeTurnLine[]): string[] {
   const ran = lines.filter((l) => l.seconds > 0);
   if (ran.length === 0) return [];
-  const secs = ran.map((l) => l.seconds).sort((a, b) => a - b);
-  const p50 = secs.length % 2 ? secs[(secs.length - 1) / 2] : (secs[secs.length / 2 - 1] + secs[secs.length / 2]) / 2;
   const repairs = ran.reduce((a, l) => a + l.repairs, 0);
   const flagged = ran.reduce((a, l) => a + l.flagged, 0);
   const out: string[] = [];
-  if (p50 > SMOKE_TARGETS.p50Seconds) out.push(`p50 ${p50}s > ${SMOKE_TARGETS.p50Seconds}s`);
+  // Oct 7 item 6: p50 of the full answer per question shape (review ≤ 90 s, single-metric ≤ 45 s).
+  for (const shape of ['review', 'metric'] as const) {
+    const secs = ran.filter((l) => (l.shape ?? 'review') === shape).map((l) => l.seconds);
+    if (secs.length && median(secs) > SMOKE_TARGETS.p50Seconds[shape]) out.push(`p50 (${shape}) ${median(secs)}s > ${SMOKE_TARGETS.p50Seconds[shape]}s`);
+  }
   if (repairs / ran.length >= SMOKE_TARGETS.repairRateMax) out.push(`repairs ${repairs}/${ran.length} turns ≥ ${Math.round(SMOKE_TARGETS.repairRateMax * 100)}%`);
   if (flagged > SMOKE_TARGETS.flaggedMax) out.push(`${flagged} flagged number(s) > ${SMOKE_TARGETS.flaggedMax}`);
   return out;
@@ -97,6 +109,8 @@ export interface SmokeTurn extends Omit<TurnRequest, 'clientTurnId'> {
   expectsProposal?: boolean;
   /** The sections this answer must carry (2026-10-01: cheaper must not mean thinner — turn 1 stays 5/5). */
   expectsSections?: readonly string[];
+  /** Oct 7 item 6: the question's shape — a review (p50 ≤ 90 s) or a single-metric question / explain (p50 ≤ 45 s). */
+  shape: 'review' | 'metric';
   /** 1b (2026-10-06): the rendered headline must carry the SERVER's verdict word for last week (strong / normal / weak), never the model's own. */
   expectsVerdict?: boolean;
 }
@@ -159,17 +173,17 @@ export function sectionsMiss(expected: readonly string[] | undefined, got: strin
 }
 
 export const SMOKE_TURNS: SmokeTurn[] = [
-  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', context: { page: 'command_center', range: null, compare: 'previous_period' }, expectsSections: ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'], expectsVerdict: true },
-  { question: 'And how does that compare with the week before?', kind: 'ask' },
-  { question: 'Which campaign had the best cost per client in that period, and should we move budget?', kind: 'ask' },
-  { question: 'For the record: from October we cap Meta spend at $4,000 CAD a month. Does that change your advice?', kind: 'ask', expectsProposal: true },
-  { question: '', kind: 'explain', explainKey: 'paid_cac', context: { page: 'ads', range: null } },
+  { question: 'How did last week go, and what should we focus on this week?', kind: 'ask', shape: 'review', context: { page: 'command_center', range: null, compare: 'previous_period' }, expectsSections: ['what_happened', 'why', 'so_what', 'do_this', 'how_we_will_know'], expectsVerdict: true },
+  { question: 'And how does that compare with the week before?', kind: 'ask', shape: 'review' },
+  { question: 'Which campaign had the best cost per client in that period, and should we move budget?', kind: 'ask', shape: 'metric' },
+  { question: 'For the record: from October we cap Meta spend at $4,000 CAD a month. Does that change your advice?', kind: 'ask', shape: 'review', expectsProposal: true },
+  { question: '', kind: 'explain', shape: 'metric', explainKey: 'paid_cac', context: { page: 'ads', range: null } },
 ];
 
 const pctOf = (l: SmokeTurnLine) => (l.estimateUsd && l.estimateUsd > 0 ? ` (${l.costUsd >= l.estimateUsd ? '+' : ''}${Math.round(((l.costUsd - l.estimateUsd) / l.estimateUsd) * 100)}%)` : '');
 
 /**
- *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 1 (digits×2, ref×1) · flagged 0 · 38s · $0.33 USD vs est $0.41 USD (cold) (-20%) · sections …
+ *   PASS turn 1 · 3 rounds · tools/round 4,1,0 · cache 0%/91%/95% · repairs 1 (digits×2, ref×1) · flagged 0 · first section 14s · total 38s · $0.33 USD vs est $0.41 USD (cold) (-20%) · sections …
  *        ↳ headline
  *   FAIL turn 2 · … · missed: cost $0.52 USD > $0.50 USD; cache round 2 71% < 80%
  */
@@ -239,7 +253,7 @@ export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   
 }
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · first section ${l.firstSectionSeconds === null || l.firstSectionSeconds === undefined ? '—' : `${l.firstSectionSeconds}s`} · total ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.spend ? ` · ${l.spend}` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
@@ -360,7 +374,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     };
     // Nothing is written: proposals are collected here, not saved as notes.
     const proposals: string[] = [];
-    const { expectsProposal: _expects, expectsSections: _sections, expectsVerdict: _verdict, ...turnReq } = req;
+    const { expectsProposal: _expects, expectsSections: _sections, expectsVerdict: _verdict, shape: _shape, ...turnReq } = req;
     // The remaining budget is what this turn may spend: the cap decision refuses a turn whose estimate does not fit,
     // and the loop pauses between rounds (needs_confirmation) when spent + the next request would not — both read
     // here as the budget stop. Nothing is sent past the budget.
@@ -429,7 +443,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
     const repairShare = repairRounds(turnEvents).reduce<number | null>((a, r) => (r.sharePct === null ? a : a === null ? r.sharePct : Math.max(a, r.sharePct)), null);
-    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds, repairSharePct: repairShare }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
+    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds, repairSharePct: repairShare, firstSectionSeconds: out.firstSectionSeconds }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
     lines.push({
       status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,
@@ -449,6 +463,8 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       repairKinds: repairKinds(repairProblems(turnEvents)),
       spend: out.answer ? spendLine(out.answer.actions) : undefined,
       repairSharePct: repairShare,
+      shape: req.shape,
+      firstSectionSeconds: out.firstSectionSeconds,
       sections: out.answer?.sections.map((s) => s.key) ?? [],
       proposals,
       error: out.error ?? (out.status !== 'done' ? out.status : memoryMiss ? 'memory check: the owner stated a durable fact but the answer proposed no note' : null),
