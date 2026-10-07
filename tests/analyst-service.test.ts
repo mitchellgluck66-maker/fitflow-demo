@@ -147,14 +147,14 @@ describe('prepareTurn', () => {
     await rebuildBrief({ trigger: 'notes', countTokens: false });
     const before = await prepareTurn({ threadId: p.thread.id, clientTurnId: 'mem-2', question: 'What is our Meta cap?', kind: 'ask' }, { store, client, countTokens: async () => 10 });
     expect(before.ok && before.deps.brief.text.includes('$4,000 CAD')).toBe(false);
-    expect(JSON.stringify((await runAnalystTool('get_notes', {}, { ref: 'r1', freshness: { stale: false, line: 'ok', sources: [] }, resolveRef: () => undefined })).data)).not.toContain('$4,000');
+    expect(JSON.stringify((await runAnalystTool('get_notes', {}, { ref: 'r1', freshness: { stale: false, line: 'ok', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] }, resolveRef: () => undefined })).data)).not.toContain('$4,000');
     // The owner approves → the brief is rebuilt (as the notes route does) → the next turn's prompt and get_notes carry it.
     expect(await decideNote(proposed[0].id, 'active')).toMatchObject({ status: 'active' });
     await rebuildBrief({ trigger: 'notes', countTokens: false });
     if (before.ok) await executeTurn(before.thread.id, before.turn.id, before.deps);
     const after = await prepareTurn({ threadId: p.thread.id, clientTurnId: 'mem-3', question: 'What is our Meta cap?', kind: 'ask' }, { store, client, countTokens: async () => 10 });
     expect(after.ok && after.deps.brief.text).toContain(fact);
-    const notes = (await runAnalystTool('get_notes', {}, { ref: 'r1', freshness: { stale: false, line: 'ok', sources: [] }, resolveRef: () => undefined })).data as { notes: Array<{ text: string }> };
+    const notes = (await runAnalystTool('get_notes', {}, { ref: 'r1', freshness: { stale: false, line: 'ok', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] }, resolveRef: () => undefined })).data as { notes: Array<{ text: string }> };
     expect(notes.notes.map((n) => n.text)).toContain(fact);
     // A second proposal of the same fact (now active) is skipped, not duplicated.
     expect(await saveProposals([fact.toUpperCase()], { threadId: p.thread.id })).toMatchObject({ saved: [], skipped: 1 });

@@ -15,7 +15,7 @@ import { loadMetricsInput } from '@/lib/metrics/load';
 import { getTimezone } from '@/lib/settings';
 import { todayInTimezone, rangeFromParams } from '@/lib/dates';
 
-const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
 
 describe('same data → same snapshot, same verdict', () => {
   beforeAll(async () => {
@@ -28,9 +28,11 @@ describe('same data → same snapshot, same verdict', () => {
     const b = await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS);
     expect(a.map((r) => r.ref)).toEqual(['r1', 'r2']);
     for (let i = 0; i < a.length; i++) expect(JSON.stringify(a[i].result.data), a[i].name).toBe(JSON.stringify(b[i].result.data));
-    const r2 = a[1].result.data as { verdict: { verdict: string; reason: string }; kpis: Record<string, { current: number | null }>; baseline: { enrollmentsPerWeek: number | null; newPayingClientsPerWeek: number | null } };
+    const r2 = a[1].result.data as { verdict: { verdict: string; reason: string; basisClients: string | null }; kpis: Record<string, { current: number | null }>; baseline: { enrollmentsPerWeek: number | null; newPayingClientsPerWeek: number | null } };
     expect(['strong', 'normal', 'weak', 'unavailable']).toContain(r2.verdict.verdict);
-    expect(r2.verdict.reason.startsWith(`${r2.verdict.verdict}:`)).toBe(true);
+    // Oct 7 item 4: the reason never restates the verdict word; the basis phrase is the citeable text.
+    expect(r2.verdict.reason.startsWith(`${r2.verdict.verdict}`)).toBe(false);
+    expect(r2.verdict.basisClients).toMatch(/^\d+ new paying clients? vs /);
     expect(r2.verdict.verdict).not.toBe('unavailable'); // the demo tenant has Stripe-dated payments and 8 complete weeks
     expect(r2.baseline.newPayingClientsPerWeek).not.toBeNull();
   });

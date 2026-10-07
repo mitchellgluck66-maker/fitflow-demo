@@ -111,7 +111,7 @@ export async function readSyncStatus(now: number = Date.now()): Promise<SyncStat
 }
 
 /** The compact freshness block every Analyst tool result carries: "data fresh 12 min ago" or what is stale. */
-export function freshnessSummary(status: SyncStatus): { stale: boolean; line: string; sources: Array<{ key: string; configured: boolean; stale: boolean; ageHours: number | null; detail: string | null }> } {
+export function freshnessSummary(status: SyncStatus): { stale: boolean; line: string; /** Oct 7 item 4: a citeable phrase — "data fresh", "Meta Ads spend stale for 9 h", "scheduler silent". */ phrase: string; /** The oldest connected source's age, minutes (null when nothing is connected or dated). */ oldestAgeMinutes: number | null; sources: Array<{ key: string; configured: boolean; stale: boolean; ageHours: number | null; detail: string | null }> } {
   const configured = status.sources.filter((s) => s.configured);
   const newest = configured.reduce<number | null>((a, s) => (s.ageHours === null ? a : a === null ? s.ageHours : Math.max(a, s.ageHours)), null);
   const staleNames = status.staleSources.map((s) => `${s.label}${s.detail ? ` (${s.detail})` : s.ageHours !== null ? ` (last completed ${s.ageHours.toFixed(1)} h ago)` : ' (never completed)'}`);
@@ -124,5 +124,13 @@ export function freshnessSummary(status: SyncStatus): { stale: boolean; line: st
         : newest === null
           ? 'fresh'
           : `data fresh — oldest connected source completed ${newest < 1 ? `${Math.round(newest * 60)} min` : `${newest.toFixed(1)} h`} ago`;
-  return { stale: status.stale, line, sources: status.sources.map((s) => ({ key: s.key, configured: s.configured, stale: s.stale, ageHours: s.ageHours, detail: s.detail ?? null })) };
+  const age = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : `${h.toFixed(1)} h`);
+  const phrase = status.scheduler.silent
+    ? 'scheduler silent'
+    : status.staleSources.length
+      ? status.staleSources.map((s) => `${s.label} stale${s.ageHours !== null ? ` for ${age(s.ageHours)}` : ' (never completed)'}`).join(', ')
+      : configured.length === 0
+        ? 'no sources connected'
+        : 'data fresh';
+  return { stale: status.stale, line, phrase, oldestAgeMinutes: newest === null ? null : Math.round(newest * 60), sources: status.sources.map((s) => ({ key: s.key, configured: s.configured, stale: s.stale, ageHours: s.ageHours, detail: s.detail ?? null })) };
 }

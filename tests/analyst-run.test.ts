@@ -15,7 +15,7 @@ import type { BetaMessage } from '@/lib/analyst/api';
 import { ANALYST_BETAS } from '@/lib/analyst/config';
 import { SUBMIT_ANSWER_TOOL } from '@/lib/analyst/api';
 
-const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
 const tools: AnalystTool[] = [
   {
     definition: { name: 'get_scorecard', description: 'x'.repeat(50), strict: true, input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false } },
@@ -315,7 +315,7 @@ describe('the loop (memory store)', () => {
     const store = new MemoryAnalystStore();
     const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(spend)]), msg([text(spend)])]);
-    const { thread, turn, events, deps } = await setup(store, { client, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', sources: [] } });
+    const { thread, turn, events, deps } = await setup(store, { client, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', phrase: 'Meta Ads spend stale for 9.0 h', oldestAgeMinutes: 540, sources: [] } });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(events[0]).toEqual({ type: 'notice', text: 'STALE — Meta Ads spend (last completed 9.0 h ago)', stale: true });
     expect(out.status).toBe('done');

@@ -33,7 +33,10 @@ describe('computeWeekVerdict — the rule', () => {
   it('normal: 4 new paying clients vs 4/week; the sentence carries both ratios', () => {
     const v = computeWeekVerdict(withWeek(4), LAST, baseline);
     expect(v).toMatchObject({ verdict: 'normal', clients: 4, cashCents: 1_200_000, baselineClientsPerWeek: 4, baselineCashPerWeekCents: 1_200_000, ratioClients: 1, ratioCash: 1, weeksUsed: 8, currency: 'CAD' });
-    expect(v.reason).toBe('normal: 4 new paying clients vs 4/week over 8 weeks (1.00×); $12,000 CAD new-client cash vs $12,000 CAD/week (1.00×)');
+    // Oct 7 item 4: the reason never restates the verdict word; the basis phrases are the citeable text refs.
+    expect(v.reason).toBe('4 new paying clients vs 4/week over 8 weeks (1.00×); $12,000 CAD new-client cash vs $12,000 CAD/week (1.00×)');
+    expect(v.basisClients).toBe('4 new paying clients vs 4/week over 8 weeks (1.00×)');
+    expect(v.basisCash).toBe('$12,000 CAD new-client cash vs $12,000 CAD/week (1.00×)');
     expect(v.rule).toBe(VERDICT_RULE);
   });
   it('strong at the 1.3× edge on clients with cash ≥ 1.0×, or on cash with clients ≥ 1.0×; not when the other side is below 1.0×', () => {
@@ -56,13 +59,13 @@ describe('computeWeekVerdict — the rule', () => {
   });
   it('unavailable: Stripe not connected, fewer than 4 baseline weeks, or a zero baseline — each with its reason', () => {
     const noStripe = computeWeekVerdict({ ...withWeek(4), payments: [] }, LAST, baseline);
-    expect(noStripe).toMatchObject({ verdict: 'unavailable', reason: 'unavailable: Stripe is not connected — new clients are counted from first payments', clients: null });
+    expect(noStripe).toMatchObject({ verdict: 'unavailable', reason: 'Stripe is not connected — new clients are counted from first payments', clients: null, basisClients: null, basisCash: null });
     const short = cleanBaseline({ candidate: baseline.candidate.slice(-2), metric: 'initial_cash', today: '2026-10-06' });
-    expect(computeWeekVerdict(withWeek(4), LAST, short)).toMatchObject({ verdict: 'unavailable', reason: 'unavailable: baseline needs 4 complete weeks; have 2 (Sep 13–26)', clients: 4 });
-    expect(computeWeekVerdict(withWeek(4, 300_000, 0), LAST, baseline)).toMatchObject({ verdict: 'unavailable', reason: 'unavailable: the 8-week baseline has no new paying clients to compare against', baselineClientsPerWeek: 0 });
+    expect(computeWeekVerdict(withWeek(4), LAST, short)).toMatchObject({ verdict: 'unavailable', reason: 'baseline needs 4 complete weeks; have 2 (Sep 13–26)', clients: 4 });
+    expect(computeWeekVerdict(withWeek(4, 300_000, 0), LAST, baseline)).toMatchObject({ verdict: 'unavailable', reason: 'the 8-week baseline has no new paying clients to compare against', baselineClientsPerWeek: 0 });
   });
   it('weekVerdictFor: only exactly one Sun–Sat week gets a verdict; the glossary entry states the rule and works the formula', () => {
-    expect(weekVerdictFor(withWeek(4), { start: '2026-09-01', end: '2026-09-30' }, baseline)).toMatchObject({ verdict: 'unavailable', reason: expect.stringMatching(/^unavailable: the verdict is weekly/) });
+    expect(weekVerdictFor(withWeek(4), { start: '2026-09-01', end: '2026-09-30' }, baseline)).toMatchObject({ verdict: 'unavailable', reason: expect.stringMatching(/^the verdict is weekly/) });
     expect(weekVerdictFor(withWeek(4), LAST, baseline).verdict).toBe('normal');
     const e = glossaryEntry('week_verdict')!;
     expect(e.definition).toContain(VERDICT_RULE);

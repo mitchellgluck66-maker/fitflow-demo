@@ -81,6 +81,8 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   paidUnmatched: 'count',
   weeksUsed: 'count',
   weeksExcluded: 'count',
+  oldestAgeMinutes: 'count',
+  days: 'count',
   // per-week averages of a baseline (fractional) and the verdict's inputs
   enrollmentsPerWeek: 'number',
   newPayingClientsPerWeek: 'number',

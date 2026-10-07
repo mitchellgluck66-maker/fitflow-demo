@@ -33,8 +33,8 @@ describe('refIndex', () => {
     expect(idx).toContain('data.kpis.paidCacCents (Paid CAC) → current · previous · abs · pct');
     expect(idx).toContain('data.kpis.enrollments (Enrollments) → current · previous');
     expect(idx).toContain('data.marketing → spendCents');
-    expect(idx).toContain('data.marketing.ltvCoverage (LTV:CAC coverage) → used · total · note(text)');
-    expect(idx).toContain('data.verdict → verdict(text) · reason(text) · clients');
+    expect(idx).toContain('data.marketing.ltvCoverage (LTV:CAC coverage) → used · total'); // `note` is an explanation, not a ref (Oct 7 item 4)
+    expect(idx).toContain('data.verdict → verdict(text) · clients');
     expect(idx).toContain('data.campaigns[0] "Summer Shred — Broad" → campaign(text) · spendCents · roas');
     expect(idx).toContain('data.campaigns[1] "Brand Search" → campaign(text) · spendCents · roas'); // roas null is listed: a withheld ref the verifier names as withheld
     expect(idx).toContain('data.baseline.conversions[0] "applied→consult_booked" → from(text) · to(text) · current · baseline');
@@ -58,8 +58,8 @@ describe('refIndex', () => {
     ledger.add('r2', DATA, '2026-10-06T00:00:00.000Z', 'CAD');
     expect(ledger.get('r2:data.verdict.verdict')).toMatchObject({ unit: 'text', text: 'normal', value: null });
     expect(ledger.get('r2:data.marketing.ltvCoverage.missing[0]')).toBeUndefined(); // a bare string in an array has no key
-    expect(renderText('A {r2:data.verdict.verdict} week — {r2:data.verdict.reason}. Best: {r2:data.campaigns[0].campaign}. {r2:data.nope}', ledger)).toBe(`A normal week — normal: 4 new paying clients vs 4.25/week over 8 weeks (0.94×). Best: Summer Shred — Broad. ${NO_SOURCE}`);
-    const answer: Answer = { kind: 'answer', headline: { text: 'A {r2:data.verdict.verdict} week.' }, sections: [{ key: 'what_happened', body_md: 'Paid CAC fell {r2:data.kpis.paidCacCents.pct} ({r2:data.verdict.reason}).' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' };
+    expect(renderText('A {r2:data.verdict.verdict} week — {r2:data.verdict.reason}. Best: {r2:data.campaigns[0].campaign}. {r2:data.nope}', ledger)).toBe(`A normal week — ${NO_SOURCE}. Best: Summer Shred — Broad. ${NO_SOURCE}`); // a reason is a note: not citeable (Oct 7 item 4)
+    const answer: Answer = { kind: 'answer', headline: { text: 'A {r2:data.verdict.verdict} week.' }, sections: [{ key: 'what_happened', body_md: 'Paid CAC fell {r2:data.kpis.paidCacCents.pct} ({r2:data.campaigns[0].campaign}).' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' };
     expect(verifyAnswer(answer, ledger)).toMatchObject({ ok: true, verified: 3 });
     expect(checkDirection('Enrollments rose {r2:data.verdict.verdict}.', ledger)).toEqual([]); // a text ref is never a delta
     const rows = calculateBatch([{ label: 'x', op: 'sum', a: { kind: 'ref', ref: 'r2:data.verdict.verdict', value: 0 }, b: { kind: 'value', ref: '', value: 1 } }], 'r7', (r) => ledger.resolve(r), (r) => ledger.info(r));
@@ -83,13 +83,14 @@ describe('every real tool result carries its index (demo database)', () => {
     await seedDemo();
   }, 120_000);
   it('get_scorecard: the core KPIs, the verdict and the baselines are in the index, every line resolves, and the index is bounded', async () => {
-    const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+    const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
     const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: () => undefined });
     const r = await runAnalystTool('get_scorecard', { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' }, ctx('r2'));
     expect(r.error).toBeUndefined();
     const idx = r.refs!;
     const composed = indexTokens('r2', idx);
-    for (const want of ['{r2:data.kpis.paidCacCents.current}', '{r2:data.kpis.blendedCacCents.current}', '{r2:data.kpis.initialCents.current}', '{r2:data.kpis.roas.current}', '{r2:data.kpis.ltvToCac.current}', '{r2:data.verdict.verdict}', '{r2:data.baseline.newPayingClientsPerWeek}', '{r2:data.enrollmentReconciliation.text}']) expect(composed, want).toContain(want);
+    for (const want of ['{r2:data.kpis.paidCacCents.current}', '{r2:data.kpis.blendedCacCents.current}', '{r2:data.kpis.initialCents.current}', '{r2:data.kpis.roas.current}', '{r2:data.kpis.ltvToCac.current}', '{r2:data.verdict.verdict}', '{r2:data.verdict.basisClients}', '{r2:data.baseline.newPayingClientsPerWeek}', '{r2:data.enrollmentReconciliation.enrolledInGhl}']) expect(composed, want).toContain(want);
+    expect(composed).not.toContain('{r2:data.enrollmentReconciliation.text}'); // a note: read, not cited
     expect(idx.find((l) => l.startsWith('data.kpis.paidCacCents'))).toContain('(Paid CAC) → current');
     expect(idx.some((l) => l.startsWith('data.verdict →') && l.includes('rule'))).toBe(false); // the rule lives in the glossary, not in the prefix
     const ledger = new Ledger();

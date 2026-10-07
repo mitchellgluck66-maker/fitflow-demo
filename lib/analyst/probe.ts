@@ -96,7 +96,7 @@ export async function runAnalystProbe(opts: { key: string | null; models?: Analy
         usd += e.costUsd;
       }
     };
-    const deps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness: { stale: false, line: 'probe — freshness not evaluated', sources: [] }, allowedUsd: 3, maxRounds: 8, maxTokens: 4000, compactAboveTokens: 0, onEvent };
+    const deps = { store, client, contract: ANALYST_CONTRACT, brief: { text: brief.text, hash: brief.hash }, tools: ANALYST_TOOLS, freshness: { stale: false, line: 'probe — freshness not evaluated', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] }, allowedUsd: 3, maxRounds: 8, maxTokens: 4000, compactAboveTokens: 0, onEvent };
     const line = (status: ProbeLine['status'], assumption: string, detail: string): ProbeLine => {
       const u = usage as UsageTotals | null;
       return { status, assumption, model, inputTokens: u ? u.inputTokens + u.cacheReadTokens + u.cacheWrite5mTokens + u.cacheWrite1hTokens : 0, outputTokens: u?.outputTokens ?? 0, usd, detail };

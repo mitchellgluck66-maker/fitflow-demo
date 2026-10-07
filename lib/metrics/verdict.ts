@@ -26,8 +26,11 @@ export const VERDICT_RULE = `strong when new paying clients ≥ ${VERDICT_THRESH
 
 export interface WeekVerdict {
   verdict: Verdict;
-  /** The sentence the server renders from the same numbers. */
+  /** The sentence the server renders from the same numbers (an explanation — not citeable; the basis phrases are). */
   reason: string;
+  /** Citeable phrases (Oct 7 item 4): "4 new paying clients vs 4/week over 8 weeks (1.00×)", "$12,000 CAD new-client cash vs $12,000 CAD/week (1.00×)"; null when unavailable. */
+  basisClients: string | null;
+  basisCash: string | null;
   rule: string;
   /** Stripe first payments in the week. */
   clients: number | null;
@@ -47,28 +50,30 @@ export function computeWeekVerdict(raw: MetricsInput, week: Range, baseline: Cle
   const input = inReportingCurrency(raw);
   const ccy = input.money.reporting;
   const rev = computeRevenue(input, week);
-  const base = { verdict: 'unavailable' as Verdict, rule: VERDICT_RULE, clients: null, cashCents: null, baselineClientsPerWeek: null, baselineCashPerWeekCents: null, ratioClients: null, ratioCash: null, weeksUsed: baseline.weeks.length, baselineSummary: baseline.summary, currency: ccy };
-  if (rev.awaitingStripe) return { ...base, reason: 'unavailable: Stripe is not connected — new clients are counted from first payments' };
-  if (!baseline.enough) return { ...base, clients: rev.initialCount, cashCents: rev.initialCents, reason: `unavailable: ${baseline.note}` };
+  const base = { verdict: 'unavailable' as Verdict, rule: VERDICT_RULE, basisClients: null, basisCash: null, clients: null, cashCents: null, baselineClientsPerWeek: null, baselineCashPerWeekCents: null, ratioClients: null, ratioCash: null, weeksUsed: baseline.weeks.length, baselineSummary: baseline.summary, currency: ccy };
+  if (rev.awaitingStripe) return { ...base, reason: 'Stripe is not connected — new clients are counted from first payments' };
+  if (!baseline.enough) return { ...base, clients: rev.initialCount, cashCents: rev.initialCents, reason: baseline.note ?? "baseline not available" };
   const weekly = baseline.weeks.map((w) => computeRevenue(input, { start: w.start, end: w.end }));
   const avgClients = weekly.reduce((a, r) => a + r.initialCount, 0) / weekly.length;
   const avgCash = weekly.reduce((a, r) => a + r.initialCents, 0) / weekly.length;
   const partial = { ...base, clients: rev.initialCount, cashCents: rev.initialCents, baselineClientsPerWeek: r2(avgClients), baselineCashPerWeekCents: Math.round(avgCash) };
-  if (avgClients === 0 || avgCash === 0) return { ...partial, reason: `unavailable: the ${baseline.weeks.length}-week baseline has no new paying clients to compare against` };
+  if (avgClients === 0 || avgCash === 0) return { ...partial, reason: `the ${baseline.weeks.length}-week baseline has no new paying clients to compare against` };
   const rc = rev.initialCount / avgClients;
   const rd = rev.initialCents / avgCash;
   const { strong, weak } = VERDICT_THRESHOLDS;
   const verdict: Verdict = (rc >= strong && rd >= 1) || (rd >= strong && rc >= 1) ? 'strong' : (rc <= weak && rd <= 1) || (rd <= weak && rc <= 1) ? 'weak' : 'normal';
   const x = (n: number) => `${r2(n).toFixed(2)}×`;
-  const reason = `${verdict}: ${rev.initialCount} new paying client${rev.initialCount === 1 ? '' : 's'} vs ${r2(avgClients)}/week over ${baseline.weeks.length} weeks (${x(rc)}); ${formatCents(rev.initialCents, ccy)} new-client cash vs ${formatCents(Math.round(avgCash), ccy)}/week (${x(rd)})`;
-  return { ...partial, verdict, reason, ratioClients: r2(rc), ratioCash: r2(rd) };
+  const basisClients = `${rev.initialCount} new paying client${rev.initialCount === 1 ? '' : 's'} vs ${r2(avgClients)}/week over ${baseline.weeks.length} weeks (${x(rc)})`;
+  const basisCash = `${formatCents(rev.initialCents, ccy)} new-client cash vs ${formatCents(Math.round(avgCash), ccy)}/week (${x(rd)})`;
+  // The reason never restates the verdict word (Oct 7: "Verdict: normal. normal: 4 new…" read twice) — the word is `verdict`.
+  return { ...partial, verdict, reason: `${basisClients}; ${basisCash}`, basisClients, basisCash, ratioClients: r2(rc), ratioCash: r2(rd) };
 }
 
 /** The verdict for a scorecard range: computed only for exactly one Sun–Sat week; otherwise unavailable, with the reason. */
 export function weekVerdictFor(raw: MetricsInput, range: Range, baseline: CleanBaseline): WeekVerdict {
   if (weekStart(range.start) !== range.start || weekEnd(range.start) !== range.end) {
     const ccy = inReportingCurrency(raw).money.reporting;
-    return { verdict: 'unavailable', reason: `unavailable: the verdict is weekly (one Sun–Sat week); this range is ${range.start} – ${range.end}`, rule: VERDICT_RULE, clients: null, cashCents: null, baselineClientsPerWeek: null, baselineCashPerWeekCents: null, ratioClients: null, ratioCash: null, weeksUsed: baseline.weeks.length, baselineSummary: baseline.summary, currency: ccy };
+    return { verdict: 'unavailable', reason: `the verdict is weekly (one Sun–Sat week); this range is ${range.start} – ${range.end}`, rule: VERDICT_RULE, basisClients: null, basisCash: null, clients: null, cashCents: null, baselineClientsPerWeek: null, baselineCashPerWeekCents: null, ratioClients: null, ratioCash: null, weeksUsed: baseline.weeks.length, baselineSummary: baseline.summary, currency: ccy };
   }
   return computeWeekVerdict(raw, range, baseline);
 }

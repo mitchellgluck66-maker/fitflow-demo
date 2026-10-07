@@ -15,7 +15,16 @@ import { DECLARED_UNITS, resolveUnit, type DeclaredUnit, type LedgerUnit, type R
 export type { LedgerUnit } from './units';
 
 /** Which string leaves are refs the model may cite as text (names, reasons, labels) — the rest of a result's strings are not indexed. */
-export const TEXT_REF_KEYS: ReadonlySet<string> = new Set(['name', 'campaign', 'campaignName', 'label', 'verdict', 'reason', 'text', 'source', 'stage', 'type', 'note', 'summary', 'withheld', 'kpi', 'metric', 'key', 'from', 'to', 'state', 'owner', 'pipeline', 'status', 'rule', 'baselineSummary', 'line', 'definition', 'formula', 'worked', 'tone', 'grain', 'kind', 'platform', 'description']);
+/**
+ * Text refs are PHRASES (Oct 7 item 4): a string leaf under one of these keys is citeable — rendered verbatim inside
+ * the owner's sentence — so every value under them is written to be embedded (≤ 12 words, no trailing period,
+ * never restating a sibling; `tests/analyst-text-refs.test.ts` sweeps every tool). Explanations live under the
+ * NOTE keys: the model reads them and cites their numbers or the phrase beside them, never the note itself.
+ */
+export const PHRASE_KEYS: ReadonlySet<string> = new Set(['name', 'campaign', 'campaignName', 'label', 'verdict', 'decision', 'basis', 'basisClients', 'basisCash', 'phrase', 'source', 'stage', 'type', 'kpi', 'metric', 'key', 'from', 'to', 'state', 'owner', 'pipeline', 'status', 'platform', 'kind', 'grain', 'tone', 'role']);
+export const NOTE_KEYS: ReadonlySet<string> = new Set(['reason', 'note', 'text', 'summary', 'line', 'definition', 'formula', 'worked', 'rule', 'baselineSummary', 'description', 'detail', 'withheld', 'differsFrom']);
+/** @deprecated the citeable set is PHRASE_KEYS. */
+export const TEXT_REF_KEYS = PHRASE_KEYS;
 
 export interface LedgerEntry {
   ref: string;
@@ -85,7 +94,7 @@ export function ledgerEntries(ref: string, data: unknown, fetchedAt: string, cur
     if (v === null) return push(path, null, declared, metric, deltaRow);
     if (typeof v === 'number') return Number.isFinite(v) ? push(path, v, declared, metric, deltaRow) : undefined;
     if (typeof v === 'string') {
-      if (TEXT_REF_KEYS.has(lastKey(path)) && v.trim()) out.push({ ref: `${ref}:${path}`, value: null, text: v, unit: 'text', reading: null, fetchedAt, currency, delta: false, metric: null });
+      if (PHRASE_KEYS.has(lastKey(path)) && v.trim()) out.push({ ref: `${ref}:${path}`, value: null, text: v, unit: 'text', reading: null, fetchedAt, currency, delta: false, metric: null });
       return;
     }
     if (Array.isArray(v)) return v.forEach((x, i) => walk(x, `${path}[${i}]`, declared, metric, deltaRow));

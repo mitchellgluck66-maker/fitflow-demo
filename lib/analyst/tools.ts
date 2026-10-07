@@ -42,7 +42,11 @@ export const MAX_RESULT_CHARS = 30_000;
 
 export interface Freshness {
   stale: boolean;
+  /** The full line (an explanation — read, not cited). */
   line: string;
+  /** The citeable phrase: "data fresh", "Meta Ads spend stale for 9 h". */
+  phrase: string;
+  oldestAgeMinutes: number | null;
   sources: Array<{ key: string; configured: boolean; stale: boolean; ageHours: number | null; detail: string | null }>;
 }
 

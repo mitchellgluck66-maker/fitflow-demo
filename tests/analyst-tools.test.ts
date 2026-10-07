@@ -16,7 +16,7 @@ import { loadMetricsInput } from '@/lib/metrics/load';
 import { getTimezone } from '@/lib/settings';
 import { todayInTimezone, rangeFromParams } from '@/lib/dates';
 
-const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
 const values = new Map<string, number | null>();
 const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: (r) => (values.has(r) ? values.get(r) : undefined), resolveInfo: (r) => (values.has(r) ? { unit: /Cents/.test(r) ? 'cents' : /enrollments/.test(r) ? 'count' : 'number', currency: 'CAD', metric: null, delta: false } : undefined) });
 const LAST_WEEK = { preset: 'last_week', start: '', end: '' };

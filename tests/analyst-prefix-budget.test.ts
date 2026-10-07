@@ -20,7 +20,7 @@ describe('prefix budget', () => {
     await seedDemo();
     await rebuildBrief({ trigger: 'manual', countTokens: false });
     const brief = (await currentBrief())!;
-    const results = await runStarterCalls({ stale: false, line: 'data fresh — test', sources: [] }, ANALYST_TOOLS);
+    const results = await runStarterCalls({ stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] }, ANALYST_TOOLS);
     parts = { contract: ANALYST_CONTRACT, brief: brief.text, tools: ANALYST_TOOL_DEFINITIONS, messages: starterMessages(starterRows('t', 'How did last week go?', 'How did last week go?', results)) };
   }, 120_000);
 

@@ -126,7 +126,7 @@ describe('sweep: every numeric leaf of every tool result has a unit (demo databa
     await seedDemo();
   }, 120_000);
   it('0 unknown across all 15 tools — a new numeric field must get a Cents suffix, a declared unit, or a catalog line', async () => {
-    const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+    const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
     const ctx = (ref: string): ToolContext => ({ ref, freshness, resolveRef: () => undefined });
     const R = { preset: 'last_month', start: '', end: '' };
     const lc = await runAnalystTool('list_clients', { query: '', attribution: 'any', from: '', to: '', page: 1 }, ctx('r0'));

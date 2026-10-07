@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { zodFromJsonSchema, describeZodIssues } from '@/lib/anthropic/jsonSchemaToZod';
 import { ANALYST_TOOLS, runAnalystTool, type Freshness, type ToolContext } from '@/lib/analyst/tools';
 
-const freshness: Freshness = { stale: false, line: 'test', sources: [] };
+const freshness: Freshness = { stale: false, line: 'test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
 const ctx: ToolContext = { ref: 'r1', freshness, resolveRef: () => undefined };
 
 describe('zodFromJsonSchema', () => {

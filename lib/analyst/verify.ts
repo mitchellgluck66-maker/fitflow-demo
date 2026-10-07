@@ -16,7 +16,7 @@
  * model's rendering with a table of acceptable roundings; with one renderer there is nothing to compare.
  */
 
-import type { Ledger } from './ledger';
+import { NOTE_KEYS, type Ledger } from './ledger';
 import type { Answer } from './schema';
 import { checkDirection } from './direction';
 import { refTokens } from './refToken';
@@ -180,7 +180,10 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
     // 1. Tokens resolve.
     for (const t of refTokens(text)) {
       const entry = ledger.get(t.ref);
-      if (!entry) flagged.push({ kind: 'ref', section, text: t.text, reason: `no such ref "${t.ref}" — copy a token from a tool result's refs index, never compose a path${suggest(ledger, t.ref)}` });
+      if (!entry) {
+        const leaf = (t.ref.split(/[.[]/).pop() ?? '').replace(/\]$/, '');
+        flagged.push({ kind: 'ref', section, text: t.text, reason: NOTE_KEYS.has(leaf) ? `"${t.ref}" is explanatory text (${leaf}) — not citeable; cite the numbers or the phrase beside it in your own words${suggest(ledger, t.ref)}` : `no such ref "${t.ref}" — copy a token from a tool result's refs index, never compose a path${suggest(ledger, t.ref)}` });
+      }
       else if (entry.unit === 'text' ? entry.text === undefined : entry.value === null) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" is withheld (null) — this number has no source; say why it is withheld instead` });
       else if (opts.staleBefore && entry.fetchedAt < opts.staleBefore) flagged.push({ kind: 'ref', section, text: t.text, reason: `ref "${t.ref}" predates the latest sync — re-fetch` });
       else verified += 1;

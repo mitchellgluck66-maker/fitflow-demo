@@ -1346,8 +1346,8 @@ export const TODO_LABELS: Record<TodoKind, string> = {
 };
 
 export const REBOOK_LABELS: Record<RebookKind, string> = {
-  consult_rescheduled: 'Consult rescheduled — needs a new time',
-  roadmap_rescheduled: 'Roadmap rescheduled — needs a new time',
+  consult_rescheduled: 'Consult rescheduled, awaiting a new time',
+  roadmap_rescheduled: 'Roadmap rescheduled, awaiting a new time',
 };
 
 /**

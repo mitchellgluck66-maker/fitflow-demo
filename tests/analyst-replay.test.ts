@@ -22,7 +22,7 @@ import { ANALYST_TOOLS, type AnalystTool, type Freshness } from '@/lib/analyst/t
 import { ANALYST_CONTRACT } from '@/lib/analyst/prompts';
 import type { BetaMessage } from '@/lib/analyst/api';
 
-const freshness: Freshness = { stale: false, line: 'data fresh — test', sources: [] };
+const freshness: Freshness = { stale: false, line: 'data fresh — test', phrase: 'data fresh', oldestAgeMinutes: 30, sources: [] };
 const msg = (content: unknown[], stop = 'end_turn', usage: Record<string, number> = {}): BetaMessage =>
   ({ id: 'msg', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content, stop_reason: stop, stop_sequence: null, usage: { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...usage } }) as unknown as BetaMessage;
 const answer = (headline: string) => JSON.stringify({ kind: 'answer', headline: { text: headline }, sections: [{ key: 'what_happened', body_md: 'Spend was **{r1:data.marketing.spendCents}**.\nRavi Brown enrolled; Ravi paid on Sep 3. MARCUS JACKSON is next (marcus.j@realmail.com, +15033249931). Will it hold in May?' }], actions: [], findings: [], note_proposals: [], clarifying_question: '' });
