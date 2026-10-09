@@ -1,9 +1,16 @@
 -- Independent recompute (raw SQL, never lib/metrics) for one range {S}..{E}, both currencies.
 -- Used by scripts/verify.ts (compare step); {TZ} = business timezone, {ASOF} = the run's instant (ISO).
--- Wave 2 definitions (2026-09-30):
+-- Definitions as of 2026-10-09 (Wave 2 + the Sep 30 audit fixes; written separately from the engine, never imported):
+--   scope    = contacts in a FOLLOWED pipeline only (the engine's loader scope; a contact with no pipeline is out);
 --   applied  = the followed-pipeline opportunity's createdAt (ghl_opportunities), else contacts.opportunity_created_at;
 --              an opportunity first seen in another pipeline is dated by its entry into the followed one (F14);
 --   roles    = resolved through the transition's stage NOW, the stored role only when the stage is gone (F4);
+--   cohort   = everyone who applied in range; a stage counts cohort members who REACHED it OR ANY LATER STAGE
+--              (audit P1 #3), on the ladder applied < consult booked ≤ consult no-show / rescheduled < roadmap booked
+--              ≤ roadmap no-show / rescheduled < roadmap showed < enrolled; "consult showed" in cohort mode is
+--              inferred: reached roadmap booked or later, or a Consult appointment with outcome showed;
+--   failed   = per INVOICE (audit P1 #5): an invoice with a kept charge anywhere in the data is not owed; an unpaid
+--              invoice counts once (its latest attempt); a failed charge with no invoice counts on its own;
 --   show rate = showed ÷ (showed + no-show), shown only when ≥ 90% of past appointments have an outcome (F2).
 with params as (select '{S}'::date s, '{E}'::date e, '{ASOF}'::timestamptz asof),
 ccys as (select unnest(array['CAD','USD']) rep),
@@ -21,7 +28,7 @@ c as (select c.*, s.semantic_role role,
       from contacts c left join stages s on s.id=c.stage_id
         left join ghl_opportunities o on o.id=c.ghl_opportunity_id
         left join moved mv on mv.opp=c.ghl_opportunity_id
-      where c.pipeline_id in (select id from tp) or c.pipeline_id is null),
+      where c.pipeline_id in (select id from tp)),
 tr as (select t.contact_id, (case when ts.id is not null then ts.semantic_role else t.to_role end) to_role, t.observed_at, (t.observed_at at time zone '{TZ}')::date d
        from stage_transitions t join c on c.id=t.contact_id left join stages ts on ts.id=t.to_stage_id),
 firstt as (select distinct on (contact_id) contact_id, to_role from tr order by contact_id, observed_at),
@@ -40,14 +47,23 @@ per as (
  union select 'enrolled', cid from m_entered where to_role='enrolled'),
 prev_period as (select distinct contact_id cid from tr,params where to_role='previous_lead' and d between s and e),
 coh as (select cid from m_applied),
+-- The ladder: the highest rung a cohort member has ever reached (any date). No-show / rescheduled roles sit on
+-- their booking's rung (a no-show implies the booking happened).
+ladder as (select coh.cid, max(case t.to_role
+             when 'consult_booked' then 1 when 'consult_noshow' then 1 when 'consult_rescheduled' then 1
+             when 'roadmap_booked' then 3 when 'roadmap_noshow' then 3 when 'roadmap_rescheduled' then 3
+             when 'roadmap_showed' then 4 when 'enrolled' then 5 else 0 end) rung
+           from coh left join tr t on t.contact_id=coh.cid group by coh.cid),
+coh_showed as (select distinct a.type, a.contact_id cid from ap a join coh on coh.cid=a.contact_id where outcome='showed'),
 cohm as (
  select 'applied' k, cid from coh
- union select 'consult_booked', t.contact_id from tr t join coh on coh.cid=t.contact_id where to_role='consult_booked'
- union select 'consult_showed', a.contact_id from ap a join coh on coh.cid=a.contact_id where type='Consult' and outcome='showed'
- union select 'roadmap_booked', t.contact_id from tr t join coh on coh.cid=t.contact_id where to_role='roadmap_booked'
- union select 'roadmap_showed', a.contact_id from ap a join coh on coh.cid=a.contact_id where type='Roadmap' and outcome='showed'
- union select 'roadmap_showed', t.contact_id from tr t join coh on coh.cid=t.contact_id where to_role='roadmap_showed'
- union select 'enrolled', t.contact_id from tr t join coh on coh.cid=t.contact_id where to_role='enrolled'),
+ union select 'consult_booked', cid from ladder where rung>=1
+ union select 'consult_showed', cid from ladder where rung>=3
+ union select 'consult_showed', cid from coh_showed where type='Consult'
+ union select 'roadmap_booked', cid from ladder where rung>=3
+ union select 'roadmap_showed', cid from ladder where rung>=4
+ union select 'roadmap_showed', cid from coh_showed where type='Roadmap'
+ union select 'enrolled', cid from ladder where rung>=5),
 prev_cohort as (select distinct t.contact_id cid from tr t join coh on coh.cid=t.contact_id where to_role='previous_lead'),
 r as (select d::date d, coalesce((select rate from fx where fx.date<=d::date order by fx.date desc limit 1),(select rate from fx order by date limit 1)) rate
       from generate_series('2025-01-01'::date,'2027-12-31'::date,'1 day') d),
@@ -66,6 +82,12 @@ pay_c as (select ccys.rep, pay.*,
 pin as (select pay_c.* , greatest(0, amt-ref) * (case when kind not in ('refund','subscription') and status in ('succeeded','refunded') then 1 else 0 end) net,
         (kind<>'refund' and status in ('succeeded','refunded')) is_cash
         from pay_c, params where kind<>'subscription' and d between s and e),
+paid_inv as (select distinct metadata->>'invoice' inv from payments where metadata->>'invoice' is not null and kind<>'refund' and status in ('succeeded','refunded')),
+failed_keyed as (select distinct on (rep, k) rep, k, amt from (
+   select pin.rep, coalesce(pin.metadata->>'invoice', 'charge:'||pin.stripe_id) k, pin.amt, pin.d
+   from pin where status='failed' and kind not in ('subscription','refund') and (pin.metadata->>'invoice' is null or pin.metadata->>'invoice' not in (select inv from paid_inv))) x
+   order by rep, k, d desc),
+failed_agg as (select rep, count(*) failed_n, sum(amt) failed_c from failed_keyed group by rep),
 rev as (select rep,
    sum(net) filter (where is_cash and payment_class='initial') initial_c, count(*) filter (where is_cash and payment_class='initial') initial_n,
    sum(net) filter (where is_cash and payment_class='recurring') recurring_c, count(*) filter (where is_cash and payment_class='recurring') recurring_n,
@@ -73,7 +95,7 @@ rev as (select rep,
    sum(ref) filter (where is_cash) refunded_c,
    sum(amt) filter (where is_cash) gross_c,
    count(*) filter (where is_cash and status='succeeded') paid_n,
-   count(*) filter (where status='failed') failed_n, sum(amt) filter (where status='failed') failed_c,
+   (select failed_n from failed_agg f where f.rep=pin.rep) failed_n, (select failed_c from failed_agg f where f.rep=pin.rep) failed_c,
    count(*) filter (where ref>0) refund_rows,
    count(*) filter (where contact_id is null and status='succeeded') unmatched_n,
    count(*) filter (where payment_class='excluded') excl_n,

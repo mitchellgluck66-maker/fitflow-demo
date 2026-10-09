@@ -8,7 +8,8 @@
  * Ranges are dynamic (business timezone): last full Sun–Sat week, last calendar month, month to date, Jul 16 → today.
  * Every provider call goes through the app's own read-only clients (GHL: ghlRequest, GET only — verify:readonly).
  * Nothing is written to the database. No secret is printed. Outputs: docs/verification/<date>/*.json|txt and
- * docs/verification-<date>.md. Exit code 0 = every check PASS, 1 = a FAIL, 2 = refused to run.
+ * docs/verification-<date>.md. Statuses PASS / PENDING / INFO / FAIL (2026-10-09); exit code 0 = no FAIL (PENDING and INFO
+ * do not fail), 1 = a FAIL, 2 = refused to run.
  */
 import fs from 'fs';
 import path from 'path';
@@ -31,12 +32,27 @@ import { fetchBocRates } from '../lib/fx/boc';
 import { readMarker, type MarkerFamily } from '../lib/sync/markers';
 
 type Range = { key: string; label: string; start: string; end: string };
-type Check = { section: string; name: string; ok: boolean; detail: string };
+/**
+ * Statuses (2026-10-09): PASS; PENDING = a difference timing explains (today's partial day; a change newer than the
+ * last sync marker) — re-run later, never a failure; INFO = reported, not judged; FAIL = a real difference.
+ * Only FAIL sets the exit code.
+ */
+type Status = 'PASS' | 'PENDING' | 'INFO' | 'FAIL';
+type Check = { section: string; name: string; status: Status; ok: boolean; detail: string };
 
 const checks: Check[] = [];
-const check = (section: string, name: string, ok: boolean, detail: string) => {
-  checks.push({ section, name, ok, detail });
-  if (!ok) console.log(`FAIL  ${section} · ${name} — ${detail}`);
+const check = (section: string, name: string, ok: boolean | Status, detail: string) => {
+  const status: Status = typeof ok === 'boolean' ? (ok ? 'PASS' : 'FAIL') : ok;
+  checks.push({ section, name, status, ok: status !== 'FAIL', detail });
+  if (status !== 'PASS') console.log(`${status.padEnd(7)} ${section} · ${name} — ${detail}`);
+};
+/** Ratios compare within 1e-4 relative (floating sums in two languages); integers exactly. */
+const close = (a: unknown, b: unknown): boolean => {
+  if (typeof a === 'number' && typeof b === 'number' && Number.isFinite(a) && Number.isFinite(b)) {
+    if (Number.isInteger(a) && Number.isInteger(b)) return a === b;
+    return Math.abs(a - b) <= 1e-4 * Math.max(Math.abs(a), Math.abs(b), 1e-12);
+  }
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 };
 const rows = async <T = Record<string, unknown>>(q: ReturnType<typeof sql>): Promise<T[]> => {
   const r = (await db.execute(q)) as unknown;
@@ -66,7 +82,7 @@ async function engineVsSql(RANGES: Range[], tz: string, asOf: Date, OUT: string)
   let fail = 0;
   const cmp = (range: string, ccy: string, metric: string, sqlV: unknown, appV: unknown) => {
     const norm = (v: unknown) => (v === undefined || v === null ? null : typeof v === 'number' ? Number(v.toFixed(6)) : v);
-    const ok = JSON.stringify(norm(sqlV)) === JSON.stringify(norm(appV));
+    const ok = close(norm(sqlV), norm(appV));
     if (ok) pass += 1;
     else fail += 1;
     lines.push(`${ok ? 'PASS' : 'FAIL'}  ${range.padEnd(6)} ${ccy.padEnd(4)} ${metric.padEnd(36)} sql=${JSON.stringify(norm(sqlV))}  app=${JSON.stringify(norm(appV))}`);
@@ -183,10 +199,16 @@ async function ghl(RANGES: Range[], tz: string, engineApplied: Record<string, nu
   const stageName = new Map(stageRows.map((s) => [s.id, s.name]));
   const localDay = (d: string | Date) => todayInTimezone(tz, new Date(d));
   const out: Record<string, unknown> = { followed };
+  // A live row changed after the last completed opportunities fetch cannot be in the mirror yet: PENDING, not FAIL.
+  const marker = await readMarker('ghl.opportunities');
+  const syncedAt = marker ? Date.parse(marker.completedAt) : 0;
+  const changedSinceSync = (o: { updatedAt?: string | null; lastStageChangeAt?: string | null; lastStatusChangeAt?: string | null }) => [o.updatedAt, o.lastStageChangeAt, o.lastStatusChangeAt].some((t) => t && Date.parse(t) > syncedAt);
   let missingAll = 0;
   let extraAll = 0;
   let stageAll = 0;
   let statusAll = 0;
+  let stagePending = 0;
+  let statusPending = 0;
   const liveCreated: string[] = [];
   for (const p of followed) {
     const live = await listAllOpportunities({ pipelineId: p.id, maxPages: 100 });
@@ -199,12 +221,15 @@ async function ghl(RANGES: Range[], tz: string, engineApplied: Record<string, nu
     const M = new Map(mirror.map((m) => [m.id, m]));
     const missing = [...L.keys()].filter((id) => !M.has(id));
     const extra = [...M.keys()].filter((id) => !L.has(id));
-    const stageDiff = [...L.values()].filter((o) => M.has(o.id) && (M.get(o.id)!.stageId ?? null) !== (o.pipelineStageId ?? null)).map((o) => ({ opp: o.id, live: stageName.get(o.pipelineStageId ?? '') ?? o.pipelineStageId, mirror: stageName.get(M.get(o.id)!.stageId ?? '') ?? M.get(o.id)!.stageId }));
-    const statusDiff = [...L.values()].filter((o) => M.has(o.id) && M.get(o.id)!.status !== o.status).map((o) => ({ opp: o.id, live: o.status, mirror: M.get(o.id)!.status }));
+    const stageDiff = [...L.values()].filter((o) => M.has(o.id) && (M.get(o.id)!.stageId ?? null) !== (o.pipelineStageId ?? null)).map((o) => ({ opp: o.id, live: stageName.get(o.pipelineStageId ?? '') ?? o.pipelineStageId, mirror: stageName.get(M.get(o.id)!.stageId ?? '') ?? M.get(o.id)!.stageId, pending: changedSinceSync(o) }));
+    const statusDiff = [...L.values()].filter((o) => M.has(o.id) && M.get(o.id)!.status !== o.status).map((o) => ({ opp: o.id, live: o.status, mirror: M.get(o.id)!.status, pending: changedSinceSync(o) }));
+    const pendingIds = new Set([...stageDiff, ...statusDiff].filter((d) => d.pending).map((d) => d.opp));
     missingAll += missing.length;
     extraAll += extra.length;
-    stageAll += stageDiff.length;
-    statusAll += statusDiff.length;
+    stageAll += stageDiff.filter((d) => !d.pending).length;
+    statusAll += statusDiff.filter((d) => !d.pending).length;
+    stagePending += stageDiff.filter((d) => d.pending).length;
+    statusPending += statusDiff.filter((d) => d.pending).length;
     for (const o of live.opportunities) if (o.createdAt) liveCreated.push(localDay(o.createdAt));
 
     // Per stage × status: live walk, the reconcile's own meta.total probe, and the mirror.
@@ -219,18 +244,23 @@ async function ghl(RANGES: Range[], tz: string, engineApplied: Record<string, nu
       }
     }
     const diffs = table.filter((t) => t.walk !== t.mirror || (t.probe !== null && t.probe !== t.mirror));
-    check('GHL', `${p.name}: ghl_opportunities = live per stage × status`, diffs.length === 0, diffs.length ? diffs.map((d) => `${d.stage}/${d.status} live ${d.walk} probe ${d.probe} mirror ${d.mirror}`).join('; ') : `${table.length} cells equal · ${live.opportunities.length} opportunities`);
+    // Every cell difference accounted for by rows that moved after the sync → PENDING (the next hourly sync catches up).
+    const movedCells = new Set<string>();
+    for (const o of live.opportunities) if (pendingIds.has(o.id)) { movedCells.add(`${stageName.get(o.pipelineStageId ?? '') ?? o.pipelineStageId}/${o.status}`); const m = M.get(o.id); if (m) movedCells.add(`${stageName.get(m.stageId ?? '') ?? m.stageId}/${m.status}`); }
+    const explained = diffs.length > 0 && diffs.every((d) => movedCells.has(`${d.stage}/${d.status}`));
+    check('GHL', `${p.name}: ghl_opportunities = live per stage × status`, diffs.length === 0 ? true : explained ? 'PENDING' : false, diffs.length ? `${diffs.map((d) => `${d.stage}/${d.status} live ${d.walk} probe ${d.probe} mirror ${d.mirror}`).join('; ')}${explained ? ` — ${pendingIds.size} row(s) changed after the last sync (${marker?.completedAt ?? 'no marker'})` : ''}` : `${table.length} cells equal · ${live.opportunities.length} opportunities`);
     out[p.id] = { liveTotal: live.opportunities.length, mirrorTotal: mirror.length, missing, extra, stageDiff, statusDiff, table, requests: live.requests };
     console.log(`ghl ${p.name}: live ${live.opportunities.length} / mirror ${mirror.length}; missing ${missing.length}, extra ${extra.length}, stage ${stageDiff.length}, status ${statusDiff.length}`);
   }
   check('GHL', 'missing in mirror', missingAll === 0, String(missingAll));
   check('GHL', 'extra in mirror', extraAll === 0, String(extraAll));
-  check('GHL', 'stage differs', stageAll === 0, String(stageAll));
-  check('GHL', 'status differs', statusAll === 0, String(statusAll));
+  check('GHL', 'stage differs', stageAll === 0 ? (stagePending ? 'PENDING' : true) : false, `${stageAll}${stagePending ? ` · ${stagePending} moved after the last sync (pending)` : ''}`);
+  check('GHL', 'status differs', statusAll === 0 ? (statusPending ? 'PENDING' : true) : false, `${statusAll}${statusPending ? ` · ${statusPending} changed after the last sync (pending)` : ''}`);
   // Applied (F14) = opportunities created in the range. The engine additionally excludes parked previous leads.
   const appliedByRange: Record<string, { liveCreated: number; engineApplied: number }> = {};
   for (const r of RANGES) appliedByRange[r.key] = { liveCreated: liveCreated.filter((d) => d >= r.start && d <= r.end).length, engineApplied: engineApplied[r.key] ?? 0 };
   out.appliedByRange = appliedByRange;
+  check('GHL', 'applied (F14) vs opportunities created', 'INFO', Object.entries(appliedByRange).map(([k, v]) => `${k}: GHL created ${v.liveCreated} · engine applied ${v.engineApplied}`).join(' · ') + ' — the engine excludes parked previous leads; the table below has the detail');
   return out;
 }
 
@@ -274,7 +304,7 @@ async function stripe(RANGES: Range[], tz: string) {
 
 // ---------------------------------------------------------------------------------------------------------------
 // 4. Meta: the account's currency labels every stored row; account-level spend per day equals the mirror.
-async function meta(RANGES: Range[]) {
+async function meta(RANGES: Range[], today: string) {
   const config = await getMetaConfig();
   if (!config.configured) {
     check('Meta', 'configured', false, 'Meta is not connected — nothing verified');
@@ -301,8 +331,10 @@ async function meta(RANGES: Range[]) {
     const M = new Map(mirror.map((x) => [x.d, Number(x.cents)]));
     const days = [...new Set([...L.keys(), ...M.keys()])].sort();
     const diffs = days.map((d) => ({ date: d, live: L.get(d) ?? 0, mirror: M.get(d) ?? 0 })).filter((x) => x.live !== x.mirror);
+    // Today is a partial day on both sides (Meta's account day is still accruing; the mirror is as of the last fetch): PENDING.
+    const settled = diffs.filter((d) => d.date < today);
     out[r.key] = { liveTotal: [...L.values()].reduce((a, b) => a + b, 0), mirrorTotal: [...M.values()].reduce((a, b) => a + b, 0), diffs };
-    check('Meta', `${r.key}: spend per day equal`, diffs.length === 0, diffs.length ? diffs.slice(0, 5).map((d) => `${d.date} live ${d.live} mirror ${d.mirror}`).join('; ') : `${days.length} days equal (${currency})`);
+    check('Meta', `${r.key}: spend per day equal`, diffs.length === 0 ? true : settled.length === 0 ? 'PENDING' : false, diffs.length ? `${diffs.slice(0, 5).map((d) => `${d.date} live ${d.live} mirror ${d.mirror}`).join('; ')}${settled.length === 0 ? ' — today is a partial day (pending)' : ''}` : `${days.length} days equal (${currency})`);
   }
   return out;
 }
@@ -380,20 +412,23 @@ async function health(ghlLiveTotal: number | null) {
 // ---------------------------------------------------------------------------------------------------------------
 function report(date: string, tz: string, RANGES: Range[], asOf: Date, OUT: string, extra: Record<string, unknown>) {
   const sections = [...new Set(checks.map((c) => c.section))];
-  const passN = checks.filter((c) => c.ok).length;
-  const failN = checks.length - passN;
+  const count = (st: Status) => checks.filter((c) => c.status === st).length;
+  const passN = count('PASS');
+  const pendingN = count('PENDING');
+  const infoN = count('INFO');
+  const failN = count('FAIL');
   const md = [
     `# FitFlow verification — ${date}`,
     '',
     `Generated by \`npx tsx scripts/verify.ts\` at ${asOf.toISOString()} (business timezone ${tz}). Read-only: every provider call is a GET through the app's own clients; nothing was written.`,
     '',
-    `**${failN === 0 ? 'ALL PASS' : `${failN} FAIL`}** — ${passN} of ${checks.length} checks passed. Raw outputs: \`docs/verification/${date}/\`.`,
+    `**${failN === 0 ? 'NO FAIL' : `${failN} FAIL`}** — ${passN} PASS · ${pendingN} PENDING · ${infoN} INFO · ${failN} FAIL of ${checks.length} checks. PENDING = explained by timing (today's partial day; a change newer than the last sync marker), re-run later. Raw outputs: \`docs/verification/${date}/\`.`,
     '',
     '## Ranges',
     '',
     ...RANGES.map((r) => `- **${r.key}** — ${r.label}: ${r.start} – ${r.end}`),
     '',
-    ...sections.flatMap((s) => [`## ${s}`, '', '| | Check | Detail |', '|---|---|---|', ...checks.filter((c) => c.section === s).map((c) => `| ${c.ok ? 'PASS' : '**FAIL**'} | ${c.name} | ${c.detail.replace(/\|/g, '\\|')} |`), '']),
+    ...sections.flatMap((s) => [`## ${s}`, '', '| | Check | Detail |', '|---|---|---|', ...checks.filter((c) => c.section === s).map((c) => `| ${c.status === 'FAIL' ? '**FAIL**' : c.status} | ${c.name} | ${c.detail.replace(/\|/g, '\\|')} |`), '']),
     '## Applied (F14): opportunities created in the followed pipeline vs the engine',
     '',
     '| Range | GHL created | Engine applied |',
@@ -405,7 +440,7 @@ function report(date: string, tz: string, RANGES: Range[], asOf: Date, OUT: stri
   ].join('\n');
   fs.writeFileSync(path.join(process.cwd(), 'docs', `verification-${date}.md`), md);
   fs.writeFileSync(path.join(OUT, 'checks.json'), JSON.stringify(checks, null, 2));
-  console.log(`\n${passN} PASS · ${failN} FAIL → docs/verification-${date}.md`);
+  console.log(`\n${passN} PASS · ${pendingN} PENDING · ${infoN} INFO · ${failN} FAIL → docs/verification-${date}.md`);
   return failN;
 }
 
@@ -459,7 +494,7 @@ async function main() {
     for (const [name, fn] of [
       ['ghl', () => ghl(RANGES, tz, engineApplied)],
       ['stripe', () => stripe(RANGES, tz)],
-      ['meta', () => meta(RANGES)],
+      ['meta', () => meta(RANGES, today)],
       ['fx', fx],
     ] as const) {
       try {
