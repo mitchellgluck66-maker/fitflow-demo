@@ -9,8 +9,9 @@
 --              (audit P1 #3), on the ladder applied < consult booked ≤ consult no-show / rescheduled < roadmap booked
 --              ≤ roadmap no-show / rescheduled < roadmap showed < enrolled; "consult showed" in cohort mode is
 --              inferred: reached roadmap booked or later, or a Consult appointment with outcome showed;
---   failed   = per INVOICE (audit P1 #5): an invoice with a kept charge anywhere in the data is not owed; an unpaid
---              invoice counts once (its latest attempt); a failed charge with no invoice counts on its own;
+--   failed   = per ATTEMPT (audit P1 #5; 2026-10-08 item 3): an invoice with a kept charge anywhere in the data is not
+--              owed; an unpaid invoice counts once (its latest attempt); a failed charge with no invoice groups by
+--              customer + amount as charged + local day (two declines the same day = one attempt); no customer → on its own;
 --   show rate = showed ÷ (showed + no-show), shown only when ≥ 90% of past appointments have an outcome (F2).
 with params as (select '{S}'::date s, '{E}'::date e, '{ASOF}'::timestamptz asof),
 ccys as (select unnest(array['CAD','USD']) rep),
@@ -84,9 +85,9 @@ pin as (select pay_c.* , greatest(0, amt-ref) * (case when kind not in ('refund'
         from pay_c, params where kind<>'subscription' and d between s and e),
 paid_inv as (select distinct metadata->>'invoice' inv from payments where metadata->>'invoice' is not null and kind<>'refund' and status in ('succeeded','refunded')),
 failed_keyed as (select distinct on (rep, k) rep, k, amt from (
-   select pin.rep, coalesce(pin.metadata->>'invoice', 'charge:'||pin.stripe_id) k, pin.amt, pin.d
+   select pin.rep, coalesce(pin.metadata->>'invoice', case when pin.stripe_customer_id is not null and pin.d is not null then 'attempt:'||pin.stripe_customer_id||':'||pin.amount_cents||':'||pin.currency||':'||pin.d end, 'charge:'||pin.stripe_id) k, pin.amt, pin.d, pin.stripe_id
    from pin where status='failed' and kind not in ('subscription','refund') and (pin.metadata->>'invoice' is null or pin.metadata->>'invoice' not in (select inv from paid_inv))) x
-   order by rep, k, d desc),
+   order by rep, k, d desc, stripe_id desc),
 failed_agg as (select rep, count(*) failed_n, sum(amt) failed_c from failed_keyed group by rep),
 rev as (select rep,
    sum(net) filter (where is_cash and payment_class='initial') initial_c, count(*) filter (where is_cash and payment_class='initial') initial_n,

@@ -305,6 +305,7 @@ export async function loadMetricsInput(
     .select({
       id: payments.id,
       stripeId: payments.stripeId,
+      stripeCustomerId: payments.stripeCustomerId,
       contactId: payments.contactId,
       kind: payments.kind,
       amountCents: payments.amountCents,
@@ -432,6 +433,7 @@ export async function loadMetricsInput(
     payments: paymentList.map((p): PaymentRow => ({
       id: p.id,
       stripeId: p.stripeId,
+      stripeCustomerId: p.stripeCustomerId ?? null,
       contactId: p.contactId,
       kind: p.kind,
       amountCents: p.amountCents,

@@ -159,6 +159,8 @@ export interface PaymentRow {
   kind?: string;
   /** The Stripe invoice this charge paid or tried to pay (retries share it). */
   invoiceId?: string | null;
+  /** The Stripe customer (verification 2026-10-08 item 3: invoice-less failed attempts group by customer + amount + day). */
+  stripeCustomerId?: string | null;
   amountCents: number;
   refundedCents: number;
   /** Currency amountCents / refundedCents are in (as Stripe charged it). */
@@ -868,28 +870,33 @@ function netCents(p: PaymentRow): number {
  * belongs to. Failed payments are counted, never summed.
  */
 /**
- * Failed payments, counted per INVOICE (audit P1 #5, 2026-09-30): Stripe retries a failing invoice, and each
- * retry is its own charge row — one $525 invoice that failed 6 times and was then paid read as "6 failed". An
- * invoice counts once, by its latest failed attempt, and only while it is still unpaid: an invoice with a kept
- * charge anywhere in the data (any date) is not owed. A failed charge with no invoice counts on its own.
+ * Failed payments, counted per ATTEMPT (audit P1 #5, 2026-09-30; verification 2026-10-08 item 3): Stripe retries a
+ * failing invoice, and each retry is its own charge row — one $525 invoice that failed 6 times and was then paid
+ * read as "6 failed". An invoice counts once, by its latest failed attempt, and only while it is still unpaid: an
+ * invoice with a kept charge anywhere in the data (any date) is not owed. A failed charge with NO invoice groups by
+ * customer + amount (as charged) + local day — two $1,150 declines for the same customer the same day are one attempt
+ * (a card retried at checkout), counted once by the latest; a row with no customer counts on its own.
  */
-export function failedPayments(raw: MetricsInput, range: Range): { count: number; cents: number; rows: PaymentRow[]; laterPaid: number } {
+export function failedPayments(raw: MetricsInput, range: Range): { count: number; cents: number; rows: PaymentRow[]; laterPaid: number; /** Attempts folded into another row of the same key (retries). */ retries: number } {
   const input = inReportingCurrency(raw);
   const paidInvoices = new Set(input.payments.filter((p) => p.invoiceId && p.kind !== 'refund' && (p.status === 'succeeded' || p.status === 'refunded')).map((p) => p.invoiceId as string));
   const latest = new Map<string, PaymentRow>();
   let laterPaid = 0;
+  let retries = 0;
   for (const p of input.payments) {
     if (p.status !== 'failed' || p.kind === 'subscription' || p.kind === 'refund' || !inRange(p.on, range)) continue;
     if (p.invoiceId && paidInvoices.has(p.invoiceId)) {
       laterPaid += 1;
       continue;
     }
-    const key = p.invoiceId ?? `charge:${p.stripeId ?? p.id ?? Math.random()}`;
+    const charged = p.original ?? { amountCents: p.amountCents, currency: p.currency };
+    const key = p.invoiceId ?? (p.stripeCustomerId && p.on ? `attempt:${p.stripeCustomerId}:${charged.amountCents}:${charged.currency}:${p.on}` : `charge:${p.stripeId ?? p.id ?? Math.random()}`);
     const prev = latest.get(key);
-    if (!prev || (p.on ?? '') > (prev.on ?? '')) latest.set(key, p);
+    if (prev) retries += 1;
+    if (!prev || (p.on ?? '') > (prev.on ?? '') || ((p.on ?? '') === (prev.on ?? '') && (p.stripeId ?? '') > (prev.stripeId ?? ''))) latest.set(key, p);
   }
   const rows = Array.from(latest.values());
-  return { count: rows.length, cents: sumCents(rows.map((p) => ({ cents: p.amountCents, currency: p.currency })), input.money.reporting), rows, laterPaid };
+  return { count: rows.length, cents: sumCents(rows.map((p) => ({ cents: p.amountCents, currency: p.currency })), input.money.reporting), rows, laterPaid, retries };
 }
 
 export function computeRevenue(raw: MetricsInput, range: Range): Revenue {

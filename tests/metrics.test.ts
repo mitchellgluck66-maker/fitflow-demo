@@ -212,6 +212,30 @@ describe('spend, CAC and revenue', () => {
     expect(summary.payments.filter((p) => p.stillUnpaid).map((p) => p.id).sort()).toEqual(['amy-f2', 'card-f']);
     expect(summary.payments.find((p) => p.id === 'zoe-f5')!.stillUnpaid).toBe(false);
   });
+
+  // Verification 2026-10-08 (item 3): two $1,150 declines for the same customer on the same day read as 2 failed.
+  it('failed charges with no invoice group by customer + amount + day as one attempt (the latest row); another day, amount or customer is another attempt; no customer counts alone', () => {
+    const pay = (id: string, on: string, amountCents: number, stripeCustomerId: string | null): MetricsInput['payments'][number] =>
+      ({ id, stripeId: id, stripeCustomerId, contactId: 'c1', currency: 'CAD' as const, amountCents, refundedCents: 0, status: 'failed', on, origin: 'stripe', kind: 'charge', invoiceId: null, paymentClass: 'excluded' });
+    const input: MetricsInput = {
+      ...FIXTURE,
+      payments: [
+        pay('ch_a1', '2026-08-05', 115_000, 'cus_A'), // the same customer, amount and day …
+        pay('ch_a2', '2026-08-05', 115_000, 'cus_A'), // … = ONE attempt (a card retried at checkout)
+        pay('ch_a3', '2026-08-06', 115_000, 'cus_A'), // the next day: another attempt
+        pay('ch_a4', '2026-08-06', 57_500, 'cus_A'), // another amount: another attempt
+        pay('ch_b1', '2026-08-05', 115_000, 'cus_B'), // another customer
+        pay('ch_n1', '2026-08-05', 115_000, null), // no customer: on its own …
+        pay('ch_n2', '2026-08-05', 115_000, null), // … each one
+      ],
+    };
+    const f = failedPayments(input, R);
+    expect(f.count).toBe(6);
+    expect(f.retries).toBe(1);
+    expect(f.rows.map((p) => p.id).sort()).toEqual(['ch_a2', 'ch_a3', 'ch_a4', 'ch_b1', 'ch_n1', 'ch_n2']); // the latest row of the pair stands for it
+    expect(f.cents).toBe(115_000 * 5 + 57_500);
+    expect(computeRevenueSummary(input, R).payments.filter((p) => p.stillUnpaid).map((p) => p.id).sort()).toEqual(['ch_a2', 'ch_a3', 'ch_a4', 'ch_b1', 'ch_n1', 'ch_n2']);
+  });
 });
 
 describe('show rates', () => {
