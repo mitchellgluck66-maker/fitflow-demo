@@ -441,11 +441,16 @@ export function cohortMembership(input: MetricsInput, range: Range): Record<Funn
   // Audit P1 #3 (2026-09-30): people skip stages in GHL (a roadmap booked with no consult, an enrollment with no
   // recorded roadmap), so a cohort stage counts everyone who reached THIS stage OR ANY LATER ONE. Every stage is
   // then a subset of the one before it and a cohort conversion can never exceed 100%.
+  // Verification 2026-10-08 (item 2): a no-show or rescheduled role sits on ITS BOOKING'S rung — a consult no-show
+  // means a consult was booked, even when the hourly sync never observed the Consult Booked stage itself (the
+  // booking and the no-show happened between two syncs). September 2026: 8 of 88 consult bookings and 2 of 53
+  // roadmap bookings were observed only as a no-show / rescheduled entry. Period mode is unchanged: it counts
+  // entries into the booked stage inside the dates (an event), not what a person has reached.
   const raw: Record<FunnelStageKey, string[]> = {
     applied: Array.from(cohort),
-    consult_booked: uniq(everEntered('consult_booked')),
+    consult_booked: uniq([...everEntered('consult_booked'), ...everEntered('consult_noshow'), ...everEntered('consult_rescheduled')]),
     consult_showed: uniq(everShowed('Consult')),
-    roadmap_booked: uniq(everEntered('roadmap_booked')),
+    roadmap_booked: uniq([...everEntered('roadmap_booked'), ...everEntered('roadmap_noshow'), ...everEntered('roadmap_rescheduled')]),
     roadmap_showed: uniq([...everShowed('Roadmap'), ...everEntered('roadmap_showed')]),
     enrolled: uniq(everEntered('enrolled')),
   };

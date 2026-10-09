@@ -109,7 +109,14 @@ large changes. This file is the standing contract.
    - *Funnel modes*: "In period" = events inside the dates (default everywhere);
      "By cohort" = everyone who applied inside the dates and every stage they
      have reached since, no time cutoff. Chips are recomputed per mode against
-     the same-mode trailing-8-week baseline.
+     the same-mode trailing-8-week baseline. Cohort stages are cumulative
+     ("reached this stage or any later one") on the ladder applied < consult
+     booked ≤ consult no-show / rescheduled < roadmap booked ≤ roadmap no-show /
+     rescheduled < roadmap showed < enrolled — a no-show sits on its booking's
+     rung (verification 2026-10-08: 8 of 88 September consult bookings were
+     observed only as a no-show entry, the booking having happened between two
+     hourly syncs). Cohort "consult showed" is INFERRED (reached roadmap booked
+     or later, or a Consult appointment showed) and is labelled so.
    - *History-dependent metrics (maturing data)*: live stage-history observation
      began 2026-09-01; before that GHL kept only each contact's last stage
      change. Everything derived from a GHL STAGE ENTRY is therefore

@@ -217,6 +217,36 @@ describe('P1 #3: cohort stages are cumulative; withheld stages are skipped by th
     expect(st(f, 'enrolled').shareOfApplied).toBe(0.5);
   });
 
+  it('verification 2026-10-08: a cohort member observed only at a no-show / rescheduled role reached its booking (and the inferred consult showed when it is a roadmap); period mode still counts entries into the booked stage', () => {
+    const observedLate: MetricsInput = {
+      ...skippers,
+      contacts: [
+        ...skippers.contacts,
+        c('n1', 'Facebook', '2026-09-22', 'consult_noshow'), // booked + missed between two syncs: only the no-show was observed
+        c('n2', 'Facebook', '2026-09-22', 'consult_rescheduled'),
+        c('n3', 'Facebook', '2026-09-23', 'roadmap_noshow'), // straight to a roadmap no-show: consult booked, consult showed (inferred), roadmap booked
+        c('n4', 'Facebook', '2026-09-23', 'roadmap_rescheduled'),
+      ],
+      transitions: [
+        ...skippers.transitions,
+        t('n1', null, 'consult_noshow', '2026-09-24'),
+        t('n2', null, 'consult_rescheduled', '2026-09-24'),
+        t('n3', null, 'roadmap_noshow', '2026-09-25'),
+        t('n4', null, 'roadmap_rescheduled', '2026-09-25'),
+      ],
+    };
+    const f = computeFunnel(observedLate, SKIP, 'cohort');
+    expect(counts(f)).toEqual({ applied: 8, consult_booked: 7, consult_showed: 4, roadmap_booked: 4, roadmap_showed: 2, enrolled: 2 });
+    expect(st(f, 'consult_booked').contactIds.sort()).toEqual(['j1', 'j2', 'j3', 'n1', 'n2', 'n3', 'n4']);
+    expect(st(f, 'roadmap_booked').contactIds.sort()).toEqual(['j1', 'j2', 'n3', 'n4']);
+    expect(st(f, 'roadmap_showed').contactIds.sort()).toEqual(['j1', 'j2']); // a roadmap no-show never reached roadmap showed
+    for (const s of f.stages) expect(s.conversionFromPrevious === null || s.conversionFromPrevious <= 1, s.key).toBe(true);
+    // In period: no entry INTO consult_booked / roadmap_booked happened for n1–n4, so they are not counted there.
+    const p = computeFunnel(observedLate, SKIP, 'period');
+    expect(st(p, 'consult_booked').contactIds.sort()).toEqual(['j2', 'j3']);
+    expect(st(p, 'roadmap_booked').contactIds.sort()).toEqual(['j1']);
+  });
+
   it('withheld "showed" stages are skipped by the chain: the chip spans the gap and the withheld stage has no ratio', () => {
     const f = computeFunnel(skippers, SKIP, 'period');
     expect(st(f, 'consult_showed').withheld).toMatch(/attendance recorded for/);
