@@ -905,7 +905,12 @@ ingestion so a stale or incomplete mirror cannot go unnoticed and repairs itself
   `ghlRequest`): engine vs independent SQL for last week / last month / month to date / Jul 16 → today;
   `ghl_opportunities` = live per opportunity and per stage × status; Stripe missing/differ; Meta stored currency
   = account and spend per day; FX = BoC; markers = last fetch; reconcile ok with 0 skipped. Writes
-  `docs/verification-<date>.md`; exit 1 on any FAIL.
+  `docs/verification-<date>.md`; exit 1 on any FAIL. **2026-10-09 (verification 2026-10-08 fixes):** statuses are
+  PASS / PENDING / INFO / FAIL — PENDING = explained by timing (Meta's partial today; a GHL row whose updatedAt /
+  lastStageChangeAt is newer than the `ghl.opportunities` marker), INFO = reported not judged (Applied vs created),
+  only FAIL fails; ratios compare within 1e-4 relative; `verify.sql` encodes the current definitions independently
+  (followed-pipeline scope, the cohort ladder, failed per attempt). Failed payments: per invoice while unpaid; an
+  invoice-less decline groups by customer + amount as charged + local day (`failedPayments`).
 - **Deploy order:** `npm run db:migrate` (0015 adds a column, 0016 drops a default — both safe for the deployed
   code), THEN `git push`. The first runs repair: `utm_backfill` once, `fx` backfills BoC days.
 
