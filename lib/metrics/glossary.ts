@@ -221,7 +221,7 @@ const STAGE_DEFINITIONS: Record<FunnelStageKey, { definition: string; differsFro
     differsFrom: 'Consult showed is attendance at the consult; consults booked counts the booking.',
   },
   consult_showed: {
-    definition: 'People with a consult appointment that showed in the period. Withheld and skipped by the conversion chain when attendance is not recorded.',
+    definition: 'In period: people with a consult appointment that showed in the dates; withheld and skipped by the conversion chain when attendance is not recorded. By cohort the stage is INFERRED — applicants who reached roadmap booked or any later stage, or showed to a consult — and is labelled "Reached roadmap or later (attendance inferred)", never recorded attendance.',
     differsFrom: 'The consult show rate is showed ÷ (showed + no-show); this is the count of people.',
   },
   roadmap_booked: {

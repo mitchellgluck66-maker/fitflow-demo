@@ -6,7 +6,7 @@
  * W3 = Sun 2026-08-16 … Sat 2026-08-22
  */
 import { describe, it, expect } from 'vitest';
-import { computeFunnel, cohortMembership, funnelMembership, computeScorecard, computeTrend, computeSourceBreakdown, type MetricsInput } from '@/lib/metrics';
+import { computeFunnel, cohortMembership, funnelMembership, computeScorecard, computeTrend, computeSourceBreakdown, COHORT_CONSULT_SHOWED_LABEL, type MetricsInput } from '@/lib/metrics';
 
 const W1 = { start: '2026-08-02', end: '2026-08-08' };
 const W2 = { start: '2026-08-09', end: '2026-08-15' };
@@ -241,8 +241,13 @@ describe('P1 #3: cohort stages are cumulative; withheld stages are skipped by th
     expect(st(f, 'roadmap_booked').contactIds.sort()).toEqual(['j1', 'j2', 'n3', 'n4']);
     expect(st(f, 'roadmap_showed').contactIds.sort()).toEqual(['j1', 'j2']); // a roadmap no-show never reached roadmap showed
     for (const s of f.stages) expect(s.conversionFromPrevious === null || s.conversionFromPrevious <= 1, s.key).toBe(true);
+    // Item 4: the inferred stage says so; in period the stage keeps its recorded-attendance name.
+    expect(st(f, 'consult_showed').label).toBe(COHORT_CONSULT_SHOWED_LABEL);
+    expect(st(f, 'consult_showed').label).toBe('Reached roadmap or later (attendance inferred)');
+    expect(f.stages.filter((s) => s.key !== 'consult_showed').map((s) => s.label)).toEqual(['Applied', 'Consult booked', 'Roadmap booked', 'Roadmap showed', 'Enrolled']);
     // In period: no entry INTO consult_booked / roadmap_booked happened for n1–n4, so they are not counted there.
     const p = computeFunnel(observedLate, SKIP, 'period');
+    expect(st(p, 'consult_showed').label).toBe('Consult showed');
     expect(st(p, 'consult_booked').contactIds.sort()).toEqual(['j2', 'j3']);
     expect(st(p, 'roadmap_booked').contactIds.sort()).toEqual(['j1']);
   });

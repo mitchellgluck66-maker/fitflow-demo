@@ -10,7 +10,7 @@
  */
 
 import type { ScorecardResult } from '../metrics/service';
-import { FUNNEL_STAGES, formatCents, formatPct, formatDelta, computeDelta, type Coverage, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
+import { formatCents, formatPct, formatDelta, computeDelta, type Coverage, type Currency, type Delta, type CampaignRow, type ShowRate } from '../metrics';
 import { periodFamily, periodTitle, formatRangeLabel } from '../dates';
 import { isMaturingMetric, maturingCaveatText, HISTORY_DEPENDENT_LABEL, type DataMaturity } from '../metrics/maturity';
 
@@ -188,7 +188,7 @@ export function assembleScorecard(result: ScorecardResult, narrative: string | n
 
   // ---- Tables (funnel / show rates / sources) ----------------------------
   const funnelRows = scorecard.funnel.stages.map((s) => [
-    FUNNEL_STAGES.find((f) => f.key === s.key)?.label ?? s.key,
+    s.label, // the engine's label for the mode (cohort "consult showed" reads "Reached roadmap or later (attendance inferred)")
     String(s.count),
     formatPct(s.shareOfApplied),
     s.conversionFromPrevious === null ? '—' : formatPct(s.conversionFromPrevious),

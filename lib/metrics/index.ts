@@ -310,6 +310,9 @@ export type FunnelStageKey =
   | 'roadmap_showed'
   | 'enrolled';
 
+/** The cohort-mode label of `consult_showed` (verification 2026-10-08 item 4): the stage is inferred, not recorded attendance. */
+export const COHORT_CONSULT_SHOWED_LABEL = 'Reached roadmap or later (attendance inferred)';
+
 export const FUNNEL_STAGES: Array<{ key: FunnelStageKey; label: string; shortLabel: string }> = [
   { key: 'applied', label: 'Applied', shortLabel: 'app' },
   { key: 'consult_booked', label: 'Consult booked', shortLabel: 'booked' },
@@ -621,7 +624,9 @@ export function computeFunnel(raw: MetricsInput, range: Range, mode: FunnelMode 
     const capped = rawRatio !== null && rawRatio > 1;
     const stage: FunnelStage = {
       key: def.key,
-      label: def.label,
+      // Verification 2026-10-08 (item 4): in cohort mode "consult showed" is INFERRED (reached roadmap booked or later,
+      // or a Consult appointment showed) — labelled so it is never read as recorded attendance while show rates are withheld.
+      label: mode === 'cohort' && def.key === 'consult_showed' ? COHORT_CONSULT_SHOWED_LABEL : def.label,
       count,
       contactIds: ids,
       shareOfApplied: appliedCount > 0 ? Math.min(1, count / appliedCount) : null,
