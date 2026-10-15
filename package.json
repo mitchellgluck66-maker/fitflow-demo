@@ -25,6 +25,7 @@
     "reconcile:ghl": "tsx scripts/reconcile-ghl.ts",
     "smoke:fx": "tsx scripts/smoke-fx.ts",
     "verify": "tsx scripts/verify.ts",
+    "eval:analyst": "tsx scripts/eval-analyst.ts",
     "check": "npm run typecheck && npm run test && npm run verify:readonly && npm run build",
     "sync:meta": "tsx scripts/sync-meta.ts",
     "sync:stripe": "tsx scripts/sync-stripe.ts",
