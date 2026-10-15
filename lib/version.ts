@@ -4,7 +4,8 @@
  *   GET /api/version → { "commit": "2454fa2…", "builtAt": "2026-10-15T13:20:11.000Z" }
  *
  * `commit` is Vercel's VERCEL_GIT_COMMIT_SHA (null outside Vercel); `builtAt` is stamped by next.config.ts at build
- * time (null when the build did not set it). Both are nullable on purpose: a missing value says "not a Vercel build",
+ * time (null when the build did not set it; the route must read the literal `process.env.BUILT_AT` — see
+ * app/api/version/route.ts). Both are nullable on purpose: a missing value says "not a Vercel build",
  * never a made-up SHA. No business data, no secret — the route is exempt from the session gate (lib/auth/policy.ts).
  */
 export interface VersionInfo {
