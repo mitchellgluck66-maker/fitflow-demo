@@ -52,3 +52,8 @@ _to_delete/
 
 # Analyst replay recordings that still hold real names (never committed; re-record with the scrubber)
 tests/fixtures/analyst-replay/*.local
+
+# generated verification outputs (per-person diffs with customer names) and local tooling logs
+/docs/verification/
+/.claude/tint.log
+/Claude outputs/
