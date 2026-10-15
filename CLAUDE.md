@@ -1181,6 +1181,37 @@ Applied under BOTH definitions from the mirror, definition-agnostic, and reports
 - **Deploy order:** `npm run db:migrate` (0018, additive) → push. The first dispatch computes everything;
   nothing manual. Unfollowed-pipeline rows lag until the weekly `ghl.mirrors` pass — the card says so.
 
+## Release run 2026-10-15 (`docs/release-2026-10-15.md`)
+
+One continuous run to production, authorised by Mitchell for that run only (live commands + push). Shipped alongside
+the Oct 7 Analyst fixes and the verification 2026-10-08 fixes:
+
+- **`GET /api/version`** (`lib/version.ts`) → `{ commit: VERCEL_GIT_COMMIT_SHA, builtAt }` (`builtAt` stamped by
+  `next.config.ts` at build time; both null outside a Vercel build, never invented). Exempt from the session gate
+  like `/api/health` — no data behind it. A deploy is confirmed when `commit` equals the pushed HEAD.
+- **Insights paused** (`lib/anthropic/insightsFlag.ts`, env `INSIGHTS_ENABLED`, default OFF): the generator predates
+  the Analyst's safeguards. Paused = `GET /api/anthropic/insights` answers `{ paused, message: "Insights are being
+  upgraded" }` and the Command Center card shows that one line; `POST` → 409; dispatch step `insights` is `skipped`
+  with the reason "paused pending Analyst rebuild". `INSIGHTS_ENABLED=true` restores it; the generator code is kept
+  for the rebuild. `tests/insights-flag.test.ts`.
+- **Failures close themselves** (`lib/incidents/noise.ts`, fourth noise class): an open incident whose sync run
+  FAILED / timed out is resolved — `resolved_at` + `details.resolvedBy` naming the run — once a later run of the
+  same `sync_runs.kind` has `succeeded` (a `partial` run is not a success). Runs wherever the sweep runs (every
+  GHL sync's phase 0, dispatch `sweep`, Setup "Resolve all noise", `incidents:sweep`). A condition raised inside a
+  succeeded run (unmapped stage, drift, token expiry, stripe_completeness) keeps its own lifecycle.
+- **Smoke / fixture guard**: the per-turn smoke line prints the `spend:` fragment on a FAIL line too (the ship gate
+  "identical spend: lines" is read from it); the fixture guard matches a phone only as a whole digit run (a 10-digit
+  "phone" had matched inside the decimals of a cost). Replay fixture re-recorded on the demo tenant.
+- **Ship gates for the Analyst** (no UI yet, so cost / latency / repair targets are reported, not blocking): both
+  smoke runs produce all 5 sections, the same verdict word, identical `spend:` lines, 0 flagged, no 4xx / 5xx.
+  2026-10-15: four runs, verdict "weak" every time, 0 flagged, the server's `spend gates:` line identical — but the
+  model's enumeration of HOLD actions varied (`hold account, hold Testing` vs `hold account`), so the `spend:`
+  strings differed while every spend decision was a hold. Open design question for Wave 2: make the spend actions
+  deterministic by construction (one decision per gated campaign + account, in gate order) so the line is a function
+  of the gates. Measured: prefix 40.5K tokens on the real tenant (the 40K budget test runs on the demo tenant);
+  first verified section 29–44 s (target 20); a targeted repair still costs 33–42 % of its turn (digits in the
+  actions: "10%", "90%", "2 of 9"; composed paths `data.kpis.initialCents` without `.current`); $0.34–0.50 per turn.
+
 ## Working agreements
 
 - **Fix the class, design for any tenant; no tenant-specific logic in `lib/`** (Mitchell, 2026-10-03).
