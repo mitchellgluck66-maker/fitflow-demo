@@ -10,6 +10,7 @@ import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
 import { computeDelta, formatCents, formatDelta, isCampaignUntracked, type CampaignRow, type Currency, type Delta, type FunnelStageKey } from '@/lib/metrics';
 import { DEFAULT_DISPLAYED_METRICS } from '@/lib/metrics/display';
+import { AskAboutButton } from './analyst/ExplainButton';
 
 /** Platform-reported columns, keyed by displayed-metric key. */
 const PLATFORM_COLS: Array<{ key: string; label: string; sortKey: string; value: (c: CampaignRow) => number | null; format: (v: number, ccy: Currency) => string }> = [
@@ -146,15 +147,15 @@ export const CampaignTable: React.FC<{
                 )}
               </tr>
               <tr style={{ background: 'var(--surface-sunken)' }}>
-                <SortableHeader label={comparisonLabel ? <span>Spend <span className="font-normal normal-case tracking-normal" style={{ color: 'var(--text-quaternary)' }}>· Δ {comparisonLabel}</span></span> : 'Spend'} sortKey="spend" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: '1px solid var(--border-subtle)' }} />
+                <SortableHeader label={comparisonLabel ? <span>Spend <span className="font-normal normal-case tracking-normal" style={{ color: 'var(--text-quaternary)' }}>· Δ {comparisonLabel}</span></span> : 'Spend'} sortKey="spend" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: '1px solid var(--border-subtle)' }} explainKey="spend" explainLabel="Spend" />
                 {platformCols.map((col) => (
-                  <SortableHeader key={col.key} label={col.label} sortKey={col.sortKey} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={hs} />
+                  <SortableHeader key={col.key} label={col.label} sortKey={col.sortKey} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={hs} explainKey={col.key} />
                 ))}
                 {trackedCols.map((tr, i) => (
-                  <SortableHeader key={tr.key} label={tr.label} sortKey={tr.stage} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }} />
+                  <SortableHeader key={tr.key} label={tr.label} sortKey={tr.stage} activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: i === 0 ? '1px solid var(--border-subtle)' : undefined }} explainKey={tr.key} />
                 ))}
                 {showRoas && (
-                  <SortableHeader label="ROAS" sortKey="roas" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: trackedCols.length === 0 ? '1px solid var(--border-subtle)' : undefined }} />
+                  <SortableHeader label="ROAS" sortKey="roas" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={{ ...hs, borderLeft: trackedCols.length === 0 ? '1px solid var(--border-subtle)' : undefined }} explainKey="tracked_roas" />
                 )}
               </tr>
             </thead>
@@ -167,11 +168,12 @@ export const CampaignTable: React.FC<{
                 const notTracked = isCampaignUntracked(c);
                 return (
                   <tr key={c.key} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5 explain-host">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
                           {c.campaignName}
                         </span>
+                        <AskAboutButton selected={{ kind: 'campaign', id: c.campaignId ?? c.key, label: c.campaignName }} question={`Why is the campaign "${c.campaignName}" performing the way it is in this period, and what should we do about it?`} />
                         <Badge variant="neutral" size="xs">
                           {c.platform}
                         </Badge>

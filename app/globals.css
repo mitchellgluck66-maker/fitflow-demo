@@ -1405,3 +1405,73 @@ body.panel-open .analyst-launch {
     padding: 14px 16px 20px;
   }
 }
+
+/* "What does this mean?" (Wave 2 item 6): hidden until its host is hovered, always visible on touch, icon-only in
+   table and chart headers. The host is `.explain-host` (tiles, rows, headers). */
+.explain-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-quaternary);
+  font: 500 11.5px var(--font-inter, Inter), system-ui, sans-serif;
+  padding: 3px 6px;
+  border-radius: 7px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s, color 0.2s;
+  line-height: 1;
+  vertical-align: middle;
+  flex: none;
+}
+.explain-btn.is-icon {
+  padding: 2px;
+}
+.explain-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.explain-host:hover .explain-btn,
+.group:hover .explain-btn,
+.explain-btn:focus-visible,
+.explain-btn[data-visible='true'] {
+  opacity: 1;
+}
+.explain-btn:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+[data-theme='dark'] .explain-btn:hover {
+  color: #c9b6ff;
+}
+@media (hover: none) {
+  .explain-btn {
+    opacity: 1;
+  }
+}
+.explain-abs {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.explain-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-primary);
+  font: 500 12.5px var(--font-inter, Inter), system-ui, sans-serif;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.explain-ask svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.explain-ask:hover {
+  background: var(--surface-hover);
+}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, ExternalLink, User, GitBranch, History, Eye, Megaphone } from 'lucide-react';
 import { Card, CardHeader, PageHeader, PageBody, EmptyState, Badge, Button, Skeleton, SkeletonText, SkeletonTable, Select } from '@/components';
+import { AskAboutButton } from '@/components/analyst/ExplainButton';
 import { ClientTimeline } from '@/components/ClientTimeline';
 import type { ClientProfile } from '@/lib/queries/clients';
 import { formatMoney } from '@/lib/money';
@@ -156,6 +157,7 @@ export default function ClientProfilePage() {
                 All clients
               </Button>
             </Link>
+            <AskAboutButton variant="button" selected={{ kind: 'client', id: profile.id, label: profile.name }} question={`Where is ${profile.name} in the funnel, what has happened so far, and what should we do next?`} label="Ask the Analyst" />
             {profile.ghlUrl && !ghlDisabledReason ? (
               <a href={profile.ghlUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="primary" iconRight={ExternalLink}>
