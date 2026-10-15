@@ -10,9 +10,11 @@
  *      "41.6%", "2.1×", "$3.7k") is ONE unit and a flag carries its position, so the mark goes exactly there;
  *   3. findings' evidence refs exist;
  *   4. direction words agree with the sign / polarity of the delta they sit next to (direction.ts);
- *   5. a hint never conflicts with the unit (`{count|x}`, `{cents|%}`) — rendered plain and flagged `hint` (Oct 7 item 3);
- *   6. every spend action obeys the server's spend gate (Oct 7 item 1): an increase / decrease / shift needs a
- *      campaign (or "account") whose newest gate in the ledger says may_change; a hold always passes.
+ *   5. a hint never conflicts with the unit (`{count|x}`, `{cents|%}`) — rendered plain and flagged `hint` (Oct 7 item 3).
+ *
+ * Spend actions are no longer a verifier rule (Wave 2 tune-up 1, 2026-10-15): the server DECIDES spend from the gates
+ * before verification (spendDecisions.ts) — one decision per gate row, written from the gate's refs — so there is
+ * nothing to argue past. `gate` stays in FlagKind for answers stored before that.
  *
  * ONE repair turn with the exact problems; after that the renderer shows `[no source]` for an unresolved
  * token and `[unverified: 8]` around a raw digit — marked, never silent. The old verifier compared the
@@ -155,49 +157,13 @@ export function rawDigits(text: string, ledger: Ledger): Token[] {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
-/**
- * The newest spend gate in the ledger for a campaign name (or "account"): tool results carry
- * `spendGates.account.decision` and `spendGates.campaigns[i].{campaign,decision,basis}` (get_scorecard — so the
- * starter snapshot has them — and get_campaigns as `gates`).
- */
-export function gateInLedger(ledger: Ledger, campaign: string): { decision: string; basis: string; ref: string } | null {
-  const wanted = norm(campaign);
-  const calls = ledger
-    .refs()
-    .filter((r) => /:data\.(spendGates|gates)\.(account\.decision|campaigns\[\d+\]\.campaign)$/.test(r))
-    .sort((a, b) => Number(b.slice(1).split(':')[0]) - Number(a.slice(1).split(':')[0]));
-  for (const r of calls) {
-    const base = r.replace(/\.(decision|campaign)$/, '');
-    if (r.endsWith('.account.decision')) {
-      if (wanted !== 'account' && wanted !== '') continue;
-    } else {
-      const name = ledger.get(r)?.text ?? '';
-      if (norm(name) !== wanted) continue;
-    }
-    const decision = ledger.get(`${base}.decision`)?.text;
-    if (!decision) continue;
-    return { decision, basis: ledger.get(`${base}.basis`)?.text ?? '', ref: `${base}.decision` };
-  }
-  return null;
-}
-
-/** Why a spend action is refused by the gate, or null. Pure. */
-export function gateProblem(a: Answer['actions'][number], ledger: Ledger): string | null {
-  if (a.kind !== 'spend') return null;
-  if (a.spend_change === 'hold') return null;
-  if (a.spend_change === 'none') return `spend action "${a.action}": spend_change is "none" — a spend action says increase / decrease / shift / hold`;
-  const label = a.campaign.trim() || 'account';
-  const gate = gateInLedger(ledger, label);
-  if (!gate) return `spend action on "${label}" (${a.spend_change}): no spend gate for it in this conversation — fetch get_campaigns first and name the campaign exactly as it gives it`;
-  if (gate.decision !== 'may_change') return `spend action on "${label}" (${a.spend_change}): the gate says hold — ${gate.basis}; write it as a hold (spend_change "hold") or drop it`;
-  return null;
-}
-
 export interface VerifyOptions {
   /** ISO: a ref fetched before this is stale (the newest sync marker since the turn began). */
   staleBefore?: string | null;
   /** The owner's question this turn: a digit string written there may be repeated verbatim. */
   question?: string | null;
+  /** Action fields not to check ("actions[3]"): the model's spend actions the server will replace (Wave 2 tune-up 1) — never worth a repair. */
+  skipSections?: ReadonlySet<string> | null;
 }
 
 /** Every text field of an answer, with the section it is reported under. */
@@ -220,6 +186,7 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
   const questionDigits = new Set(tokens(opts.question ?? '').map((t) => t.text.replace(/\s/g, '')));
 
   for (const { section, text } of answerTexts(answer)) {
+    if (opts.skipSections?.has(section.replace(/\.(action|why|expected_impact)$/, ''))) continue;
     // 1. Tokens resolve.
     for (const t of refTokens(text)) {
       const entry = ledger.get(t.ref);
@@ -242,18 +209,13 @@ export function verifyAnswer(answer: Answer, ledger: Ledger, opts: VerifyOptions
   }
   // 3. Evidence refs exist.
   for (const f of answer.findings) for (const ref of f.evidence_refs) if (!ledger.get(ref)) flagged.push({ kind: 'evidence', section: 'findings', text: f.finding, reason: `no such evidence ref "${ref}"` });
-  // 6. Spend actions obey the gate.
-  answer.actions.forEach((a, i) => {
-    const problem = gateProblem(a, ledger);
-    if (problem) flagged.push({ kind: 'gate', section: `actions[${i}].action`, text: a.action, reason: problem });
-  });
 
   return { ok: flagged.length === 0, flagged, verified };
 }
 
 /** The repair message appended (hidden) when an answer fails verification or structure. */
 export function repairMessage(problems: string[]): string {
-  return `Your answer was not accepted. Fix ONLY these problems and answer again in the same structure:\n${problems.map((p) => `- ${p}`).join('\n')}\nRules: a spend action on a campaign whose gate says hold can only be a hold — the gate is computed by the server and is not negotiable; a metric is never written as digits — write its ref in braces ({r2:data.kpis.enrollments.current}, {r7:data.results[0].value|%}) and the server prints the number; a ref must come from a tool result in this conversation; direction words must match the sign of the change they describe. If a number has no source, remove it or fetch it with a tool.`;
+  return `Your answer was not accepted. Fix ONLY these problems and answer again in the same structure:\n${problems.map((p) => `- ${p}`).join('\n')}\nRules: spend decisions are made by the server from the spend gates (yours are kept only where a gate says may_change); a metric is never written as digits — write its ref in braces ({r2:data.kpis.enrollments.current}, {r7:data.results[0].value|%}) and the server prints the number; a ref must come from a tool result in this conversation; direction words must match the sign of the change they describe. If a number has no source, remove it or fetch it with a tool.`;
 }
 
 /** The targeted repair message (Oct 7 item 2a): only the failing fields, each with its problems; the model returns those fields alone. */

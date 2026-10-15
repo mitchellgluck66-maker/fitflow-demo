@@ -23,6 +23,7 @@ import { starterMessages } from './starter';
 import type { NewMessage } from './store';
 import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
 import { nonDemoNames } from './fixtureGuard';
+import { spendDecisionsLine } from './spendDecisions';
 
 export interface SmokeTurnLine {
   status: 'PASS' | 'FAIL';
@@ -150,11 +151,8 @@ export function starterGates(rows: ReadonlyArray<{ apiJson: string }> | null | u
   return null;
 }
 
-/** "spend: hold Scaling, hold Testing" / "spend: none" — the answer's spend actions, for the line. */
-export function spendLine(actions: ReadonlyArray<{ kind: string; campaign: string; spend_change: string }>): string {
-  const spend = actions.filter((a) => a.kind === 'spend');
-  return `spend: ${spend.length ? spend.map((a) => `${a.spend_change} ${a.campaign || 'account'}`).join(', ') : 'none'}`;
-}
+/** "spend: hold account, hold Scaling*" / "spend: none" — the server's spend decisions in gate order (spendDecisions.ts). */
+export { spendDecisionsLine as spendLine } from './spendDecisions';
 
 /** "headline verdict ≠ computed verdict: the headline says "strong", the server computed normal" — or null. */
 export function verdictMiss(expected: { verdict: string } | null, headline: string | null): string | null {
@@ -277,7 +275,7 @@ export function formatRenderedAnswer(r: RenderedAnswer, indent = '   '): string 
   if (r.actions.length) {
     lines.push(`${indent}│`);
     lines.push(`${indent}│ ## Actions`);
-    r.actions.forEach((a, i) => lines.push(`${indent}│ ${i + 1}. [${a.kind} · ${a.owner} · ${a.confidence}] ${a.action} — ${a.why} · impact: ${a.expected_impact} · watch ${a.metric} on ${a.check_date}`));
+    r.actions.forEach((a, i) => lines.push(`${indent}│ ${i + 1}. [${a.kind}${a.gate ? ` · gate ${a.gate === 'may_change' ? 'may change' : 'hold'} · ${a.decidedBy === 'server' ? 'server' : 'model'}` : ''} · ${a.owner} · ${a.confidence}] ${a.action} — ${a.why} · impact: ${a.expected_impact} · watch ${a.metric} on ${a.check_date}`));
   }
   if (r.findings.length) {
     lines.push(`${indent}│`);
@@ -463,7 +461,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       flagged: out.flagged.length,
       repairs,
       repairKinds: repairKinds(repairProblems(turnEvents)),
-      spend: out.answer ? spendLine(out.answer.actions) : undefined,
+      spend: out.answer ? spendDecisionsLine(out.spendDecisions) : undefined,
       repairSharePct: repairShare,
       shape: req.shape,
       firstSectionSeconds: out.firstSectionSeconds,

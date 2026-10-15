@@ -122,6 +122,11 @@ describe('B: fixtures come from the demo tenant only — no scrubbing, two guard
     const text = JSON.stringify({ a: 'MARCUS JACKSON paid (marcus.j@realmail.com, +15033249931)' });
     expect(findLeaks(text, PEOPLE)).toEqual([{ kind: 'name', count: 1 }, { kind: 'email', count: 1 }, { kind: 'phone', count: 1 }]);
     expect(findLeaks('nothing here', PEOPLE)).toEqual([]);
+    // 2026-10-15: a real contact sharing a demo-producible name is a coincidence, not a leak; emails / phones still count.
+    expect(findLeaks(text, PEOPLE, new Set(['marcus jackson']))).toEqual([{ kind: 'email', count: 1 }, { kind: 'phone', count: 1 }]);
+    // Whole words of ≥ 3 letters only: "Al Go" inside "total goals" is not a person, and "Marcus Jacksonville" is not Marcus Jackson.
+    expect(findLeaks('the total goals for marcus jacksonville', [{ firstName: 'Al', lastName: 'Go', email: null, phone: null }, ...PEOPLE])).toEqual([]);
+    expect(findLeaks('— marcus jackson,', PEOPLE)).toEqual([{ kind: 'name', count: 1 }]);
     // 2026-10-15: the phone's digits inside a longer number (a cost's decimals, a ms timestamp) are not the phone.
     expect(findLeaks(JSON.stringify({ costUsd: 0.1503324993100042, at: 1715033249931123 }), PEOPLE)).toEqual([]);
     // A phone stored as bare digits (no "+", as GHL sometimes holds them) follows the same rule.

@@ -370,18 +370,21 @@ describe('the loop (memory store)', () => {
     expect(JSON.stringify(r.messages[0].content)).toContain('"type":"compaction"');
   });
 
-  it('a spend action on stale data is repaired, then stripped with a stated reason', async () => {
+  it('a spend action on stale data is replaced by the server\'s hold with a stated reason — no repair round (Wave 2 tune-up 1)', async () => {
     const store = new MemoryAnalystStore();
     const spend = answerJson({ actions: [{ action: 'Move $500 to Broad', why: 'x', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: 'unknown', confidence: 'low', metric: 'paid_cac', check_date: '2026-10-07' }] });
-    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(spend)]), msg([text(spend)])]);
-    const { thread, turn, events, deps } = await setup(store, { client, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', phrase: 'Meta Ads spend stale for 9.0 h', oldestAgeMinutes: 540, sources: [] } });
+    const client = fakeClient([msg([toolUse('tu1', 'get_scorecard', {})], 'tool_use'), msg([text(spend)])]);
+    const gated: AnalystTool[] = [{ ...tools[0], run: async () => ({ range: { start: '2026-09-20', end: '2026-09-26', label: 'Last week' }, currency: 'CAD', fx: '', data: { kpis: { enrollments: { current: 8, previous: 4 } }, spendGates: { account: { campaign: 'account', decision: 'hold', basis: 'Meta Ads spend stale for 9.0 h', needsEnrollments: 0, needsWeeks: 0 }, campaigns: [] } } }) }];
+    const { thread, turn, events, deps } = await setup(store, { client, tools: gated, freshness: { stale: true, line: 'STALE — Meta Ads spend (last completed 9.0 h ago)', phrase: 'Meta Ads spend stale for 9.0 h', oldestAgeMinutes: 540, sources: [] } });
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(events[0]).toEqual({ type: 'notice', text: 'STALE — Meta Ads spend (last completed 9.0 h ago)', stale: true });
     expect(out.status).toBe('done');
-    expect(out.answer?.actions).toEqual([]);
-    expect(out.answer?.sections.at(-1)?.body_md).toContain('1 spend recommendation removed: STALE — Meta Ads spend');
-    const repair = JSON.parse((await store.listMessages(thread.id))[4].apiJson) as { content: string };
-    expect(repair.content).toContain('remove the 1 spend action(s): a data source is stale');
+    expect(out.rounds).toBe(1); // no repair round (the happy path is 1 round)
+    expect(out.spendDecisions).toEqual([{ campaign: 'account', gate: 'hold', basis: 'Meta Ads spend stale for 9.0 h', decision: 'hold', decidedBy: 'server', ref: 'r1:data.spendGates.account.decision' }]);
+    expect(out.rendered?.actions[0]).toMatchObject({ action: 'Hold account: Meta Ads spend stale for 9.0 h', why: 'A data source is stale; no spend change until the sync completes.', gate: 'hold', decidedBy: 'server' });
+    expect(out.flagged).toEqual([]);
+    expect(out.answer?.sections.at(-1)?.body_md).toContain('A spend recommendation was replaced by a hold: STALE — Meta Ads spend');
+    expect(events.some((e) => e.type === 'status' && e.text === 'spend action "Move $500 to Broad" (shift account) replaced by a hold: a data source is stale')).toBe(true);
   });
 
   it('dropped thinking (input_transformations) is logged as a status, not an error', async () => {

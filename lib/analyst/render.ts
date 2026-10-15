@@ -160,20 +160,21 @@ export interface RenderedAnswer {
   kind: Answer['kind'];
   headline: string;
   sections: Array<{ key: Answer['sections'][number]['key']; body_md: string }>;
-  actions: Array<Omit<Answer['actions'][number], 'expected_impact'> & { expected_impact: string }>;
+  /** The first rows are the spend decisions in gate order (Wave 2 tune-up 1): `gate` + `decidedBy` say whose call it was; null on the model's other actions. */
+  actions: Array<Omit<Answer['actions'][number], 'expected_impact'> & { expected_impact: string; gate: 'may_change' | 'hold' | null; decidedBy: 'server' | 'model' | null }>;
   findings: Array<Omit<Answer['findings'][number], 'finding'> & { finding: string }>;
   note_proposals: string[];
   clarifying_question: string;
 }
 
 /** The answer as the owner reads it: every token rendered from the ledger; flags for this field applied. */
-export function renderAnswer(answer: Answer, ledger: Ledger, flagged: Flag[] = []): RenderedAnswer {
+export function renderAnswer(answer: Answer, ledger: Ledger, flagged: Flag[] = [], decisions: ReadonlyArray<{ gate: 'may_change' | 'hold'; decidedBy: 'server' | 'model' }> = []): RenderedAnswer {
   const flagsFor = (section: string) => flagged.filter((f) => f.section === section);
   return {
     kind: answer.kind,
     headline: renderText(answer.headline.text, ledger, flagsFor('headline')),
     sections: answer.sections.map((s) => ({ key: s.key, body_md: renderText(s.body_md, ledger, flagsFor(s.key)) })),
-    actions: answer.actions.map((a, i) => ({ ...a, action: renderText(a.action, ledger, flagsFor(`actions[${i}].action`)), why: renderText(a.why, ledger, flagsFor(`actions[${i}].why`)), expected_impact: renderText(a.expected_impact, ledger, flagsFor(`actions[${i}].expected_impact`)) })),
+    actions: answer.actions.map((a, i) => ({ ...a, action: renderText(a.action, ledger, flagsFor(`actions[${i}].action`)), why: renderText(a.why, ledger, flagsFor(`actions[${i}].why`)), expected_impact: renderText(a.expected_impact, ledger, flagsFor(`actions[${i}].expected_impact`)), gate: decisions[i]?.gate ?? null, decidedBy: decisions[i]?.decidedBy ?? null })),
     findings: answer.findings.map((f, i) => ({ ...f, finding: renderText(f.finding, ledger, flagsFor(`findings[${i}]`)) })),
     note_proposals: answer.note_proposals,
     clarifying_question: answer.clarifying_question,

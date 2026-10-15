@@ -68,15 +68,23 @@ export interface Leak {
   count: number;
 }
 
-/** Full names (any case), emails and phones of everyone in `people`, searched in `text`. */
-export function findLeaks(text: string, people: Person[]): Leak[] {
+/**
+ * Full names (any case), emails and phones of everyone in `people`, searched in `text`. `ignoreNames` (lower-case full
+ * names) are the names the demo seed can produce: a fixture is recorded ONLY on the demo tenant, so a real contact who
+ * happens to share one of those names is a coincidence, not a leak (2026-10-15: one of 6,621 real contacts did).
+ * Emails and phones are never ignored. A name matches only as WHOLE words, each of at least 3 letters: a two-letter
+ * name ("Jo Li") matched inside ordinary prose on the same day — such a name cannot be found by text search at all,
+ * and the fixture is demo-only by construction (the recorder refuses any other database).
+ */
+export function findLeaks(text: string, people: Person[], ignoreNames: ReadonlySet<string> = new Set()): Leak[] {
   const lower = text.toLowerCase();
   let names = 0;
   let emails = 0;
   let phones = 0;
   for (const p of people) {
     const n = `${p.firstName} ${p.lastName}`.replace(/\s+/g, ' ').trim();
-    if (n.length >= 5 && n.includes(' ') && new RegExp(escapeRe(n.toLowerCase()).replace(/ /g, '\\s+')).test(lower)) names += 1;
+    const words = n.split(' ');
+    if (words.length >= 2 && words.every((w) => w.length >= 3) && !ignoreNames.has(n.toLowerCase()) && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n.toLowerCase()).replace(/ /g, '\\s+')}(?![\\p{L}\\p{N}])`, 'u').test(lower)) names += 1;
     if (p.email && p.email.includes('@') && lower.includes(p.email.toLowerCase())) emails += 1;
     const d = p.phone ? digits(p.phone) : '';
     // A phone matches as a WHOLE digit run (2026-10-15): a 10-digit string inside a longer number — the decimals of a

@@ -28,6 +28,7 @@ import { Ledger } from './ledger';
 import { repairMessage, targetedRepairMessage, verifyAnswer, type Flag } from './verify';
 import { firstSection } from './partial';
 import { renderAnswer, type RenderedAnswer } from './render';
+import { applySpendDecisions, type SpendDecision } from './spendDecisions';
 import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
 import { COMPACTION_INSTRUCTIONS } from './prompts';
@@ -60,7 +61,7 @@ export type AnalystEvent =
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
   /** Oct 7 item 6: the first section of the answer completed in the stream and was verified at once — what the owner will see first (Wave 2 streams it). */
   | { type: 'section'; key: string; verified: boolean; seconds: number }
-  | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number; /** Oct 7 item 6: seconds from the turn's start to the first verified section in the stream (null when none streamed). */ firstSectionSeconds: number | null }
+  | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number; /** Wave 2 tune-up 1: one spend decision per gate row, in gate order (the server's, or the model's on a may_change row). */ spendDecisions: SpendDecision[]; /** Oct 7 item 6: seconds from the turn's start to the first verified section in the stream (null when none streamed). */ firstSectionSeconds: number | null }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean; /** Item D: input · cache read · cache write · thinking · answer. */ split: CostSplit }
   | { type: 'continue' }
   | { type: 'needs_confirmation'; reason: string; spentUsd: number }
@@ -123,6 +124,8 @@ export interface TurnOutcome {
   split: CostSplit | null;
   /** Oct 7 item 6: seconds to the first verified section in the stream (null when none streamed). */
   firstSectionSeconds: number | null;
+  /** Wave 2 tune-up 1: the spend decisions (empty when the answer carried none or the turn did not finish). */
+  spendDecisions: SpendDecision[];
 }
 
 const emptyUsage = (): UsageTotals => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0, cacheWrite1hTokens: 0 });
@@ -248,7 +251,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     deps.onEvent?.(e);
   };
 
-  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, split: null, firstSectionSeconds, ...extra });
+  const outcome = (status: TurnOutcome['status'], extra: Partial<TurnOutcome> = {}): TurnOutcome => ({ status, answer: null, rendered: null, flagged: [], usage, costUsd, rounds, error: null, compacted: false, split: null, firstSectionSeconds, spendDecisions: [], ...extra });
   let usage = emptyUsage();
   let costUsd = 0;
   let rounds = 0;
@@ -434,19 +437,27 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
       pendingRepair = null;
     } else parsed = answerFromMessage(message, answerMode);
     const { answer, problem } = parsed;
+    // Wave 2 tune-up 1: the server owns the spend decisions — one per gate row, in gate order, written from the gate's
+    // own refs; the model's spend actions survive only on a may_change row. The model's answer is verified and
+    // repaired with its OWN indexing (a repair returns fields by path), skipping the spend actions the server will
+    // replace — a model action past a hold never costs a repair; the decisions are applied after, then verified.
+    const decideOpts = { stale: deps.freshness.stale, checkDate: new Date(now() + 7 * 86_400_000).toISOString().slice(0, 10) };
+    const preview = answer ? applySpendDecisions(answer, ledger, decideOpts) : null;
+    const skipSections = answer && preview ? new Set(answer.actions.map((a, i) => (a.kind === 'spend' && !preview.keptIndexes.includes(i) ? `actions[${i}]` : null)).filter((s): s is string => s !== null)) : null;
     const structural = answer ? checkStructure(answer) : problem;
-    let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore, question: turn.question }) : null;
-    const spendOnStale = answer && deps.freshness.stale ? answer.actions.filter((a) => a.kind === 'spend').length : 0;
+    let verification = answer && !structural ? verifyAnswer(answer, ledger, { staleBefore: deps.staleBefore, question: turn.question, skipSections }) : null;
+    // On stale data every decision is a server hold; the model's own spend proposals (if any) are replaced.
+    const spendOnStale = answer && deps.freshness.stale ? answer.actions.filter((a) => a.kind === 'spend' && a.spend_change !== 'hold' && a.spend_change !== 'none').length : 0;
     const repairProblems: RepairProblem[] = [];
     if (structural) repairProblems.push({ kind: 'structure', section: 'answer', text: '', reason: structural });
     if (verification && !verification.ok) repairProblems.push(...verification.flagged.map((f) => ({ kind: f.kind, section: f.section, text: f.text, reason: f.reason })));
-    if (spendOnStale) repairProblems.push({ kind: 'stale_spend', section: 'actions', text: `${spendOnStale} spend action(s)`, reason: `remove the ${spendOnStale} spend action(s): a data source is stale (${deps.freshness.line}); say what you would recommend once the sync completes instead` });
-    const problems = repairProblems.map((p) => (p.kind === 'structure' || p.kind === 'stale_spend' ? p.reason : `${p.section}: "${p.text}" — ${p.reason}`));
+    const problems = repairProblems.map((p) => (p.kind === 'structure' ? p.reason : `${p.section}: "${p.text}" — ${p.reason}`));
 
     if (problems.length && repairs < 1) {
       repairs += 1;
       // Oct 7 item 2a: text-field problems get a TARGETED repair (only those fields come back and are spliced in);
-      // a structure, stale-spend or gate problem regenerates the whole answer.
+      // a structure or evidence problem regenerates the whole answer. The rejected answer is the MODEL's (its own
+      // spend actions): the decisions are re-applied to whatever comes back.
       const targeted = answer !== null && repairProblems.every((p) => TARGETED_KINDS.has(p.kind));
       const paths = targeted ? [...new Set(repairProblems.map((p) => p.section))] : [];
       if (targeted) pendingRepair = { paths, rejected: answer };
@@ -463,22 +474,28 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     }
     if (!answer || structural) return fail(`The answer didn't have the required structure: ${structural ?? problem}`, true);
 
-    // Still failing after the repair: show flagged numbers marked, strip spend actions on stale data with a reason.
+    // The decisions, applied to the accepted (repaired) model answer; the server-written holds are all tokens from the
+    // gate's own refs, so this verification can only flag what the model wrote on a may_change row.
+    const decided = applySpendDecisions(answer, ledger, decideOpts);
+    for (const note of decided.notes) await emit({ type: 'status', text: note });
+    const spendDecisions = decided.decisions;
+    let accepted: Answer = decided.answer;
+    verification = verifyAnswer(accepted, ledger, { staleBefore: deps.staleBefore, question: turn.question });
+    // Still failing after the repair: show flagged numbers marked. On stale data the model's spend proposals were
+    // replaced by server holds; the answer says so in its own words.
     let strippedSpendActions = 0;
-    let accepted: Answer = answer;
     if (spendOnStale) {
       strippedSpendActions = spendOnStale;
-      accepted = { ...answer, actions: answer.actions.filter((a) => a.kind !== 'spend') };
-      accepted.sections = [...accepted.sections, { key: accepted.sections.some((s) => s.key === 'data_health') ? 'data_health' : accepted.sections[accepted.sections.length - 1]?.key ?? 'what_happened', body_md: `_${strippedSpendActions} spend recommendation${strippedSpendActions === 1 ? '' : 's'} removed: ${deps.freshness.line}. Re-run after the sync completes._` }];
+      accepted = { ...accepted, sections: [...accepted.sections, { key: accepted.sections.some((s) => s.key === 'data_health') ? 'data_health' : accepted.sections[accepted.sections.length - 1]?.key ?? 'what_happened', body_md: `_${strippedSpendActions === 1 ? 'A spend recommendation was' : 'Spend recommendations were'} replaced by a hold: ${deps.freshness.line}. Re-run after the sync completes._` }] };
       verification = verifyAnswer(accepted, ledger, { staleBefore: deps.staleBefore, question: turn.question });
     }
     const flagged = verification?.flagged ?? [];
     // The owner reads the RENDERED answer: every ref token printed by the server from the ledger; flags marked in place.
-    const rendered = renderAnswer(accepted, ledger, flagged);
-    await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, rendered, flagged, repaired: repairs > 0, strippedSpendActions } }]);
+    const rendered = renderAnswer(accepted, ledger, flagged, spendDecisions);
+    await store.appendMessages(threadId, [{ turnId, role: 'assistant', apiJson: JSON.stringify(assistantTurn(message)), display: { answer: accepted, rendered, flagged, repaired: repairs > 0, strippedSpendActions, spendDecisions } }]);
     await store.updateTurn(turnId, { status: 'done', finishedAt: new Date(), usage: usage as unknown as Record<string, number>, costUsd, rounds });
     await store.updateThread(threadId, { lastTurnAt: new Date(), ...(thread.title ? {} : { title: turn.question.slice(0, 80) }) });
-    await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions, firstSectionSeconds });
+    await emit({ type: 'answer', answer: accepted, rendered, flagged, repaired: repairs > 0, repairs, strippedSpendActions, spendDecisions, firstSectionSeconds });
     // Item D: the cost split. The visible output is measured (count_tokens) when a counter is given, else ≈ chars ÷ 3.5.
     let answerTokens = Math.ceil(visibleOutput.length / 3.5);
     let approximate = true;
@@ -525,7 +542,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
       }
     }
     await emit({ type: 'done', status: 'done' });
-    return outcome('done', { answer: accepted, rendered, flagged, compacted, split });
+    return outcome('done', { answer: accepted, rendered, flagged, compacted, split, spendDecisions });
   }
   return fail(`no answer after ${maxRounds} rounds`, true);
 }

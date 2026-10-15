@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Ledger, ledgerEntries, unitForPath } from '@/lib/analyst/ledger';
-import { gateInLedger, isExemptContext, rawDigits, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
+import { isExemptContext, rawDigits, refTokens, tokens, verifyAnswer, repairMessage, withoutTokens } from '@/lib/analyst/verify';
 import { renderAnswer, renderText, renderWithSpans, toRenderedIndex, NO_SOURCE } from '@/lib/analyst/render';
 import { checkDirection, lowerIsBetter, sentences } from '@/lib/analyst/direction';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, expectedSections, SECTION_KEYS, type Answer } from '@/lib/analyst/schema';
@@ -209,21 +209,11 @@ describe('verifyAnswer v2', () => {
     const a = base({ actions: [action({ expected_impact: 'about {r9:data.gone} more', why: 'CAC is 924 dollars' })], findings: [{ area: 'funnel', metric: 'applied', finding: '{r1:data.stages[0].count} applied', direction: 'flat', severity: 'info', evidence_refs: [] }] });
     expect(verifyAnswer(a, ledger).flagged.map((f) => [f.kind, f.section])).toEqual([['digits', 'actions[0].why'], ['ref', 'actions[0].expected_impact']]);
   });
-  it('spend gates (Oct 7 item 1): a spend change needs a campaign whose newest gate says may_change; a hold always passes; the newest call wins', () => {
-    const ok = base({ actions: [action({ campaign: 'Summer Shred — Broad', spend_change: 'increase' }), action({ campaign: 'account', spend_change: 'shift' }), action({ campaign: 'Scaling', spend_change: 'hold' }), action({ kind: 'creative', campaign: '', spend_change: 'none' })] });
-    expect(verifyAnswer(ok, ledger).flagged).toEqual([]);
+  it('spend actions are not a verifier rule any more (Wave 2 tune-up 1): the server decides them before verification; a stored `gate` flag still renders', () => {
     const held = base({ actions: [action({ action: 'Move half of Scaling to Testing', campaign: 'Scaling', spend_change: 'shift' })] });
-    expect(verifyAnswer(held, ledger).flagged).toEqual([{ kind: 'gate', section: 'actions[0].action', text: 'Move half of Scaling to Testing', reason: 'spend action on "Scaling" (shift): the gate says hold — 2 of 4 tracked enrollments, 3 of 4 weeks with spend; write it as a hold (spend_change "hold") or drop it' }]);
-    expect(renderAnswer(held, ledger, verifyAnswer(held, ledger).flagged).actions[0].action).toBe('[gate: hold] Move half of Scaling to Testing');
-    expect(verifyAnswer(base({ actions: [action({ campaign: 'Testing', spend_change: 'increase' })] }), ledger).flagged[0].reason).toBe('spend action on "Testing" (increase): no spend gate for it in this conversation — fetch get_campaigns first and name the campaign exactly as it gives it');
-    expect(verifyAnswer(base({ actions: [action({ campaign: 'account', spend_change: 'none' })] }), ledger).flagged[0].reason).toMatch(/spend_change is "none"/);
-    // A later get_campaigns call (r3, `gates`) overrides the snapshot's verdict for the same campaign; names match case- and space-insensitively.
-    const L2 = new Ledger();
-    L2.add('r1', { spendGates: { account: { decision: 'hold', basis: 'no spend in the window' }, campaigns: [{ campaign: 'Scaling', decision: 'hold', basis: 'x' }] } }, T0, 'CAD');
-    L2.add('r3', { gates: { account: { decision: 'may_change', basis: 'y' }, campaigns: [{ campaign: 'Scaling', decision: 'may_change', basis: '5 tracked enrollments over 4 weeks with spend' }] } }, T0, 'CAD');
-    expect(verifyAnswer(base({ headline: { text: 'x' }, actions: [action({ campaign: ' scaling ', spend_change: 'increase' }), action({ campaign: '', spend_change: 'decrease' })] }), L2).flagged).toEqual([]);
-    expect(gateInLedger(L2, 'Scaling')).toEqual({ decision: 'may_change', basis: '5 tracked enrollments over 4 weeks with spend', ref: 'r3:data.gates.campaigns[0].decision' });
-    expect(repairMessage(['x'])).toMatch(/a spend action on a campaign whose gate says hold can only be a hold/);
+    expect(verifyAnswer(held, ledger).flagged).toEqual([]);
+    expect(renderAnswer(held, ledger, [{ kind: 'gate', section: 'actions[0].action', text: 'Move half of Scaling to Testing', reason: 'stored before 2026-10-15' }]).actions[0].action).toBe('[gate: hold] Move half of Scaling to Testing');
+    expect(repairMessage(['x'])).toMatch(/spend decisions are made by the server from the spend gates/);
   });
   it('the repair message explains the token rule', () => {
     expect(repairMessage(['x'])).toMatch(/write its ref in braces/);

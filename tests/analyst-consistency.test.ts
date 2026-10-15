@@ -11,6 +11,7 @@ import { runStarterCalls, STARTER_CALLS } from '@/lib/analyst/starter';
 import { ANALYST_TOOLS, type Freshness } from '@/lib/analyst/tools';
 import { Ledger } from '@/lib/analyst/ledger';
 import { verifyAnswer } from '@/lib/analyst/verify';
+import { applySpendDecisions, spendDecisionsLine } from '@/lib/analyst/spendDecisions';
 import type { Answer } from '@/lib/analyst/schema';
 import { getScorecard } from '@/lib/metrics/service';
 import { computeWeekVerdict } from '@/lib/metrics/verdict';
@@ -40,25 +41,30 @@ describe('same data → same snapshot, same verdict', () => {
     expect(r2.baseline.newPayingClientsPerWeek).not.toBeNull();
   });
 
-  it('Oct 7 item 1: the spend gates are identical across two builds and the verifier gives the same spend verdict both times', async () => {
+  it('Oct 7 item 1 + Wave 2 tune-up 1: the spend gates are identical across two builds and the server\'s spend decisions are the same line both times', async () => {
     const res1 = await getScorecard({ range: 'last_week', compare: 'previous_period' });
     const res2 = await getScorecard({ range: 'last_week', compare: 'previous_period' });
     expect(res1.spendGates).toEqual(res2.spendGates);
     expect(['may_change', 'hold']).toContain(res1.spendGates.account.decision);
     expect(res1.spendGates.campaigns.length).toBeGreaterThan(0);
     for (const g of [res1.spendGates.account, ...res1.spendGates.campaigns]) expect(g.decision === 'may_change' ? g.trackedEnrollments >= 4 && g.weeksWithSpend >= 4 : g.trackedEnrollments < 4 || g.weeksWithSpend < 4 || g.spendCents === 0, `${g.campaign}: ${g.reason}`).toBe(true);
-    // The same canned answer, verified twice against two snapshots: the same flags with the same reasons.
+    // The same canned answer (an increase on EVERY gate) decided twice against two snapshots: the same decisions, the
+    // same `spend:` line, and the server-written holds verify with nothing flagged — by construction.
     const snap = await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS);
-    const verdicts = [snap, await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS)].map((results) => {
+    const outcomes = [snap, await runStarterCalls(freshness, ANALYST_TOOLS, STARTER_CALLS)].map((results) => {
       const ledger = new Ledger();
       for (const r of results) ledger.add(r.ref, r.result.data, '2026-10-07T00:00:00.000Z', r.result.currency);
       const actions = [res1.spendGates.account, ...res1.spendGates.campaigns].map((g) => ({ action: `Increase ${g.campaign}`, why: 'x', owner: 'Jake', kind: 'spend' as const, campaign: g.campaign, spend_change: 'increase' as const, expected_impact: 'unknown', confidence: 'low' as const, metric: 'paid_cac', check_date: '2026-10-14' }));
       const answer: Answer = { kind: 'answer', headline: { text: 'x' }, sections: [{ key: 'do_this', body_md: 'y' }], actions, findings: [], note_proposals: [], clarifying_question: '' };
-      return verifyAnswer(answer, ledger).flagged.map((f) => [f.kind, f.text, f.reason]);
+      const decided = applySpendDecisions(answer, ledger, { stale: false, checkDate: '2026-10-22' });
+      return { line: spendDecisionsLine(decided.decisions), decisions: decided.decisions, flagged: verifyAnswer(decided.answer, ledger).flagged };
     });
-    expect(verdicts[0]).toEqual(verdicts[1]);
-    const held = [res1.spendGates.account, ...res1.spendGates.campaigns].filter((g) => g.decision === 'hold').length;
-    expect(verdicts[0].length).toBe(held); // exactly the held gates refuse an increase; a hold action never flags
+    expect(outcomes[0].line).toBe(outcomes[1].line);
+    expect(outcomes[0].decisions).toEqual(outcomes[1].decisions);
+    expect(outcomes[0].flagged).toEqual([]);
+    const gates = [res1.spendGates.account, ...res1.spendGates.campaigns];
+    expect(outcomes[0].decisions.map((d) => d.campaign)).toEqual(gates.map((g) => g.campaign)); // one decision per gate row, in gate order
+    for (const d of outcomes[0].decisions) expect(d.gate === 'hold' ? d.decision === 'hold' && d.decidedBy === 'server' : d.decision === 'increase' && d.decidedBy === 'model', d.campaign).toBe(true);
   });
 
   it('the verdict is a pure function of the input: twice from the same rows, and equal to the scorecard route', async () => {

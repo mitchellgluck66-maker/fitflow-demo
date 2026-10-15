@@ -72,7 +72,8 @@ describe('item 10: the per-turn line and the targets', () => {
     // Oct 7 item 1: the gates from the snapshot and the answer's spend decisions, comparable across runs.
     const { spendLine, starterGates } = await import('@/lib/analyst/smoke');
     const { SNAPSHOT_PREFIX } = await import('@/lib/analyst/starter');
-    expect(spendLine([{ kind: 'spend', campaign: 'Scaling', spend_change: 'hold' }, { kind: 'creative', campaign: '', spend_change: 'none' }, { kind: 'spend', campaign: '', spend_change: 'shift' }])).toBe('spend: hold Scaling, shift account');
+    // Wave 2 tune-up 1: the line is the server's decisions in gate order; `*` marks the model's call on a may_change row.
+    expect(spendLine([{ campaign: 'account', gate: 'may_change', basis: 'b', decision: 'shift', decidedBy: 'model', ref: 'r2:data.spendGates.account.decision' }, { campaign: 'Scaling', gate: 'hold', basis: 'b', decision: 'hold', decidedBy: 'server', ref: 'r2:data.spendGates.campaigns[0].decision' }])).toBe('spend: shift account*, hold Scaling');
     expect(spendLine([])).toBe('spend: none');
     expect(formatSmokeTurn(line({ spend: 'spend: hold Scaling' }))).toContain(' · sections 1 (what_happened) · spend: hold Scaling');
     // 2026-10-15: a turn that misses a non-blocking target still prints its spend decisions — the ship gate reads them.
@@ -126,7 +127,11 @@ describe('G: the smoke prints the full rendered answer', () => {
       kind: 'answer',
       headline: 'Enrollments doubled to 8.',
       sections: [{ key: 'what_happened', body_md: `**8** enrollments.\nSecond line.` }, { key: 'do_this', body_md: long }],
-      actions: [{ action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: '$1,000 CAD', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07' }],
+      actions: [
+        { action: 'Shift budget', why: 'because', owner: 'Jake', kind: 'spend', campaign: 'account', spend_change: 'shift', expected_impact: '$1,000 CAD', confidence: 'medium', metric: 'paid_cac', check_date: '2026-10-07', gate: 'may_change', decidedBy: 'model' },
+        { action: 'Hold Scaling: no spend in the window', why: 'z', owner: 'Owner', kind: 'spend', campaign: 'Scaling', spend_change: 'hold', expected_impact: 'none while the gate holds', confidence: 'high', metric: 'spend_gate', check_date: '2026-10-14', gate: 'hold', decidedBy: 'server' },
+        { action: 'Call them', why: 'w', owner: 'Jake', kind: 'follow_up', campaign: '', spend_change: 'none', expected_impact: 'unknown', confidence: 'low', metric: 'applied', check_date: '2026-10-14', gate: null, decidedBy: null },
+      ],
       findings: [{ area: 'funnel', metric: 'applied', finding: '52 applied', direction: 'flat', severity: 'info', evidence_refs: ['r1:data.stages[0].count'] }],
       note_proposals: ['2026-10-03: cap $4,000 CAD'],
       clarifying_question: '',
@@ -134,7 +139,9 @@ describe('G: the smoke prints the full rendered answer', () => {
     expect(text).toContain('┌ ANSWER · Enrollments doubled to 8.');
     expect(text).toContain('│ ## What happened\n   │ **8** enrollments.\n   │ Second line.');
     expect(text).toContain(long);
-    expect(text).toContain('1. [spend · Jake · medium] Shift budget — because · impact: $1,000 CAD · watch paid_cac on 2026-10-07');
+    expect(text).toContain('1. [spend · gate may change · model · Jake · medium] Shift budget — because · impact: $1,000 CAD · watch paid_cac on 2026-10-07');
+    expect(text).toContain('2. [spend · gate hold · server · Owner · high] Hold Scaling: no spend in the window — z');
+    expect(text).toContain('3. [follow_up · Jake · low] Call them — w');
     expect(text).toContain('• [funnel · applied · flat · info] 52 applied (r1:data.stages[0].count)');
     expect(text).toContain('○ 2026-10-03: cap $4,000 CAD');
     expect(text.trim().endsWith('└')).toBe(true);
