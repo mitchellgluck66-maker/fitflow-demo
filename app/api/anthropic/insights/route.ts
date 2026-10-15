@@ -6,6 +6,7 @@ import { db, syncIncidents } from '@/db';
 import { ANTHROPIC_INCIDENT_KIND } from '@/lib/anthropic/incident';
 import { getTimezone } from '@/lib/settings';
 import { rangeFromParams, todayInTimezone } from '@/lib/dates';
+import { insightsEnabled, INSIGHTS_PAUSED_REASON, INSIGHTS_PAUSED_TEXT } from '@/lib/anthropic/insightsFlag';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -13,6 +14,8 @@ export const maxDuration = 120;
 /** GET ?range&start&end — latest cached findings for that period (no generation). */
 export async function GET(request: NextRequest) {
   try {
+    // 2026-10-15: paused (default) — the card shows one line and nothing stored is served.
+    if (!insightsEnabled()) return NextResponse.json({ paused: true, message: INSIGHTS_PAUSED_TEXT, notConfigured: false, cached: true, findings: [], generatedAt: null, model: null, lastError: null });
     const p = request.nextUrl.searchParams;
     const config = await getAnthropicConfig();
     const timezone = await getTimezone();
@@ -33,6 +36,7 @@ export async function GET(request: NextRequest) {
 /** POST {range?, compare?, start?, end?, force?} — generate now. */
 export async function POST(request: NextRequest) {
   try {
+    if (!insightsEnabled()) return NextResponse.json({ ok: false, paused: true, reason: INSIGHTS_PAUSED_REASON, error: INSIGHTS_PAUSED_TEXT }, { status: 409 });
     const body = await request.json().catch(() => ({}));
     const result = await runInsights({ range: body.range, compare: body.compare, start: body.start, end: body.end, force: body.force === true });
     return NextResponse.json(result, { status: result.ok || result.notConfigured ? 200 : 500 });

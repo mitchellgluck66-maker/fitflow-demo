@@ -16,6 +16,9 @@ interface Finding {
 }
 
 interface InsightsState {
+  /** 2026-10-15: the generator is paused behind INSIGHTS_ENABLED; `message` is the one line to show. */
+  paused?: boolean;
+  message?: string;
   notConfigured: boolean;
   findings: Finding[];
   generatedAt: string | null;
@@ -80,6 +83,17 @@ export const InsightsCard: React.FC<{ rangeKey?: string }> = ({ rangeKey }) => {
   };
 
   if (!state) return null;
+
+  if (state.paused) {
+    return (
+      <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-[10px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+        <Sparkles size={14} strokeWidth={2.2} style={{ color: 'var(--text-quaternary)' }} />
+        <span className="text-[12.5px]" style={{ color: 'var(--text-tertiary)' }}>
+          {state.message ?? 'Insights are being upgraded'}
+        </span>
+      </div>
+    );
+  }
 
   if (state.notConfigured) {
     return (

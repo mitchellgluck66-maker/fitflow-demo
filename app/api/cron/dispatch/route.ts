@@ -11,6 +11,7 @@ import { runStripeCompleteness } from '@/lib/stripe/completeness';
 import { runFxSync } from '@/lib/fx/boc';
 import { runGoogleAdsSync } from '@/lib/googleads/ingest';
 import { runInsights, INSIGHT_MIN_INTERVAL_MS } from '@/lib/anthropic/insights';
+import { insightsSkipReason } from '@/lib/anthropic/insightsFlag';
 import { runAnalystBriefStep } from '@/lib/analyst/briefService';
 import { runAnalystSweepStep } from '@/lib/analyst/service';
 import { runAppliedLedgerStep } from '@/lib/reconcile/appliedLedger';
@@ -131,7 +132,8 @@ export async function GET(request: NextRequest) {
     { name: 'analyst_brief', run: () => runAnalystBriefStep({ force }) },
     // Amendment 1: orphaned Analyst turns (no heartbeat for 5 min) → failed + incident, hourly, panel or no panel.
     { name: 'analyst_sweep', run: () => runAnalystSweepStep() },
-    { name: 'insights', run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },
+    // 2026-10-15: paused (INSIGHTS_ENABLED unset) until the generator is rebuilt on the Analyst's safeguards — skipped with the reason.
+    { name: 'insights', skip: insightsSkipReason(), run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },
     // Narratives wait for the send window so the run that sends the digest writes its narrative first (once per period).
     { name: 'narrative_weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
     { name: 'narrative_monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runWeeklyNarrative('monthly', { force }) },
