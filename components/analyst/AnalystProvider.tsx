@@ -141,6 +141,7 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
   threadRef.current = threadId;
 
   const today = useMemo(() => todayInTimezone(timezone ?? 'UTC'), [timezone]);
+  const previewState = search?.get('analystPreview') ?? null;
   const pageCtx = useMemo(() => pageContextFor(pathname ?? '/', search, today, selected), [pathname, search, today, selected]);
   const pageContext: PageContext = useMemo(() => ({ page: pageCtx.page, range: pageCtx.range, compare: pageCtx.compare, mode: pageCtx.mode, selected: pageCtx.selected }), [pageCtx]);
   const contextText = useMemo(() => contextPillText(pageCtx), [pageCtx]);
@@ -150,6 +151,7 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadSettings = useCallback(async () => {
+    if (previewState) return;
     try {
       const r = await fetch('/api/analyst/settings', { cache: 'no-store' });
       const j = (await r.json()) as { configured: boolean; modelDefault: string; capRunUsd: number; brief: { built: boolean }; error?: string };
@@ -159,9 +161,10 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [previewState]);
 
   const loadFreshness = useCallback(async () => {
+    if (previewState) return;
     try {
       const r = await fetch('/api/sync/status', { cache: 'no-store' });
       if (!r.ok) return;
@@ -177,9 +180,10 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* the pill keeps its last value */
     }
-  }, []);
+  }, [previewState]);
 
   const refreshThreads = useCallback(async () => {
+    if (previewState) return; // the preview's list stays
     setThreadsLoading(true);
     try {
       const r = await fetch('/api/analyst/threads', { cache: 'no-store' });
@@ -188,7 +192,7 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setThreadsLoading(false);
     }
-  }, []);
+  }, [previewState]);
 
   // --- the event stream -------------------------------------------------------------------------------------------
   const connect = useCallback(
@@ -400,6 +404,31 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
     await fetch('/api/analyst/brief', { method: 'POST' });
     await loadSettings();
   }, [loadSettings]);
+
+  // Wave 2 item 8: `?analystPreview=<state>` loads a canned panel state for the screenshot harness. The route answers
+  // only when the server runs with ANALYST_PREVIEW=1 outside production; anywhere else this is a silent no-op.
+  useEffect(() => {
+    if (!previewState) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/analyst/preview?state=${encodeURIComponent(previewState)}`, { cache: 'no-store' });
+        if (!r.ok || cancelled) return;
+        const p = (await r.json()) as { open: boolean; view: 'chat' | 'threads'; turns: TurnView[]; threads: ThreadSummary[]; freshness: FreshnessLite };
+        setTurns(p.turns);
+        setThreads(p.threads);
+        setFreshness(p.freshness);
+        setView(p.view);
+        setSettings({ configured: true, modelDefault: 'claude-opus-5-5', briefBuilt: true, capRunUsd: 3 });
+        if (p.open) setOpen(true);
+      } catch {
+        /* not a preview server */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewState]);
 
   // Esc closes; the body class condenses the page (padding-right on the app shell) while open.
   useEffect(() => {

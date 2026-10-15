@@ -1221,6 +1221,76 @@ the Oct 7 Analyst fixes and the verification 2026-10-08 fixes:
   construction; prefix under budget on the real tenant; first section ≤ 20 s; harness PENDING for a settled Meta day
   restated after the `meta.spend` marker (the pre-deploy run FAILed on Oct 14 moving 17 ¢; cleared on the next sync).
 
+## FitFlow Analyst — Wave 2 (2026-10-15, plan items 9–12 + the three queued tune-ups)
+
+Built in one continuous run after the release; one commit per item, `npm run check` green between, not pushed. Live
+proof is Mitchell's: `npm run eval:analyst`, `npm run smoke:analyst` twice, `ANALYST_PREVIEW=1 npm run dev` +
+`npm run screenshots` (+ `-- --explain-audit`).
+
+- **Spend decisions by construction** (`lib/analyst/spendDecisions.ts`, pure): the server owns the spend decisions — ONE
+  per gate row, account first then the campaigns in the gate result's order; a hold row's action is server text made of
+  the gate's own ref tokens (`Hold {campaign}: {basis}`), a may_change row keeps the model's call (increase / decrease /
+  shift / hold) or holds "no change proposed", stale data holds every row, an action with no gate is dropped with a
+  status note. Applied AFTER the model's answer is verified and repaired on its own indexing (its replaced spend
+  actions are skipped, never repaired) and verified again. The verifier's gate rule and the stale-spend repair round are
+  gone; `RenderedAnswer.actions[].gate / decidedBy`; `TurnOutcome.spendDecisions`; the smoke's `spend:` line is the
+  decisions in gate order (`*` = the model's call on a may_change row). Fixture guard: a real contact sharing a
+  demo-producible name is not a leak; names match as whole words of ≥ 3 letters.
+- **Prefix bounded by construction**: the brief's per-week sections carry the trailing `BRIEF_FULL_WEEKS` (12) complete
+  weeks in full and roll earlier weeks up one row per month (sums; CAC / ROAS from totals), runs of empty months and
+  quiet Stripe months collapse to one line, a long maturing-week list becomes a count, the glossary carries first
+  sentences; every tool-result name list is `peopleList` (5 + "and N more"); the snapshot's gate rows are compact;
+  `CHARS_PER_TOKEN` = 2.4 (calibrated with count_tokens — 3.6 under-counted tables and JSON by ~40 %); the smoke FAILs
+  a turn over the 40K budget on ANY tenant. Real tenant measured read-only: 37.5K (was 40.5K).
+- **First verified section ≤ 20 s**: the contract and the starter instruction say answer from the snapshot in the
+  FIRST response when it covers the question — no tool call, no calculate; get_scorecard carries
+  `baseline.vsBaseline.*Multiple` and each stage's `shareOfApplied` (a `…Multiple` leaf is a multiple); every closed
+  section is verified and emitted RENDERED as it closes (`section { index, key, verified, seconds, body_md }`); the
+  `round` event carries `seconds` + `firstTokenSeconds` (smoke: `secs/round`). Demo recording: 1 round, 0 tools,
+  0 repairs, 0 flagged, first section 19.5 s, $0.34 cold.
+- **The panel** (`components/analyst/`, matched to `docs/fitflow-analyst-demo.html`; dark = the demo verbatim, light =
+  the light tokens): `orbEngine.ts` (the Flynn orb ported as is; static under reduced motion), `AnalystProvider`
+  (POST /api/analyst/turns → SSE `…/events?after=N` folded by the pure `lib/analyst/clientState.ts`; reconnects from
+  the last index on visibility / online / a dropped stream; `continue` → `…/continue`; cost confirmation; 409 "This
+  thread is answering"; 412 → Connect Anthropic / Build the brief; Esc closes and returns focus to the orb; hidden on
+  /login), `AnalystLauncher`, `AnalystPanel` (header orb at 2.4 while a turn runs, context pill with the freshness dot,
+  welcome + five presets, the stream, conversations, confirmation and error cards with Retry), `ThinkingState` (orb +
+  halo + shimmer + fading status, no dots), `AnswerView` (react-markdown + remark-gfm, no raw HTML; the word-fade
+  rehype plugin; the explain formula box from the `explain` event; actions table with the gate tag; findings chips;
+  note proposals Save / Dismiss; usage line in USD), `Composer`. `--z-panel` (150) between popover and overlay;
+  `--panel-w` 440px (100vw ≤ 820 px); `body.panel-open .app-shell` pads right; Newsreader for answers; the toast sits
+  left of the orb. The "Run full review" preset is a chat review until Wave 3's report presets exist.
+- **Page context** (`lib/analyst/pageContext.ts`, pure): page key per route, the range through the pages' own
+  `rangeFromParams` (anchored weeks, custom, per-page defaults), compare, cohort-default funnel mode, the selected
+  metric / campaign / client / stage; `AskAboutButton` on every campaign row and the client profile header.
+- **"What does this mean?"** (`components/analyst/ExplainButton.tsx`, `data-explain=<key>`; hover-revealed,
+  always on touch, icon-only in headers): KpiDeltaTile (`explainKey`, defaulting to its `trendMetric`), KPITile,
+  SortableHeader, CardHeader, Funnel rows + conversion chips + the previous-leads row, FunnelStrip, the show-rate rings,
+  time in stage, the MRR tile, CampaignTable columns, SourceBreakdownTable, PaymentsTable, the Scorecard section
+  headers (week_verdict, contract_value, spend_gate), the Ads Campaigns card. `lib/analyst/explainSurfaces.ts` lists the
+  dynamic keys; `tests/explain-coverage.test.ts` proves GLOSSARY_KEYS ⊆ wired (56 / 56). An explain turn emits the
+  server-computed formula as the `explain` event (stored on the user row) before the model writes a word.
+- **`npm run eval:analyst`** (`scripts/eval-analyst.ts`; `lib/analyst/evalQuestions.ts`, `evalScore.ts`,
+  `evalRunner.ts`): the harness runs FIRST (`lib/verify/harness.ts#runVerify` — `scripts/verify.ts` is now a thin
+  CLI over it) and any FAIL refuses the numbers suite; numbers = 25 questions whose expected values come from
+  verify.sql's own JSON with the harness's rules, scored on the headline's one ref token resolved through the ledger
+  (counts / cents exact, ratios ± 0.0005, 0 flagged; FLAKY = failed once, passed on the re-run, counted and printed;
+  ≥ 24/25); explain = 10 metrics × 2 ranges (three sections, formula box = engine, 0 flagged); behaviour = 5 cases on
+  the seeded demo tenant in a child process (stale → warning first + every decision a server hold; healthy → no
+  invented advice; ambiguous → clarify; a 5-turn "that campaign" conversation; a campaign-row question). Flags
+  `--suite`, `--max-usd` (15), `--skip-sources`; writes `docs/eval-analyst-<date>.md`; USD everywhere. Finding: on the
+  DEMO seed the harness shows 42 engine-vs-SQL differences (verify.sql's `has_stripe` reads origin = stripe, the seed
+  writes origin demo; one applicant on a month boundary) — the real tenant passed 360 / 360; `tests/verify-harness`
+  asserts the question → SQL mapping equals the engine wherever the harness found SQL = engine.
+- **Screenshots**: `ANALYST_PREVIEW=1 npm run dev` then `npm run screenshots` captures `analyst-{launcher, welcome,
+  thinking, answer, explain, error, threads, confirm}[-mobile].png` in both themes through the real components from a
+  canned state (`GET /api/analyst/preview?state=…`, built by `lib/analyst/preview.ts` from the demo-tenant replay
+  fixture; 404 unless `ANALYST_PREVIEW=1` outside production); `-- --explain-audit` checks every glossary key appears
+  as `[data-explain]` on the demo-seeded pages.
+- **Not in this wave**: Wave 3 (report presets, storage, history, the weekly cron), retiring the Ask card, any metric
+  definition, anything in `docs/deferred.md` (its decision log now records a 2026-10-15 ruling on Applied — not acted on:
+  a metric-definition change needs Mitchell's explicit go).
+
 ## Working agreements
 
 - **Fix the class, design for any tenant; no tenant-specific logic in `lib/`** (Mitchell, 2026-10-03).

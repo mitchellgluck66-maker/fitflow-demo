@@ -71,7 +71,7 @@ export function AnswerView({ turn, onApproveNote, onRejectNote }: { turn: TurnVi
       {a && a.actions.length > 0 ? (
         <>
           <h4>Actions</h4>
-          <table className="analyst-actions">
+          <table className="analyst-actions-table">
             <thead>
               <tr>
                 <th>Action</th>
