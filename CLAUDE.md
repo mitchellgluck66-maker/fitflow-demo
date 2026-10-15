@@ -1188,7 +1188,9 @@ the Oct 7 Analyst fixes and the verification 2026-10-08 fixes:
 
 - **`GET /api/version`** (`lib/version.ts`) → `{ commit: VERCEL_GIT_COMMIT_SHA, builtAt }` (`builtAt` stamped by
   `next.config.ts` at build time; both null outside a Vercel build, never invented). Exempt from the session gate
-  like `/api/health` — no data behind it. A deploy is confirmed when `commit` equals the pushed HEAD.
+  like `/api/health` — no data behind it. A deploy is confirmed when `commit` equals the pushed HEAD. The route reads
+  the LITERAL `process.env.BUILT_AT` — Next inlines the `env` map only at that exact expression; the first live build
+  (`246b516`) read it off a `process.env` object and answered `builtAt: null` (fixed `c6eb809`).
 - **Insights paused** (`lib/anthropic/insightsFlag.ts`, env `INSIGHTS_ENABLED`, default OFF): the generator predates
   the Analyst's safeguards. Paused = `GET /api/anthropic/insights` answers `{ paused, message: "Insights are being
   upgraded" }` and the Command Center card shows that one line; `POST` → 409; dispatch step `insights` is `skipped`
@@ -1211,6 +1213,13 @@ the Oct 7 Analyst fixes and the verification 2026-10-08 fixes:
   of the gates. Measured: prefix 40.5K tokens on the real tenant (the 40K budget test runs on the demo tenant);
   first verified section 29–44 s (target 20); a targeted repair still costs 33–42 % of its turn (digits in the
   actions: "10%", "90%", "2 of 9"; composed paths `data.kpis.initialCents` without `.current`); $0.34–0.50 per turn.
+- **Shipped 2026-10-15 14:30 UTC** after Mitchell ruled "same decision counts": deploy confirmed by `/api/version`
+  30 s after the push; the first dispatch on the new code closed the Oct 11 incident (`resolvedBy` names the Oct 11
+  21:07 succeeded run); `dispatch:insights` `skipped` "paused pending Analyst rebuild"; live `/api/scorecard` for last
+  week and Sep 1–30 hashed identically to the local engine (Sep cohort 88 / 53 / 27); post-deploy `verify.ts` 30 PASS ·
+  2 PENDING (today's Meta day) · 1 INFO · 0 FAIL. Queued for Wave 2 (not built): spend actions deterministic by
+  construction; prefix under budget on the real tenant; first section ≤ 20 s; harness PENDING for a settled Meta day
+  restated after the `meta.spend` marker (the pre-deploy run FAILed on Oct 14 moving 17 ¢; cleared on the next sync).
 
 ## Working agreements
 
