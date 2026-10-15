@@ -58,10 +58,10 @@ describe('policy', () => {
   });
 
   it('exempt paths: login, static, health, cron, stripe webhook — and nothing else', () => {
-    for (const p of ['/login', '/api/auth/login', '/api/auth/logout', '/_next/static/chunks/a.js', '/_next/image?x', '/api/health', '/api/cron/sync-ghl', '/api/cron/dispatch', '/api/stripe/webhook', '/logo.png', '/favicon.ico']) {
+    for (const p of ['/login', '/api/auth/login', '/api/auth/logout', '/_next/static/chunks/a.js', '/_next/image?x', '/api/health', '/api/version', '/api/cron/sync-ghl', '/api/cron/dispatch', '/api/stripe/webhook', '/logo.png', '/favicon.ico']) {
       expect(isExemptPath(p), p).toBe(true);
     }
-    for (const p of ['/', '/scorecard', '/clients/abc', '/setup', '/api/scorecard', '/api/clients', '/api/settings', '/api/stripe/sync', '/api/stripe/credentials', '/api/cron', '/api/anthropic/ask', '/api/healthz']) {
+    for (const p of ['/', '/scorecard', '/clients/abc', '/setup', '/api/scorecard', '/api/clients', '/api/settings', '/api/stripe/sync', '/api/stripe/credentials', '/api/cron', '/api/anthropic/ask', '/api/healthz', '/api/versions']) {
       expect(isExemptPath(p), p).toBe(false);
     }
     expect(isApiPath('/api/x')).toBe(true);

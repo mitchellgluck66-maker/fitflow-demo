@@ -38,13 +38,14 @@ export function authMode(env: AuthEnv): { mode: AuthMode; missing: string[] } {
  *   /login                 the gate itself (+ its API)
  *   /_next/*, static files served by Next / public
  *   /api/health            liveness for Vercel checks (no data)
+ *   /api/version           the build's commit + time (no data; confirms a deploy from outside)
  *   /api/cron/*            CRON_SECRET bearer
  *   /api/stripe/webhook    Stripe signature
  */
 export function isExemptPath(pathname: string): boolean {
   if (pathname === '/login' || pathname === '/api/auth/login' || pathname === '/api/auth/logout') return true;
   if (pathname.startsWith('/_next/')) return true;
-  if (pathname === '/api/health') return true;
+  if (pathname === '/api/health' || pathname === '/api/version') return true;
   if (pathname.startsWith('/api/cron/')) return true;
   if (pathname === '/api/stripe/webhook') return true;
   if (pathname === '/favicon.ico' || pathname === '/robots.txt') return true;
