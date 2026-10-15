@@ -11,8 +11,12 @@ import { buildCountRequest } from './api';
 import type { AnalystModel } from './config';
 
 export const PREFIX_BUDGET_TOKENS = 40_000;
-/** Characters per token the approximation assumes (English prose + JSON; measured 3.5–3.8 on this prefix). */
-export const CHARS_PER_TOKEN = 3.6;
+/**
+ * Characters per token the approximation assumes. 2026-10-15, measured with count_tokens on the demo tenant: contract
+ * 2.9 · brief 2.3 (tables of numbers and pipes) · tools 2.4 (JSON) · snapshot 2.2 — the earlier 3.6 (prose) under-counted
+ * the prefix by ~40 %, which is how a 34.7K measured prefix passed a 40K budget test at "≈ 23K".
+ */
+export const CHARS_PER_TOKEN = 2.4;
 
 export interface PrefixPieces {
   contract: number;

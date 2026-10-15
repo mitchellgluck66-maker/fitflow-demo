@@ -118,7 +118,7 @@ describe('parity with the page functions on the demo database', () => {
     expect(d.marketing.roas).toBe(page.scorecard.marketing.roas);
     // Partial-data rule: the tool result carries the engine's coverage (names only), so the model can say "based on X of Y".
     const pc = page.scorecard.marketing.ltvCoverage;
-    expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, missingCount: pc.total - pc.used, unit: pc.unit, partial: pc.partial, note: pc.note, missing: pc.missing.map((m) => m.name) });
+    expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, missingCount: pc.total - pc.used, unit: pc.unit, partial: pc.partial, note: pc.note, missing: { count: pc.missing.length, shown: pc.missing.slice(0, 5).map((m) => m.name), more: Math.max(0, pc.missing.length - 5), note: pc.missing.length > 5 ? expect.stringMatching(/^the first 5 of/) : null } }); // bounded (tune-up 2)
     expect(d.marketing.paidCacCoverage).toMatchObject({ partial: page.scorecard.marketing.paidCacCoverage.partial, note: page.scorecard.marketing.paidCacCoverage.note });
     expect(d.funnelCohort.stages.map((s) => s.count)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => (s.withheld ? null : s.count)));
     expect(d.appliedCaveat.text).toBe(page.scorecard.appliedCaveat.text);
@@ -157,7 +157,7 @@ describe('parity with the page functions on the demo database', () => {
     const ltv = (await runAnalystTool('get_metric', { key: 'ltv_cac', range: LAST_WEEK, mode: 'period' }, ctx('r7b'))).data as { value: number | null; worked: string; coverage: { used: number; total: number; partial: boolean; note: string | null } | null };
     const ltvWorked = glossaryEntry('ltv_cac')!.worked(await loadMetricsInput({ start: range.start, end: range.end, timezone: tz }), range);
     expect(ltv.value).toBe(ltvWorked.value);
-    expect(ltv.coverage).toEqual(ltvWorked.coverage ? { used: ltvWorked.coverage.used, total: ltvWorked.coverage.total, unit: ltvWorked.coverage.unit, partial: ltvWorked.coverage.partial, note: ltvWorked.coverage.note, missing: ltvWorked.coverage.missing.map((m) => m.name) } : null);
+    expect(ltv.coverage).toEqual(ltvWorked.coverage ? { used: ltvWorked.coverage.used, total: ltvWorked.coverage.total, missingCount: ltvWorked.coverage.total - ltvWorked.coverage.used, unit: ltvWorked.coverage.unit, partial: ltvWorked.coverage.partial, note: ltvWorked.coverage.note, missing: { count: ltvWorked.coverage.missing.length, shown: ltvWorked.coverage.missing.slice(0, 5).map((m) => m.name), more: Math.max(0, ltvWorked.coverage.missing.length - 5), note: null } } : null);
 
     const clients = (await runAnalystTool('list_clients', { query: '', attribution: 'paid', from: '', to: '', page: 1 }, ctx('r8'))).data as { total: number; rows: Array<{ id: string; name: string }>; dateBasis: string };
     const page = await listClients({ attribution: 'paid', limit: 25, offset: 0 });
@@ -186,7 +186,7 @@ describe('parity with the page functions on the demo database', () => {
     const health = (await runAnalystTool('get_data_health', { range: LAST_WEEK }, ctx('r13'))).data as { appliedCaveat: { text: string; definitionUnderReview: boolean }; freshness: Freshness; spendAdviceAllowed: boolean; withheld: string | null };
     expect(health.appliedCaveat.text).toBe(sc.scorecard.appliedCaveat.text);
     expect(health.appliedCaveat.definitionUnderReview).toBe(true);
-    expect(health.freshness).toEqual(freshness);
+    expect(health.freshness).toEqual({ stale: false, phrase: 'data fresh', oldestAgeMinutes: 30, staleSources: [] }); // the citeable phrase + the stale sources only (tune-up 2)
     expect(health.spendAdviceAllowed).toBe(true);
     // The daily Applied ledger has not run on this database: the tool says so instead of a clean 0.
     const healthLedger = (health as unknown as { appliedLedger: { notRunYet?: boolean; definitionUnderReview: boolean; deferred: string } }).appliedLedger;

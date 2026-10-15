@@ -18,7 +18,7 @@ import { formatSplit, formatUsd, type CostSplit } from './cost';
 import { getAnalystConfig } from './config';
 import { loopClient, makeAnalystClient, type BetaTool } from './api';
 import type { AnalystModel } from './config';
-import { approxPrefix, formatPrefixLine, measurePrefix, type PrefixParts, type PrefixPieces } from './prefixBudget';
+import { approxPrefix, formatPrefixLine, measurePrefix, overBudget, type PrefixParts, type PrefixPieces } from './prefixBudget';
 import { starterMessages } from './starter';
 import type { NewMessage } from './store';
 import { analystWireHash, recordingClient, writeFixture, type RecordedTurn, type ReplayFixture } from './replay';
@@ -397,7 +397,13 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
       fail(i + 1, req.question, budgetStopMessage(spentUsd, maxUsd, prepared.estimate.usd), { estimateUsd: prepared.estimate.usd });
       break;
     }
-    if (i === 0) opts.log?.(`   ${formatPrefixLine(await prefixForSmoke(prepared, config.key))}`);
+    // Wave 2 tune-up 2: the prefix budget is enforced on ANY tenant — a turn whose measured prefix is over budget FAILs.
+    let prefixMiss: string | null = null;
+    if (i === 0) {
+      const pieces = await prefixForSmoke(prepared, config.key);
+      opts.log?.(`   ${formatPrefixLine(pieces)}`);
+      prefixMiss = overBudget(pieces);
+    }
     let out: TurnOutcome;
     try {
       out = await executeTurn(prepared.thread.id, prepared.turn.id, prepared.deps);
@@ -443,7 +449,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     // Item 10: the per-turn targets apply to the Opus model; the deep model's figures are printed, not judged.
     const judged = prepared.thread.model.startsWith('claude-opus');
     const repairShare = repairRounds(turnEvents).reduce<number | null>((a, r) => (r.sharePct === null ? a : a === null ? r.sharePct : Math.max(a, r.sharePct)), null);
-    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds, repairSharePct: repairShare, firstSectionSeconds: out.firstSectionSeconds }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : [])];
+    const misses = [...(judged ? turnMisses({ costUsd: out.costUsd, estimateUsd: prepared.estimate.usd, rounds, repairSharePct: repairShare, firstSectionSeconds: out.firstSectionSeconds }) : []), ...(thin ? [thin] : []), ...(wrongVerdict ? [wrongVerdict] : []), ...(prefixMiss ? [prefixMiss] : [])];
     lines.push({
       status: out.status === 'done' && out.answer && !memoryMiss && misses.length === 0 ? 'PASS' : 'FAIL',
       turn: i + 1,

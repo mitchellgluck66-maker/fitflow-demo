@@ -33,6 +33,8 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   consultsBooked: 'count',
   roadmapsBooked: 'count',
   count: 'count',
+  /** Wave 2 tune-up 2: a bounded name list's "and N more" (tools#peopleList). */
+  more: 'count',
   daysInStage: 'count',
   daysWaiting: 'count',
   dropOff: 'count',

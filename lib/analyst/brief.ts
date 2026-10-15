@@ -67,10 +67,31 @@ export interface BriefWeek {
   initialCents: number;
   recurringCents: number;
   spendCents: number;
+  /** Paid-attributed enrollments and initial cash — so a month rollup recomputes Paid CAC and ROAS from totals. */
+  paidEnrollments: number;
+  paidInitialCents: number;
   paidCacCents: number | null;
   blendedCacCents: number | null;
   roas: number | null;
   currency: Currency;
+}
+
+/**
+ * Wave 2 tune-up 2 (2026-10-15): the brief is BOUNDED whatever the tenant's age. The three per-week sections
+ * (weekly KPIs, conversions, campaigns) carry the trailing `BRIEF_FULL_WEEKS` complete weeks in full (plus the week
+ * to date); every earlier complete week is rolled up ONE row per calendar month (sums; ratios recomputed from the
+ * totals, never averaged). A two-year-old tenant adds ~24 month rows, not ~100 week rows.
+ */
+export const BRIEF_FULL_WEEKS = 12;
+
+/** A month rollup of the weeks that START in that month (Sun–Sat weeks never split). */
+export interface BriefMonth {
+  month: string;
+  label: string;
+  start: string;
+  end: string;
+  weeks: BriefWeek[];
+  maturingWeeks: number;
 }
 
 export interface Brief {
@@ -116,11 +137,86 @@ function weekRow(input: MetricsInput, w: { start: string; end: string; label: st
     initialCents: sc.revenue.awaitingStripe ? 0 : sc.revenue.initialCents,
     recurringCents: sc.revenue.awaitingStripe ? 0 : sc.revenue.recurringCents,
     spendCents: m.spendCents,
+    paidEnrollments: m.paidEnrollments,
+    paidInitialCents: m.paidInitialCents,
     paidCacCents: m.paidCacCents,
     blendedCacCents: m.blendedCacCents,
     roas: m.roas,
     currency: sc.currency,
   };
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** The weeks shown in full (the last BRIEF_FULL_WEEKS complete ones + the week to date) and the earlier ones by month. */
+export function splitWeeks(weeks: BriefWeek[]): { full: BriefWeek[]; months: BriefMonth[] } {
+  const partialAtEnd = weeks.length && weeks[weeks.length - 1].partial ? 1 : 0;
+  const cut = Math.max(0, weeks.length - partialAtEnd - BRIEF_FULL_WEEKS);
+  const earlier = weeks.slice(0, cut);
+  const full = weeks.slice(cut);
+  const byMonth = new Map<string, BriefWeek[]>();
+  for (const w of earlier) byMonth.set(w.start.slice(0, 7), [...(byMonth.get(w.start.slice(0, 7)) ?? []), w]);
+  const months: BriefMonth[] = [...byMonth.entries()].map(([month, ws]) => ({
+    month,
+    label: `${MONTH_NAMES[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)} (${ws.length} wk${ws.length === 1 ? '' : 's'})`,
+    start: ws[0].start,
+    end: ws[ws.length - 1].end,
+    weeks: ws,
+    maturingWeeks: ws.filter((w) => w.maturing).length,
+  }));
+  return { full, months };
+}
+
+/** A month's KPI row from its weeks' totals: counts and cash summed; CAC / ROAS recomputed from the totals. */
+export function rollupWeeks(ws: BriefWeek[]): Omit<BriefWeek, 'start' | 'end' | 'label' | 'partial' | 'maturing'> {
+  const sum = (f: (w: BriefWeek) => number) => ws.reduce((a, w) => a + f(w), 0);
+  const spendCents = sum((w) => w.spendCents);
+  const enrolled = sum((w) => w.enrolled);
+  const paidEnrollments = sum((w) => w.paidEnrollments);
+  const paidInitialCents = sum((w) => w.paidInitialCents);
+  return {
+    applied: sum((w) => w.applied),
+    consultsBooked: sum((w) => w.consultsBooked),
+    roadmapsBooked: sum((w) => w.roadmapsBooked),
+    enrolled,
+    newPayingClients: sum((w) => w.newPayingClients),
+    initialCents: sum((w) => w.initialCents),
+    recurringCents: sum((w) => w.recurringCents),
+    spendCents,
+    paidEnrollments,
+    paidInitialCents,
+    paidCacCents: spendCents > 0 && paidEnrollments > 0 ? Math.round(spendCents / paidEnrollments) : null,
+    blendedCacCents: spendCents > 0 && enrolled > 0 ? Math.round(spendCents / enrolled) : null,
+    roas: spendCents > 0 ? paidInitialCents / spendCents : null,
+    currency: ws[0]?.currency ?? 'CAD',
+  };
+}
+
+const monthFlags = (m: BriefMonth) => (m.maturingWeeks === 0 ? 'month rollup' : m.maturingWeeks === m.weeks.length ? 'month rollup, maturing' : `month rollup, maturing (${m.maturingWeeks} of ${m.weeks.length} weeks)`);
+
+/** A month with nothing in it (before the tenant connected anything) — collapsed into one "no data" line, never 24 rows of zeros. */
+export function emptyMonth(r: ReturnType<typeof rollupWeeks>): boolean {
+  return r.applied === 0 && r.consultsBooked === 0 && r.roadmapsBooked === 0 && r.enrolled === 0 && r.newPayingClients === 0 && r.initialCents === 0 && r.recurringCents === 0 && r.spendCents === 0;
+}
+
+/** Runs of empty months become one line each; the rest are listed through `row`. */
+function monthRows(months: BriefMonth[], row: (m: BriefMonth, r: ReturnType<typeof rollupWeeks>) => void, noData: (first: BriefMonth, last: BriefMonth, n: number) => string): string[] {
+  const out: string[] = [];
+  let run: BriefMonth[] = [];
+  const flush = () => {
+    if (run.length) out.push(noData(run[0], run[run.length - 1], run.length));
+    run = [];
+  };
+  for (const m of months) {
+    const r = rollupWeeks(m.weeks);
+    if (emptyMonth(r)) run.push(m);
+    else {
+      flush();
+      row(m, r);
+    }
+  }
+  flush();
+  return out;
 }
 
 function baseline(label: string, candidate: BriefWeek[], ccy: Currency, settings: { historyCompleteSince: string | null; sunset: string | null; today: string }): string {
@@ -194,17 +290,20 @@ export function buildBrief(b: BriefInputs): Brief {
   const maturingWeeks = weeks.filter((w) => w.maturing);
   if (maturingWeeks.length) {
     lines.push(`- Live stage-history observation began ${hcs}. Weeks before it are MATURING for ${HISTORY_DEPENDENT_LABEL} (marked "maturing" below): a change against one of those weeks is not a real change and must be said so, and the baselines above EXCLUDE those weeks for these metrics. ${HISTORY_INDEPENDENT_LABEL} are dated by their own source and carry no caveat. A new client is a Stripe first payment; a GHL "enrolled" entry is a stage move.`);
-    lines.push(`- Maturing weeks: ${maturingWeeks.map((w) => w.label).join('; ')}.`);
+    lines.push(maturingWeeks.length <= 8 ? `- Maturing weeks: ${maturingWeeks.map((w) => w.label).join('; ')}.` : `- Maturing weeks: ${maturingWeeks.length}, ${maturingWeeks[0].label} to ${maturingWeeks[maturingWeeks.length - 1].label}.`);
   } else {
     lines.push('- No maturing weeks: every week in this brief is inside complete stage history (or the disclaimer has sunset).');
   }
   lines.push('');
 
-  lines.push('## Weekly KPIs since the first data (Sun–Sat weeks)');
+  const { full, months } = splitWeeks(weeks);
+  lines.push(`## Weekly KPIs since the first data (Sun–Sat weeks; the last ${BRIEF_FULL_WEEKS} complete weeks in full, earlier weeks rolled up by month — ratios from totals)`);
   lines.push('week | applied | consults booked | roadmaps booked | enrolled (GHL stage entries) | paid (Stripe first payments) | initial cash | recurring cash | spend | Paid CAC | Blended CAC | ROAS | flags');
-  for (const w of weeks) {
+  const kpiRow = (label: string, w: ReturnType<typeof rollupWeeks>, flags: string) => `${label} | ${w.applied} | ${w.consultsBooked} | ${w.roadmapsBooked} | ${w.enrolled} | ${w.newPayingClients} | ${money(w.initialCents, ccy)} | ${money(w.recurringCents, ccy)} | ${money(w.spendCents, ccy)} | ${money(w.paidCacCents, ccy)} | ${money(w.blendedCacCents, ccy)} | ${ratio(w.roas)} | ${flags}`;
+  for (const l of monthRows(months, (m, r) => lines.push(kpiRow(m.label, r, monthFlags(m))), (a, b, n) => `${a.label} – ${b.label}: no data (${n} month${n === 1 ? '' : 's'})`)) lines.push(l);
+  for (const w of full) {
     const flags = [w.partial ? 'week to date' : null, w.maturing ? 'maturing' : null].filter(Boolean).join(', ') || '—';
-    lines.push(`${w.label} | ${w.applied} | ${w.consultsBooked} | ${w.roadmapsBooked} | ${w.enrolled} | ${w.newPayingClients} | ${money(w.initialCents, ccy)} | ${money(w.recurringCents, ccy)} | ${money(w.spendCents, ccy)} | ${money(w.paidCacCents, ccy)} | ${money(w.blendedCacCents, ccy)} | ${ratio(w.roas)} | ${flags}`);
+    lines.push(kpiRow(w.label, w, flags));
   }
   lines.push('');
 
@@ -217,31 +316,34 @@ export function buildBrief(b: BriefInputs): Brief {
   lines.push('## Stage conversions over time');
   lines.push('By cohort = applicants of the week and what they have reached since (no time cutoff). In period = events of the week; ratios capped at 100%.');
   lines.push('week | mode | applied→consult booked | consult booked→roadmap booked (spanning withheld "showed" stages) | roadmap booked→enrolled | applied→enrolled | flags');
-  for (const w of weeks) {
+  const convRow = (label: string, range: { start: string; end: string }, flags: string) => {
     for (const mode of ['cohort', 'period'] as const) {
-      const f = computeFunnel(b.input, w, mode);
+      const f = computeFunnel(b.input, range, mode);
       const s = (k: string) => f.stages.find((x) => x.key === k)!;
       const conv = (k: string) => {
         const st = s(k);
         return st.withheld ? 'withheld' : `${pct(st.conversionFromPrevious)}${st.capped ? ' (capped)' : ''}`;
       };
-      const flags = [w.partial ? 'week to date' : null, w.maturing ? 'maturing' : null].filter(Boolean).join(', ') || '—';
-      lines.push(`${w.label} | ${mode} | ${conv('consult_booked')} | ${conv('roadmap_booked')} | ${conv('enrolled')} | ${pct(s('enrolled').shareOfApplied)} | ${flags}`);
+      lines.push(`${label} | ${mode} | ${conv('consult_booked')} | ${conv('roadmap_booked')} | ${conv('enrolled')} | ${pct(s('enrolled').shareOfApplied)} | ${flags}`);
     }
-  }
+  };
+  monthRows(months, (m) => convRow(m.label, { start: m.start, end: m.end }, monthFlags(m)), () => '');
+  for (const w of full) convRow(w.label, w, [w.partial ? 'week to date' : null, w.maturing ? 'maturing' : null].filter(Boolean).join(', ') || '—');
   lines.push('');
 
-  lines.push('## Campaigns, week by week (API-reported spend; FitFlow-tracked counts by utm_campaign)');
-  lines.push('week | campaign | platform | spend | impressions | link clicks | applied (tracked) | enrolled (tracked) | initial cash (matched) | ROAS (tracked)');
+  lines.push('## Campaigns, week by week (API-reported spend; FitFlow-tracked counts by utm_campaign; impressions, clicks, CPM via get_campaigns)');
+  lines.push('week | campaign | platform | spend | applied (tracked) | enrolled (tracked) | initial cash (matched) | ROAS (tracked)');
   let campaignRows = 0;
-  for (const w of weeks) {
-    for (const c of computeCampaignTable(b.input, w)) {
+  const campaignRow = (label: string, range: { start: string; end: string }) => {
+    for (const c of computeCampaignTable(b.input, range)) {
       if (c.spendCents === 0 && c.tracked.applied === 0) continue;
       campaignRows += 1;
       const tracked = c.from === 'api' && c.tracked.applied === 0 ? 'not tracked yet' : `${c.tracked.applied}`;
-      lines.push(`${w.label} | ${c.campaignName} | ${c.platform} | ${money(c.spendCents, c.currency)} | ${c.impressions} | ${c.linkClicks} | ${tracked} | ${c.tracked.enrolled} | ${money(c.initialCents, c.currency)} | ${ratio(c.roas)}`);
+      lines.push(`${label} | ${c.campaignName} | ${c.platform} | ${money(c.spendCents, c.currency)} | ${tracked} | ${c.tracked.enrolled} | ${money(c.initialCents, c.currency)} | ${ratio(c.roas)}`);
     }
-  }
+  };
+  for (const m of months) campaignRow(m.label, { start: m.start, end: m.end });
+  for (const w of full) campaignRow(w.label, w);
   if (campaignRows === 0) lines.push('(no campaign rows yet)');
   lines.push('');
 
@@ -255,13 +357,23 @@ export function buildBrief(b: BriefInputs): Brief {
   lines.push('## Revenue by month (calendar months, net of refunds)');
   lines.push('month | initial cash | recurring cash | collected | refunds | still-unpaid invoices');
   let m = monthStart(b.firstData);
+  let quiet: string[] = [];
+  const flushQuiet = () => {
+    if (quiet.length) lines.push(`${quiet[0]}${quiet.length > 1 ? ` – ${quiet[quiet.length - 1]}` : ''} | no Stripe activity (${quiet.length} month${quiet.length === 1 ? '' : 's'})`);
+    quiet = [];
+  };
   while (m <= b.today) {
     const r = { start: m, end: monthEnd(m) };
     const rev = computeRevenue(b.input, r);
     if (rev.awaitingStripe) lines.push(`${m.slice(0, 7)} | awaiting Stripe`);
-    else lines.push(`${m.slice(0, 7)}${r.end >= b.today ? ' (month to date)' : ''} | ${money(rev.initialCents, ccy)} | ${money(rev.recurringCents, ccy)} | ${money(rev.collectedCents, ccy)} | ${money(rev.refundedCents, ccy)} | ${rev.failedCount}`);
+    else if (r.end < b.today && rev.initialCents === 0 && rev.recurringCents === 0 && rev.collectedCents === 0 && rev.refundedCents === 0 && rev.failedCount === 0) quiet.push(m.slice(0, 7));
+    else {
+      flushQuiet();
+      lines.push(`${m.slice(0, 7)}${r.end >= b.today ? ' (month to date)' : ''} | ${money(rev.initialCents, ccy)} | ${money(rev.recurringCents, ccy)} | ${money(rev.collectedCents, ccy)} | ${money(rev.refundedCents, ccy)} | ${rev.failedCount}`);
+    }
     m = monthStart(addDays(monthEnd(m), 1));
   }
+  flushQuiet();
   lines.push('');
 
   lines.push('## Seasonality (computed from the series above)');

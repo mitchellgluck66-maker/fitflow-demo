@@ -777,7 +777,14 @@ export function glossaryText(keys?: readonly string[]): string {
  */
 export function glossaryBriefText(keys?: readonly string[]): string {
   const entries = keys ? keys.map((k) => BY_KEY.get(k)).filter((e): e is GlossaryEntry => Boolean(e)) : GLOSSARY;
-  return [`† = history-dependent (maturing before the history-complete date). Formulas: get_metric.`, ...entries.map((e) => `- ${e.label} (${e.key})${e.maturing ? '†' : ''}: ${e.definition}`)].join('\n');
+  return [`† = history-dependent (maturing before the history-complete date). Full definitions, formulas and "differs from": get_metric.`, ...entries.map((e) => `- ${e.label} (${e.key})${e.maturing ? '†' : ''}: ${firstSentence(e.definition)}`)].join('\n');
+}
+
+/** The first sentence of a definition (Wave 2 tune-up 2: the brief's glossary was a third of the brief). */
+export function firstSentence(text: string): string {
+  const t = text.trim();
+  const m = /^([\s\S]*?[.!?])(?:\s+(?=[A-Z"(])|$)/.exec(t);
+  return (m ? m[1] : t).trim();
 }
 
 /** Sanity used by tests and the catalog check: every registered UI key has a glossary entry. */

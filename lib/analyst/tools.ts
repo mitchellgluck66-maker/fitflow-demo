@@ -201,13 +201,31 @@ async function namesFor(contactIds: string[]): Promise<Array<{ contactId: string
 const money = (cents: number | null, ccy: Currency) => formatCents(cents, ccy);
 const rangeOrNull = (r: { start: string; end: string } | null) => (r ? { start: r.start, end: r.end } : { start: '', end: '' });
 
-/** A coverage block for a tool result (names only). */
-const cov = (c: Coverage) => ({ used: c.used, total: c.total, missingCount: c.total - c.used, unit: c.unit, partial: c.partial, note: c.note, missing: c.missing.map((p) => p.name) });
+/**
+ * Wave 2 tune-up 2 (2026-10-15): a name list in a tool result is BOUNDED — the first `PEOPLE_LIST_MAX` names plus the
+ * count of the rest ("and 12 more"), so a result's size never grows with a tenant's lists; the people are one tool call
+ * away (get_stage_people, list_clients, get_client). `count` and `more` are counts (refs); the names are not indexed.
+ */
+export const PEOPLE_LIST_MAX = 5;
+export function peopleList<T>(items: readonly T[], max = PEOPLE_LIST_MAX): { count: number; shown: T[]; more: number; note: string | null } {
+  const more = Math.max(0, items.length - max);
+  return { count: items.length, shown: items.slice(0, max), more, note: more ? `the first ${Math.min(max, items.length)} of ${items.length}; the rest are one tool call away` : null };
+}
 
-/** Oct 7 item 1: the gates as a tool result — stale data holds every gate; counts and phrases, the sentence as a note. */
-function gatesOut(g: SpendGates, freshness: Freshness) {
+/** A coverage block for a tool result (names only, bounded). */
+const cov = (c: Coverage) => ({ used: c.used, total: c.total, missingCount: c.total - c.used, unit: c.unit, partial: c.partial, note: c.note, missing: peopleList(c.missing.map((p) => p.name)) });
+
+/**
+ * Oct 7 item 1: the gates as a tool result — stale data holds every gate; counts and phrases, the sentence as a note.
+ * `compact` (the starter snapshot's get_scorecard) drops the reason sentence, the platform and the window width per row —
+ * the basis phrase carries the citeable facts; get_campaigns has the full rows.
+ */
+function gatesOut(g: SpendGates, freshness: Freshness, compact = false) {
   const gates = freshness.stale ? holdForStale(g, freshness.phrase) : g;
-  const row = (x: SpendGates['account']) => ({ campaign: x.campaign, platform: x.platform ?? '', decision: x.decision, basis: x.basis, reason: x.reason, trackedEnrollments: x.trackedEnrollments, weeksWithSpend: x.weeksWithSpend, weeksInWindow: x.weeksInWindow, needsEnrollments: x.needsEnrollments, needsWeeks: x.needsWeeks, spendCents: x.spendCents });
+  const row = (x: SpendGates['account']) =>
+    compact
+      ? { campaign: x.campaign, decision: x.decision, basis: x.basis, trackedEnrollments: x.trackedEnrollments, weeksWithSpend: x.weeksWithSpend, needsEnrollments: x.needsEnrollments, needsWeeks: x.needsWeeks, spendCents: x.spendCents }
+      : { campaign: x.campaign, platform: x.platform ?? '', decision: x.decision, basis: x.basis, reason: x.reason, trackedEnrollments: x.trackedEnrollments, weeksWithSpend: x.weeksWithSpend, weeksInWindow: x.weeksInWindow, needsEnrollments: x.needsEnrollments, needsWeeks: x.needsWeeks, spendCents: x.spendCents };
   return { window: gates.window, rule: 'computed by the server: may_change needs ≥ 4 tracked enrollments over ≥ 4 weeks with spend in the clean window; a hold IS the advice', account: row(gates.account), campaigns: gates.campaigns.map(row) };
 }
 
@@ -311,7 +329,7 @@ const getScorecardTool = tool(
          */
         // Oct 7 item 5: the rule is in the glossary (week_verdict), the baseline summary in `baseline`, the currency on the result.
         verdict: (({ rule: _rule, baselineSummary: _summary, currency: _ccy, ...v }) => ({ ...v, unit: 'number' }))(res.verdict),
-        spendGates: gatesOut(res.spendGates, ctx.freshness),
+        spendGates: gatesOut(res.spendGates, ctx.freshness, true),
         constants: CONSTANTS,
         funnelPeriod: summarizeFunnel(sc.funnel, res.maturity),
         funnelCohort: summarizeFunnel(sc.cohort.funnel, res.maturity),
@@ -336,7 +354,7 @@ const getScorecardTool = tool(
         maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, comparisonTouches: Boolean(res.maturity.comparisonTouches), note: res.maturity.active ? `History-dependent metrics (${HISTORY_DEPENDENT_LABEL}) are maturing for this range or its comparison: a change in them is not a real change. Baselines for them exclude the weeks before ${res.maturity.historyCompleteSince}.` : null },
         appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.length, otherPipelines: sc.appliedCaveat.otherPipelines.length },
         /** GHL enrolled entries vs Stripe first payments for the period (1c): when they differ, say both — "8 enrolled in GHL, 4 have paid" — and name the gap. */
-        enrollmentReconciliation: { ...sc.enrollmentReconciliation, enrolledUnpaid: sc.enrollmentReconciliation.enrolledUnpaid.map((p) => p.name), paidNotEnrolled: sc.enrollmentReconciliation.paidNotEnrolled.map((p) => p.name) },
+        enrollmentReconciliation: { ...sc.enrollmentReconciliation, enrolledUnpaid: peopleList(sc.enrollmentReconciliation.enrolledUnpaid.map((p) => p.name)), paidNotEnrolled: peopleList(sc.enrollmentReconciliation.paidNotEnrolled.map((p) => p.name)) },
         dataHealth: { applicantsWithoutDate: res.inputHealth?.applicantsWithoutDate.length ?? 0, appliedFromMove: res.inputHealth?.appliedFromMove ?? 0, unsupportedMoneyRows: res.money.unsupportedRows },
       },
     };
@@ -665,7 +683,7 @@ const getDataHealthTool = tool(
           candidate: week.candidate,
           candidateLabel: CANDIDATE_LABEL,
           byClass: Object.fromEntries((Object.keys(week.byClass) as ApplicationClass[]).map((k) => [k, { label: CLASS_LABELS[k], count: week.byClass[k].count }])),
-          otherPipelines: ledgerRows.filter((r) => r.class === 'X').map((r) => ({ name: r.name, pipeline: r.pipelineName })),
+          otherPipelines: peopleList(ledgerRows.filter((r) => r.class === 'X').map((r) => ({ name: r.name, pipeline: r.pipelineName }))),
           unresolved: week.unresolved,
           ledgerComputedAt: ledgerSummary.ranAt,
           mirrorAsOf: ledgerSummary.mirrorAsOf,
@@ -680,12 +698,13 @@ const getDataHealthTool = tool(
       currency: res.money.currency,
       fx: res.money.fx.text,
       data: {
-        freshness: ctx.freshness,
+        // The top-level block repeated here is the citeable one ({r1:data.freshness.phrase}); the per-source rows name only the stale ones.
+        freshness: { stale: ctx.freshness.stale, phrase: ctx.freshness.phrase, oldestAgeMinutes: ctx.freshness.oldestAgeMinutes, staleSources: ctx.freshness.sources.filter((s) => s.stale).map((s) => ({ source: s.key, ageHours: s.ageHours })) },
         scheduler: status.scheduler,
         reconcile: status.reconcile,
         maturity: { active: res.maturity.active, historyCompleteSince: res.maturity.historyCompleteSince, sunset: res.maturity.sunset, comparisonTouches: Boolean(res.maturity.comparisonTouches), affects: ['consults_booked', 'roadmaps_booked', 'cpl', 'cost_consult', 'cost_roadmap', 'every stage→stage conversion'] },
-        appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecord: sc.appliedCaveat.withoutFormRecord.map((p) => ({ name: p.name, reason: p.reason })), otherPipelines: sc.appliedCaveat.otherPipelines.map((p) => ({ name: p.name, pipeline: p.pipeline })), definitionUnderReview: true },
-        applicantsWithoutDate: (res.inputHealth?.applicantsWithoutDate ?? []).map((a) => a.name),
+        appliedCaveat: { text: sc.appliedCaveat.text, applied: sc.appliedCaveat.applied, withoutFormRecord: peopleList(sc.appliedCaveat.withoutFormRecord.map((p) => ({ name: p.name, reason: p.reason }))), otherPipelines: peopleList(sc.appliedCaveat.otherPipelines.map((p) => ({ name: p.name, pipeline: p.pipeline }))), definitionUnderReview: true },
+        applicantsWithoutDate: peopleList((res.inputHealth?.applicantsWithoutDate ?? []).map((a) => a.name)),
         appliedFromMove: res.inputHealth?.appliedFromMove ?? 0,
         unattributedEnrollments: sc.marketing.unattributedEnrollments,
         unattributedInitialCents: sc.marketing.unattributedInitialCents,
@@ -693,7 +712,7 @@ const getDataHealthTool = tool(
         unclassifiedCents: sc.revenue.unclassifiedCents,
         unclassifiedCount: sc.revenue.unclassifiedCount,
         unmatchedPayments: res.revenue.unmatchedCount,
-        contractValueMissing: sc.marketing.contractValueMissing.map((c) => c.name),
+        contractValueMissing: peopleList(sc.marketing.contractValueMissing.map((c) => c.name)),
         showRatesWithheld: sc.showRates.filter((s) => s.withheld).map((s) => ({ type: s.type, reason: s.withheld, coverage: s.coverage, recorded: s.showed + s.noShow + s.cancelled, past: s.past })),
         constants: CONSTANTS,
         unsupportedMoneyRows: res.money.unsupportedRows,

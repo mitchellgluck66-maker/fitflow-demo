@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { computeScorecard, type ContactRow, type MetricsInput, type PaymentRow } from '@/lib/metrics';
-import { buildBrief, DECISIONS_LOG } from '@/lib/analyst/brief';
+import { buildBrief, DECISIONS_LOG, rollupWeeks, splitWeeks } from '@/lib/analyst/brief';
 import { EMPTY_PROFILE, parseOwnerProfile, profileGaps, withheldLine, addNote, decideNote, listNotes, activeNotes, saveOwnerProfile, getOwnerProfile } from '@/lib/analyst/notes';
 import { currentBrief, describeBrief, rebuildBrief, runAnalystBriefStep } from '@/lib/analyst/briefService';
 import { runMigrations } from '@/db/migrate';
@@ -104,10 +104,40 @@ describe('buildBrief (pure)', () => {
     expect(brief.text).toContain('## Metric glossary');
     expect(brief.text).toContain('(paid_cac)');
     expect(brief.text).toContain('Aug 2–8 | cohort | 100.0% | 100.0% | 100.0% | 100.0% | maturing');
-    expect(brief.text).toContain('Aug 2–8 | Summer Shred | meta | $500 CAD | 1000 | 40 | 1 | 1 | $2,500 CAD | 5.00×');
+    expect(brief.text).toContain('Aug 2–8 | Summer Shred | meta | $500 CAD | 1 | 1 | $2,500 CAD | 5.00×'); // impressions / clicks live in get_campaigns (tune-up 2)
     expect(brief.text).toContain('2026-08 | $4,500 CAD | $0 CAD | $4,500 CAD | $0 CAD | 0');
     expect(brief.text).toContain('2026-09 (month to date) |');
     expect(brief.text).toContain('This brief orients you. It is NOT citeable');
+  });
+
+  it('Wave 2 tune-up 2: the per-week sections are bounded — the last 12 complete weeks in full, earlier weeks rolled up one row per month with ratios from totals', () => {
+    // Today Jan 13, 2027: Aug 2 → Jan 13 is 23 complete weeks + the week to date → Aug 2 – Oct 17 (11 weeks) roll up by month; Oct 18 → Jan 9 (12 weeks) stay in full.
+    const long = buildBrief({ ...base, today: '2027-01-13' });
+    const { full, months } = splitWeeks(long.weeks);
+    expect(long.weeks.length).toBe(24);
+    expect(full.length).toBe(13); // 12 complete + the week to date
+    expect(full[0].start).toBe('2026-10-18');
+    expect(months.map((m) => [m.label, m.weeks.length, m.maturingWeeks])).toEqual([['Aug 2026 (5 wks)', 5, 0], ['Sep 2026 (4 wks)', 4, 0], ['Oct 2026 (2 wks)', 2, 0]]); // the disclaimer sunset (Oct 15) has passed: nothing maturing
+    // The August row sums the five August weeks: counts and cash summed, CAC and ROAS from the totals (never averaged).
+    const aug = rollupWeeks(months[0].weeks);
+    const augWeeks = long.weeks.filter((w) => w.start >= '2026-08-02' && w.start <= '2026-08-30');
+    expect(aug.applied).toBe(augWeeks.reduce((a, w) => a + w.applied, 0));
+    // $500 + $300 + $700: Sep 2's spend sits in the Aug 30 – Sep 5 week, which STARTS in August.
+    expect(aug).toMatchObject({ applied: 3, enrolled: 3, newPayingClients: 3, initialCents: 750_000, spendCents: 150_000, paidEnrollments: 2, paidInitialCents: 550_000, paidCacCents: 75_000, blendedCacCents: 50_000 });
+    expect(long.text).toContain('Aug 2026 (5 wks) | 3 | 3 | 2 | 3 | 3 | $7,500 CAD | $0 CAD | $1,500 CAD | $750 CAD | $500 CAD | 3.67× | month rollup');
+    expect(long.text).toContain('Aug 2026 (5 wks) | cohort | ');
+    expect(long.text).toContain('Aug 2026 (5 wks) | Summer Shred | meta | $1,500 CAD | 3 | 3 | $7,500 CAD | 5.00×'); // per-campaign ROAS = matched initial cash ÷ spend
+    expect(long.text).not.toContain('Aug 2–8 | 1 | 1 |'); // rolled up, not listed
+    expect(long.text).toContain('Oct 18–24 |');
+    // Bounded: two more years of EMPTY history collapse into one "no data" line per section, and the maturing-week list becomes a count.
+    const older = buildBrief({ ...base, today: '2027-01-13', firstData: '2024-08-04', disclaimerSunset: '2030-01-01' });
+    expect(older.weeks.length).toBeGreaterThan(120);
+    expect(older.text).toContain('Aug 2024 (4 wks) – Jul 2026 (4 wks): no data (24 months)');
+    expect(splitWeeks(older.weeks).months.find((m) => m.month === '2026-08')?.maturingWeeks).toBe(5);
+    expect(older.text).toContain('Aug 2026 (5 wks) | 3 | 3 | 2 | 3 | 3 | $7,500 CAD | $0 CAD | $1,500 CAD | $750 CAD | $500 CAD | 3.67× | month rollup, maturing');
+    expect(older.text).toContain('2024-08 – 2026-07 | no Stripe activity (24 months)');
+    expect(older.text).toMatch(/- Maturing weeks: \d+, Aug 4–10 to Aug 30 – Sep 5\./);
+    expect(older.text.split('\n').length - long.text.split('\n').length).toBeLessThan(6);
   });
 
   it('parseOwnerProfile is defensive', () => {
