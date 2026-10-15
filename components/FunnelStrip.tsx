@@ -7,6 +7,7 @@ import { formatPct, FUNNEL_MODE_LABELS, type Funnel, type ChipTone, type FunnelS
 import { RadialRing } from './RadialRing';
 import { MaturingBadge } from './MaturingBadge';
 import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
+import { ExplainButton } from './analyst/ExplainButton';
 
 /**
  * Compact funnel summary for the Command Center — one slim row of stage
@@ -44,6 +45,8 @@ export const FunnelStrip: React.FC<{
   };
 
   return (
+    <div className="relative explain-host">
+    <ExplainButton metricKey="applied_to_enrolled" label="Applied → enrolled" variant="icon" className="explain-abs" />
     <Link
       href={href}
       className="group surface-raised focus-ring block rounded-[12px] px-4 py-3 transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]"
@@ -138,5 +141,6 @@ export const FunnelStrip: React.FC<{
         })}
       </div>
     </Link>
+    </div>
   );
 };

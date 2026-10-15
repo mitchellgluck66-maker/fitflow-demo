@@ -6,6 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Badge } from './Badge';
 import { EmptyState } from './PageHeader';
 import { FilterBar, NoMatches } from './FilterBar';
+import { ExplainButton } from './analyst/ExplainButton';
 import { SortableHeader } from './SortableHeader';
 import { useTableState, applyClient, facetOptions } from './useTableState';
 import { formatCents, EXCLUDED_REASON_LABELS, type PaymentDetail } from '@/lib/metrics';
@@ -209,13 +210,14 @@ export const PaymentsTable: React.FC<{ payments: PaymentDetail[]; unmatchedCount
               <tr style={{ background: 'var(--surface-sunken)' }}>
                 <SortableHeader label="Date" sortKey="date" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
                 <SortableHeader label="Customer" sortKey="customer" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
-                <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th} title="initial = the customer's first kept charge (new-client cash); recurring = every later charge">
+                <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide explain-host" style={th} title="initial = the customer's first kept charge (new-client cash); recurring = every later charge">
                   Class
+                  <ExplainButton metricKey="initial_cash" label="Initial cash (payment classes)" variant="icon" className="ml-0.5" />
                 </th>
                 <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
                   Kind
                 </th>
-                <SortableHeader label="Amount" sortKey="amount" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={th} />
+                <SortableHeader label="Amount" sortKey="amount" activeKey={activeSort} dir={dir} onSort={t.setSort} align="right" style={th} explainKey="collected" explainLabel="Cash collected" />
                 <SortableHeader label="Status" sortKey="status" activeKey={activeSort} dir={dir} onSort={t.setSort} style={th} />
                 <th className="text-left px-3 py-2 text-[11px] font-semibold uppercase tracking-wide" style={th}>
                   Matched contact

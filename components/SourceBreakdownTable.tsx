@@ -61,10 +61,10 @@ export const SourceBreakdownTable: React.FC<{ sources: SourceBreakdown[] }> = ({
               <tr style={{ background: 'var(--surface-sunken)' }}>
                 <SortableHeader label="Source" sortKey="source" activeKey={t.state.sort ?? 'applied'} dir={t.state.dir} onSort={t.setSort} style={th} />
                 {FUNNEL_STAGES.map((s) => (
-                  <SortableHeader key={s.key} label={s.label} sortKey={s.key} activeKey={t.state.sort ?? 'applied'} dir={t.state.sort ? t.state.dir : 'desc'} onSort={t.setSort} align="right" style={th} />
+                  <SortableHeader key={s.key} label={s.label} sortKey={s.key} activeKey={t.state.sort ?? 'applied'} dir={t.state.sort ? t.state.dir : 'desc'} onSort={t.setSort} align="right" style={th} explainKey={s.key} />
                 ))}
-                <SortableHeader label="Applied → enrolled" sortKey="conversion" activeKey={t.state.sort} dir={t.state.dir} onSort={t.setSort} align="right" style={th} />
-                <SortableHeader label="Consult show rate" sortKey="showRate" activeKey={t.state.sort} dir={t.state.dir} onSort={t.setSort} align="right" style={th} />
+                <SortableHeader label="Applied → enrolled" sortKey="conversion" activeKey={t.state.sort} dir={t.state.dir} onSort={t.setSort} align="right" style={th} explainKey="applied_to_enrolled" />
+                <SortableHeader label="Consult show rate" sortKey="showRate" activeKey={t.state.sort} dir={t.state.dir} onSort={t.setSort} align="right" style={th} explainKey="consult_show_rate" />
               </tr>
             </thead>
             <tbody>

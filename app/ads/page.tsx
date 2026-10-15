@@ -261,6 +261,7 @@ function AdsTab() {
             title="Campaigns"
             subtitle={`${range.presetLabel} · ${range.resolvedLabel} · FitFlow-tracked counts join contacts to campaigns by utm_campaign · columns follow "Displayed metrics"`}
             icon={Megaphone}
+            explainKey="spend_gate"
           />
           <CampaignTable campaigns={ads.campaigns} previous={ads.previousCampaigns} comparisonLabel={cmpLabel} displayed={display.enabled} awaitingStripe={revenue.awaitingStripe} />
         </Card>

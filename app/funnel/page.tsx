@@ -14,6 +14,8 @@ import { useScorecard } from '@/components/useScorecard';
 import { DataHealthNotice, inputWarnings, appliedCaveatWarnings } from '@/components/DataHealth';
 
 import { ROLE_LABELS } from '@/lib/ghl/roles';
+import { ExplainButton } from '@/components/analyst/ExplainButton';
+import { isGlossaryKey } from '@/lib/analyst/explainSurfaces';
 import { FUNNEL_MODE_LABELS, type FunnelMode } from '@/lib/metrics';
 
 /** A weekly conversion, capped at 100% (audit P1 #3): in-period weeks count events, not the same people, so 5 enrolled after 1 booking is "100%, capped", never 500%. */
@@ -183,20 +185,26 @@ function FunnelTab() {
               <EmptyState compact title="No appointments in this range" description="Show rates appear once consults or roadmaps have an outcome." />
             ) : (
               <div className="flex flex-col gap-4">
-                <RadialRing
-                  value={consult?.rate ?? null}
-                  size={72}
-                  stroke={7}
-                  label="Consult"
-                  sublabel={consult ? (consult.withheld ? `Not shown — ${consult.withheld}` : `${consult.showed} showed · ${consult.noShow} no-show${consult.cancelled ? ` · ${consult.cancelled} cancelled` : ''}`) : 'no consults'}
-                />
-                <RadialRing
-                  value={roadmap?.rate ?? null}
-                  size={72}
-                  stroke={7}
-                  label="Roadmap"
-                  sublabel={roadmap ? (roadmap.withheld ? `Not shown — ${roadmap.withheld}` : `${roadmap.showed} showed · ${roadmap.noShow} no-show${roadmap.cancelled ? ` · ${roadmap.cancelled} cancelled` : ''}`) : 'no roadmaps'}
-                />
+                <div className="relative explain-host">
+                  <ExplainButton metricKey="consult_show_rate" label="Consult show rate" variant="icon" className="explain-abs" />
+                  <RadialRing
+                    value={consult?.rate ?? null}
+                    size={72}
+                    stroke={7}
+                    label="Consult"
+                    sublabel={consult ? (consult.withheld ? `Not shown — ${consult.withheld}` : `${consult.showed} showed · ${consult.noShow} no-show${consult.cancelled ? ` · ${consult.cancelled} cancelled` : ''}`) : 'no consults'}
+                  />
+                </div>
+                <div className="relative explain-host">
+                  <ExplainButton metricKey="roadmap_show_rate" label="Roadmap show rate" variant="icon" className="explain-abs" />
+                  <RadialRing
+                    value={roadmap?.rate ?? null}
+                    size={72}
+                    stroke={7}
+                    label="Roadmap"
+                    sublabel={roadmap ? (roadmap.withheld ? `Not shown — ${roadmap.withheld}` : `${roadmap.showed} showed · ${roadmap.noShow} no-show${roadmap.cancelled ? ` · ${roadmap.cancelled} cancelled` : ''}`) : 'no roadmaps'}
+                  />
+                </div>
               </div>
             )}
           </Card>
@@ -259,7 +267,8 @@ function FunnelTab() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
               {scorecard.timeInStage.map((t) => (
-                <div key={t.role} className="px-3 py-2.5 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+                <div key={t.role} className="px-3 py-2.5 rounded-[8px] relative explain-host" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+                  {isGlossaryKey(`time_in_${t.role}`) && <ExplainButton metricKey={`time_in_${t.role}`} label={`Time in ${ROLE_LABELS[t.role] ?? t.role}`} variant="icon" className="explain-abs" />}
                   <div className="text-[11px] font-medium uppercase tracking-wide truncate" style={{ color: 'var(--text-quaternary)' }}>
                     {ROLE_LABELS[t.role] ?? t.role}
                   </div>

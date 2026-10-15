@@ -7,6 +7,8 @@ import { formatRangeLabel } from '@/lib/dates';
 import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
 import { isMaturingStage, type DataMaturity } from '@/lib/metrics/maturity';
+import { ExplainButton } from './analyst/ExplainButton';
+import { conversionKey } from '@/lib/analyst/explainSurfaces';
 
 export type FunnelConversion = { from: FunnelStageKey; to: FunnelStageKey; current: number | null; previous: number | null; capped?: boolean; tone: ChipTone };
 
@@ -103,9 +105,12 @@ export const Funnel: React.FC<{
                   <span style={{ opacity: 0.75 }}>· {s.dropOff} {cohort ? 'not yet' : 'dropped'}</span>
                 </span>
                 <MaturingBadge maturity={maturity} compact />
+                {conversionKey(prev!.key, s.key) && <ExplainButton metricKey={conversionKey(prev!.key, s.key)!} label={`${prev!.label} → ${s.label}`} variant="icon" />}
               </div>
             )}
 
+            <div className="relative explain-host">
+            <ExplainButton metricKey={s.key} label={s.label} variant="icon" className="explain-abs" />
             <button
               type="button"
               onClick={() => setOpenIndex(i)}
@@ -157,6 +162,7 @@ export const Funnel: React.FC<{
                 {s.withheld ? '—' : s.count}
               </div>
             </button>
+            </div>
             {s.key === 'applied' && appliedCaveat && (appliedCaveat.withoutFormRecord.length > 0 || appliedCaveat.otherPipelines.length > 0) && (
               <div className="pl-[6px] pb-1 text-[11px] flex flex-wrap items-center gap-x-1.5" style={{ color: 'var(--warning)' }} data-testid="applied-caveat">
                 {appliedCaveat.withoutFormRecord.length > 0 && (
@@ -178,6 +184,8 @@ export const Funnel: React.FC<{
       })}
 
       {funnel.previousLeads.count > 0 && (
+        <div className="relative explain-host">
+        <ExplainButton metricKey="previous_leads" label="Previous leads" variant="icon" className="explain-abs" />
         <button
           type="button"
           onClick={() => setOpenIndex(-1)}
@@ -208,6 +216,7 @@ export const Funnel: React.FC<{
             {funnel.previousLeads.count}
           </div>
         </button>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-4 pt-3 text-[11px]" style={{ color: 'var(--text-quaternary)' }}>

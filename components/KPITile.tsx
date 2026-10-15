@@ -3,6 +3,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import { TrendingUp, TrendingDown, Minus, type LucideIcon } from 'lucide-react';
+import { ExplainButton } from './analyst/ExplainButton';
 
 export interface KPITileProps {
   label: string;
@@ -16,6 +17,8 @@ export interface KPITileProps {
   accent?: 'accent' | 'success' | 'warning' | 'danger' | 'info';
   sparkline?: number[];
   className?: string;
+  /** "What does this mean?" (Wave 2 item 6): a glossary key. */
+  explainKey?: string | null;
 }
 
 const ACCENTS = {
@@ -79,6 +82,7 @@ export const KPITile: React.FC<KPITileProps> = ({
   accent = 'accent',
   sparkline,
   className,
+  explainKey,
 }) => {
   const accentColor = ACCENTS[accent];
 
@@ -115,7 +119,7 @@ export const KPITile: React.FC<KPITileProps> = ({
   return (
     <div
       className={clsx(
-        'surface-raised rounded-[12px] p-4 group transition-all duration-200',
+        'surface-raised rounded-[12px] p-4 group explain-host transition-all duration-200',
         'hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
         className,
       )}
@@ -139,6 +143,7 @@ export const KPITile: React.FC<KPITileProps> = ({
           >
             {label}
           </span>
+          {explainKey && <ExplainButton metricKey={explainKey} label={label} variant="icon" className="shrink-0" />}
         </div>
 
         {sparkline && sparkline.length > 1 && (

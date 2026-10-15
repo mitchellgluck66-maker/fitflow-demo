@@ -2,6 +2,7 @@
 
 import React from 'react';
 import clsx from 'clsx';
+import { ExplainButton } from './analyst/ExplainButton';
 import type { LucideIcon } from 'lucide-react';
 
 export interface CardProps {
@@ -60,8 +61,10 @@ export const CardHeader: React.FC<{
   icon?: LucideIcon;
   action?: React.ReactNode;
   className?: string;
-}> = ({ title, subtitle, icon: Icon, action, className }) => (
-  <div className={clsx('flex items-start justify-between gap-3 mb-4', className)}>
+  /** "What does this mean?" (Wave 2 item 6): the card's metric (a glossary key) — an icon beside the title. */
+  explainKey?: string | null;
+}> = ({ title, subtitle, icon: Icon, action, className, explainKey }) => (
+  <div className={clsx('flex items-start justify-between gap-3 mb-4 explain-host', className)}>
     <div className="flex items-start gap-2.5 min-w-0">
       {Icon && (
         <div
@@ -76,10 +79,11 @@ export const CardHeader: React.FC<{
       )}
       <div className="min-w-0">
         <h3
-          className="text-[13.5px] font-semibold leading-tight truncate"
+          className="text-[13.5px] font-semibold leading-tight truncate flex items-center gap-1.5"
           style={{ color: 'var(--text-primary)' }}
         >
           {title}
+          {explainKey && <ExplainButton metricKey={explainKey} label={title} variant="icon" />}
         </h3>
         {subtitle && (
           <p

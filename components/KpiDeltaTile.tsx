@@ -10,6 +10,8 @@ import { KpiTrendPopover } from './KpiTrendPopover';
 import { PeopleDrawer } from './PeopleDrawer';
 import { MaturingBadge } from './MaturingBadge';
 import { isMaturingMetric, type DataMaturity } from '@/lib/metrics/maturity';
+import { ExplainButton } from './analyst/ExplainButton';
+import { isGlossaryKey } from '@/lib/analyst/explainSurfaces';
 
 /**
  * KPI tile driven by an engine `Delta`. Same chrome as KPITile, plus a
@@ -44,6 +46,8 @@ type KpiDeltaTileProps = {
    */
   partial?: { note: string; people?: Array<{ contactId: string | null; name: string }> } | null;
   className?: string;
+  /** "What does this mean?" (Wave 2 item 6): a glossary key; defaults to `trendMetric` when that is one; null hides the button. */
+  explainKey?: string | null;
 } & (
   /** Key in lib/metrics/trendMetrics — enables the click-to-trend drop-down; `trendRange` = the card's range, highlighted there. */
   | { trendMetric: string; trendRange: { start: string; end: string } }
@@ -53,7 +57,8 @@ type KpiDeltaTileProps = {
   | { deltaKind?: 'count' | 'pct' | 'ratio'; currency?: Currency }
 );
 
-export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, trendRange, maturity, maturing, partial, className }) => {
+export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta, deltaKind = 'count', currency, comparisonLabel, subtext, icon: Icon, accent = 'accent', sparkline, ring, empty, trendMetric, trendRange, maturity, maturing, partial, className, explainKey }) => {
+  const explain = explainKey === null ? null : (explainKey ?? (trendMetric && isGlossaryKey(trendMetric) ? trendMetric : null));
   const [namesOpen, setNamesOpen] = useState(false);
   const partialPeople = partial?.people?.filter((p) => p.contactId) ?? [];
   const [open, setOpen] = useState(false);
@@ -78,7 +83,7 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
     <div
       ref={tileRef}
       className={clsx(
-        'surface-raised rounded-[12px] p-4 group transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
+        'surface-raised rounded-[12px] p-4 group explain-host transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]',
         clickable && 'relative cursor-pointer focus-ring',
         className,
       )}
@@ -122,6 +127,7 @@ export const KpiDeltaTile: React.FC<KpiDeltaTileProps> = ({ label, value, delta,
           <span className="text-[11.5px] font-medium uppercase tracking-[0.045em] truncate" style={{ color: 'var(--text-tertiary)' }}>
             {label}
           </span>
+          {explain && <ExplainButton metricKey={explain} label={label} variant="icon" className="shrink-0" />}
           {(maturing ?? (trendMetric ? isMaturingMetric(trendMetric, maturity) : false)) && <MaturingBadge maturity={maturity} compact className="shrink-0" />}
           {partial && !empty && (
             <span className="inline-flex items-center h-[16px] px-1 rounded-[4px] text-[10px] font-semibold uppercase tracking-[0.04em] shrink-0" style={{ background: 'var(--warning-muted)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }} title={partial.note} data-testid="partial-badge">

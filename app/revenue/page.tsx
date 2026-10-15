@@ -144,6 +144,7 @@ function RevenueTab() {
           />
           <KpiDeltaTile
             label="MRR"
+            explainKey="mrr"
             value={formatCents(revenue.mrrCents, ccy, { compact: true })}
             delta={computeDelta(null, null)}
             deltaKind="cents"

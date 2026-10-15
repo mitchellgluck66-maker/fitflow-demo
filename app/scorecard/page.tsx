@@ -9,6 +9,7 @@ import { DateRangePicker } from '@/components/DateRangePicker';
 import { useBusinessTimezone, TimezoneMissing } from '@/components/BusinessTimezone';
 import { KpiDeltaTile } from '@/components/KpiDeltaTile';
 import { FunnelStrip } from '@/components/FunnelStrip';
+import { ExplainButton } from '@/components/analyst/ExplainButton';
 import { formatCents, type Currency } from '@/lib/metrics';
 import { periodFamily, rangeFromParams, todayInTimezone } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
@@ -227,7 +228,8 @@ function ScorecardPage() {
 
   const { view, result } = data;
   const cmpLabel = view.comparison ? `${view.period.label} vs ${view.comparison.label}` : null;
-  const section = (title: string, icon: React.ComponentType<{ size?: number; strokeWidth?: number }>, stats: ScorecardStat[], cols: string, extra?: React.ReactNode) => {
+  // Wave 2 item 6: the server's decisions and the figures without a tile of their own get their "What does this mean?" on the section header.
+  const section = (title: string, icon: React.ComponentType<{ size?: number; strokeWidth?: number }>, stats: ScorecardStat[], cols: string, extra?: React.ReactNode, explain: Array<{ explainKey: string; label: string }> = []) => {
     const Icon = icon;
     return (
       <section className="space-y-3">
@@ -243,6 +245,9 @@ function ScorecardPage() {
               · {cmpLabel}
             </span>
           )}
+          {explain.map((e) => (
+            <ExplainButton key={e.explainKey} metricKey={e.explainKey} label={e.label} variant="full" visible />
+          ))}
         </div>
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${cols} gap-3 stagger`}>
           {stats.map((st) => (
@@ -272,9 +277,9 @@ function ScorecardPage() {
           </Card>
         )}
 
-        {section('Money', Banknote, view.sections.money, 'xl:grid-cols-6')}
+        {section('Money', Banknote, view.sections.money, 'xl:grid-cols-6', undefined, [{ explainKey: 'week_verdict', label: "the week's verdict" }, { explainKey: 'contract_value', label: 'contract value' }])}
         {section('Pipeline', Filter, view.sections.pipeline, 'xl:grid-cols-5')}
-        {section('Ads', Megaphone, view.sections.ads, 'xl:grid-cols-5')}
+        {section('Ads', Megaphone, view.sections.ads, 'xl:grid-cols-5', undefined, [{ explainKey: 'spend_gate', label: 'the spend gate' }])}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <CampaignCard pick={view.campaigns.top} kind="top" note={view.campaigns.note} ccy={view.currency} />
