@@ -55,7 +55,7 @@ export interface SmokeTurnLine {
   error: string | null;
   cacheRead: number;
   /** Item 10: one entry per API request — tool calls it made and its cache share. */
-  rounds: Array<{ toolCalls: number; cacheSharePct: number; cacheReadTokens: number; cacheWriteTokens: number }>;
+  rounds: Array<{ toolCalls: number; cacheSharePct: number; cacheReadTokens: number; cacheWriteTokens: number; /** Wave 2 tune-up 3: the request's wall time. */ seconds?: number }>;
   costUsd: number;
   /** Item D. */
   split: CostSplit | null;
@@ -251,7 +251,7 @@ export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   
 }
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
-  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · first section ${l.firstSectionSeconds === null || l.firstSectionSeconds === undefined ? '—' : `${l.firstSectionSeconds}s`} · total ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
+  const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'}${l.rounds.some((r) => typeof r.seconds === 'number') ? ` · secs/round ${l.rounds.map((r) => (typeof r.seconds === 'number' ? `${r.seconds}` : '—')).join(',')}` : ''} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · first section ${l.firstSectionSeconds === null || l.firstSectionSeconds === undefined ? '—' : `${l.firstSectionSeconds}s`} · total ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
   // The spend decisions print on BOTH outcomes: the ship gate "identical spend: lines across runs" (2026-10-15) is judged
   // from this line even when a non-blocking target (cost, latency, repair share) marks the turn FAIL.
   if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.spend ? ` · ${l.spend}` : ''}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
@@ -367,7 +367,7 @@ export async function runAnalystSmoke(opts: SmokeOptions = {}): Promise<{ lines:
     const rounds: SmokeTurnLine['rounds'] = [];
     const onEvent = (e: AnalystEvent) => {
       if (e.type === 'tools') tools += e.calls.length;
-      if (e.type === 'round') rounds.push({ toolCalls: e.toolCalls, cacheSharePct: e.cacheSharePct, cacheReadTokens: e.cacheReadTokens, cacheWriteTokens: e.cacheWriteTokens });
+      if (e.type === 'round') rounds.push({ toolCalls: e.toolCalls, cacheSharePct: e.cacheSharePct, cacheReadTokens: e.cacheReadTokens, cacheWriteTokens: e.cacheWriteTokens, seconds: e.seconds });
       if (e.type === 'usage') cacheRead = e.usage.cacheReadTokens;
       if (e.type === 'status') opts.log?.(`   turn ${i + 1} · ${e.text}`);
       if (e.type === 'tools') opts.log?.(`   turn ${i + 1} · ${e.calls.map((c) => `${c.ref} ${c.name}`).join(', ')}`);

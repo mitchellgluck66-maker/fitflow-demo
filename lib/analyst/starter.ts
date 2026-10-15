@@ -27,7 +27,7 @@ export const STARTER_CALLS: readonly StarterCall[] = [
   { name: 'get_scorecard', input: { range: { preset: 'last_week', start: '', end: '' }, compare: 'previous_period' } },
 ];
 
-export const STARTER_INSTRUCTION = 'Snapshot for this conversation, fetched by the server just now: data health (r1) and last complete week\'s scorecard vs the previous week with the 8-week baseline (r2) follow as tool results. Cite them like any tool result (each starts with its ref); fetch more only when the question needs another period, a drill-down or people.';
+export const STARTER_INSTRUCTION = 'Snapshot for this conversation, fetched by the server just now: data health (r1) and last complete week\'s scorecard vs the previous week with the 8-week baseline (r2) follow as tool results. Cite them like any tool result (each starts with its ref). When they cover the question, answer in this response — no tool call, no calculate; fetch more only when the question needs another period, a drill-down or people.';
 
 export interface StarterResult {
   ref: string;

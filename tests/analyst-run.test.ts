@@ -224,7 +224,8 @@ describe('the loop (memory store)', () => {
     const out = await runAnalystTurn(thread.id, turn.id, deps);
     expect(out.status).toBe('done');
     const section = events.find((e) => e.type === 'section');
-    expect(section).toMatchObject({ type: 'section', key: 'what_happened', verified: true });
+    expect(section).toMatchObject({ type: 'section', key: 'what_happened', verified: true, index: 0, body_md: '**8** enrollments last week, up from 4.' }); // rendered from the ledger the moment it closed (Wave 2 tune-up 3)
+    expect(events.find((e) => e.type === 'round')).toMatchObject({ type: 'round', seconds: expect.any(Number), firstTokenSeconds: expect.any(Number) });
     expect(events.indexOf(section!)).toBeLessThan(events.findIndex((e) => e.type === 'answer'));
     expect(out.firstSectionSeconds).toBeGreaterThan(0);
     expect(events.find((e) => e.type === 'answer')).toMatchObject({ firstSectionSeconds: out.firstSectionSeconds });
@@ -234,7 +235,13 @@ describe('the loop (memory store)', () => {
     const s2 = await setup(new MemoryAnalystStore(), { client: client2 });
     const out2 = await runAnalystTurn(s2.thread.id, s2.turn.id, s2.deps);
     expect(out2.status).toBe('done');
-    expect(s2.events.filter((e) => e.type === 'section')).toEqual([{ type: 'section', key: 'what_happened', verified: false, seconds: expect.any(Number) }]); // once per turn; the repair round does not re-emit
+    expect(s2.events.filter((e) => e.type === 'section')).toEqual([{ type: 'section', key: 'what_happened', verified: false, seconds: expect.any(Number), index: 0, body_md: '[no source] enrollments.' }]); // once per turn; the repair round does not re-emit
+    // Wave 2 tune-up 3: EVERY section streams as it closes, in order, each verified on its own.
+    const two = answerJson({ sections: [{ key: 'what_happened', body_md: '**{r1:data.kpis.enrollments.current}** enrollments.' }, { key: 'why', body_md: 'Spend was {r1:data.marketing.spendCents}.' }] });
+    const client3 = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(two)], 'end_turn', {}, { deltas: [two.slice(0, two.indexOf('"why"') - 2), two.slice(two.indexOf('"why"') - 2)] })]);
+    const s3 = await setup(new MemoryAnalystStore(), { client: client3 });
+    expect((await runAnalystTurn(s3.thread.id, s3.turn.id, s3.deps)).status).toBe('done');
+    expect(s3.events.filter((e) => e.type === 'section').map((e) => (e.type === 'section' ? [e.index, e.key, e.verified, e.body_md] : null))).toEqual([[0, 'what_happened', true, '**8** enrollments.'], [1, 'why', true, 'Spend was $3,697.68 CAD.']]);
     expect(out2.flagged).toEqual([]);
   });
 

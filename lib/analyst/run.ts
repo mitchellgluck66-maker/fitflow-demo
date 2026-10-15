@@ -26,8 +26,8 @@ import { noteAnthropicOutcome } from '../anthropic/incident';
 import { ANSWER_SCHEMA, AnswerSchema, checkStructure, REPAIR_SCHEMA, RepairSchema, spliceFields, TARGETED_KINDS, type Answer, type RepairFields } from './schema';
 import { Ledger } from './ledger';
 import { repairMessage, targetedRepairMessage, verifyAnswer, type Flag } from './verify';
-import { firstSection } from './partial';
-import { renderAnswer, type RenderedAnswer } from './render';
+import { completedSections } from './partial';
+import { renderAnswer, renderText, type RenderedAnswer } from './render';
 import { applySpendDecisions, type SpendDecision } from './spendDecisions';
 import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
@@ -57,10 +57,10 @@ export type AnalystEvent =
   /** Item 4 (2026-10-06): a repair turn, with every problem that triggered it and the rule each came from. Oct 7 item 2a: `targeted` = only the listed fields are asked for and spliced back; otherwise the whole answer is regenerated. */
   | { type: 'repair'; problems: RepairProblem[]; targeted: boolean; paths: string[] }
   /** One per streamed API response (diagnostics: the probe reads cache hits, dropped thinking, progress updates). */
-  | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number; /** Oct 7 item 2a: this round's price, so a repair round's share of the turn is measurable. */ costUsd: number }
+  | { type: 'round'; stopReason: string | null; inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; /** cacheRead ÷ (input + cacheRead + cacheWrite), % (item 2: ≥ 80 from round 2 is the target). */ cacheSharePct: number; outputTokens: number; droppedThinking: number; progressUpdates: number; toolCalls: number; /** Oct 7 item 2a: this round's price, so a repair round's share of the turn is measurable. */ costUsd: number; /** Wave 2 tune-up 3: this request's wall time, and the time to its first streamed content (thinking or text). */ seconds: number; firstTokenSeconds: number | null }
   | { type: 'tools'; calls: Array<{ ref: string; name: string; label: string }> }
   /** Oct 7 item 6: the first section of the answer completed in the stream and was verified at once — what the owner will see first (Wave 2 streams it). */
-  | { type: 'section'; key: string; verified: boolean; seconds: number }
+  | { type: 'section'; key: string; verified: boolean; seconds: number; /** Wave 2 tune-up 3: the section's position and its body RENDERED from the ledger (flags marked), so the panel shows it the moment it closes. */ index: number; body_md: string }
   | { type: 'answer'; answer: Answer; /** The answer as the owner reads it: every ref token rendered from the ledger (design review 2026-10-03, A). */ rendered: RenderedAnswer; flagged: Flag[]; repaired: boolean; /** How many repair turns this turn took (0 or 1 — the loop allows one). */ repairs: number; strippedSpendActions: number; /** Wave 2 tune-up 1: one spend decision per gate row, in gate order (the server's, or the model's on a may_change row). */ spendDecisions: SpendDecision[]; /** Oct 7 item 6: seconds from the turn's start to the first verified section in the stream (null when none streamed). */ firstSectionSeconds: number | null }
   | { type: 'usage'; usage: UsageTotals; costUsd: number; model: string; rounds: number; estimated: boolean; /** Item D: input · cache read · cache write · thinking · answer. */ split: CostSplit }
   | { type: 'continue' }
@@ -301,24 +301,34 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     return pendingRepair ? buildRepairRequest({ ...input, repairSchema: REPAIR_SCHEMA as unknown as Record<string, unknown> }, { carriesCompaction }) : buildTurnRequest(input, { carriesCompaction });
   };
 
-  // Oct 7 item 6: time to the first verified section — read from the partial answer JSON as it streams.
+  // Oct 7 item 6: time to the first verified section — read from the partial answer JSON as it streams. Wave 2
+  // tune-up 3: EVERY section is verified and emitted (rendered) the moment it closes; each round's wall time and
+  // time-to-first-token are measured.
   let firstSectionSeconds: number | null = null;
+  let lastRoundTiming: { seconds: number; firstTokenSeconds: number | null } = { seconds: 0, firstTokenSeconds: null };
   const streamRound = async (): Promise<BetaMessage> => {
+    const roundStartedAt = now();
+    let firstTokenAt: number | null = null;
     const stream = deps.client.beta.messages.stream(request());
     let lastStatus = '';
     let buffer = '';
     let answerText = '';
     let answerBlock = false;
+    let emittedSections = 0;
     for await (const ev of stream) {
+      if (firstTokenAt === null && ev.type === 'content_block_delta') firstTokenAt = now();
       if (ev.type === 'content_block_start') answerBlock = ev.content_block.type === 'text' || (ev.content_block.type === 'tool_use' && ev.content_block.name === SUBMIT_ANSWER_TOOL);
-      if (firstSectionSeconds === null && !pendingRepair && answerBlock && ev.type === 'content_block_delta' && (ev.delta.type === 'text_delta' || ev.delta.type === 'input_json_delta')) {
+      if (!pendingRepair && answerBlock && ev.type === 'content_block_delta' && (ev.delta.type === 'text_delta' || ev.delta.type === 'input_json_delta')) {
         answerText += ev.delta.type === 'text_delta' ? ev.delta.text : ev.delta.partial_json;
-        const section = firstSection(answerText);
-        if (section) {
+        const sections = completedSections(answerText);
+        for (let i = emittedSections; i < sections.length; i++) {
+          const section = sections[i];
           const probe: Answer = { kind: 'answer', headline: { text: '' }, sections: [{ key: section.key as Answer['sections'][number]['key'], body_md: section.body_md }], actions: [], findings: [], note_proposals: [], clarifying_question: '' };
-          const verified = verifyAnswer(probe, ledger, { staleBefore: deps.staleBefore, question: turn.question }).ok;
-          firstSectionSeconds = Math.round(((now() - startedAt) / 1000) * 10) / 10;
-          await emit({ type: 'section', key: section.key, verified, seconds: firstSectionSeconds });
+          const v = verifyAnswer(probe, ledger, { staleBefore: deps.staleBefore, question: turn.question });
+          const seconds = Math.round(((now() - startedAt) / 1000) * 10) / 10;
+          if (firstSectionSeconds === null) firstSectionSeconds = seconds;
+          await emit({ type: 'section', key: section.key, verified: v.ok, seconds, index: i, body_md: renderText(section.body_md, ledger, v.flagged.filter((f) => f.section === section.key)) });
+          emittedSections = i + 1;
         }
       }
       if (ev.type === 'content_block_delta' && ev.delta.type === 'thinking_delta' && typeof ev.delta.thinking === 'string') buffer += ev.delta.thinking;
@@ -331,7 +341,9 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
         }
       }
     }
-    return stream.finalMessage();
+    const message = await stream.finalMessage();
+    lastRoundTiming = { seconds: Math.round(((now() - roundStartedAt) / 1000) * 10) / 10, firstTokenSeconds: firstTokenAt === null ? null : Math.round(((firstTokenAt - roundStartedAt) / 1000) * 10) / 10 };
+    return message;
   };
 
   let lastInputTotal = 0;
@@ -383,7 +395,7 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
     lastInputTotal = t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
     const dropped = inputTransformations(message);
     const cacheWriteTokens = t.cacheWrite5mTokens + t.cacheWrite1hTokens;
-    await emit({ type: 'round', stopReason: message.stop_reason, inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens, cacheSharePct: cacheSharePct({ inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens }), outputTokens: t.outputTokens, droppedThinking: dropped.length, progressUpdates: progressUpdates(message).length, toolCalls: message.content.filter((b) => b.type === 'tool_use').length, costUsd: roundUsd });
+    await emit({ type: 'round', stopReason: message.stop_reason, inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens, cacheSharePct: cacheSharePct({ inputTokens: t.inputTokens, cacheReadTokens: t.cacheReadTokens, cacheWriteTokens }), outputTokens: t.outputTokens, droppedThinking: dropped.length, progressUpdates: progressUpdates(message).length, toolCalls: message.content.filter((b) => b.type === 'tool_use').length, costUsd: roundUsd, seconds: lastRoundTiming.seconds, firstTokenSeconds: lastRoundTiming.firstTokenSeconds });
     if (dropped.length) await emit({ type: 'status', text: `Earlier reasoning was dropped because the prefix changed (${dropped.map((d) => d.reason ?? d.type).join(', ')}) — expected after a deploy or a brief rebuild.` });
 
     if (message.stop_reason === 'refusal') return fail('Claude declined the request.', true, 'warning');

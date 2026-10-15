@@ -121,6 +121,14 @@ describe('parity with the page functions on the demo database', () => {
     expect(d.marketing.ltvCoverage).toEqual({ used: pc.used, total: pc.total, missingCount: pc.total - pc.used, unit: pc.unit, partial: pc.partial, note: pc.note, missing: { count: pc.missing.length, shown: pc.missing.slice(0, 5).map((m) => m.name), more: Math.max(0, pc.missing.length - 5), note: pc.missing.length > 5 ? expect.stringMatching(/^the first 5 of/) : null } }); // bounded (tune-up 2)
     expect(d.marketing.paidCacCoverage).toMatchObject({ partial: page.scorecard.marketing.paidCacCoverage.partial, note: page.scorecard.marketing.paidCacCoverage.note });
     expect(d.funnelCohort.stages.map((s) => s.count)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => (s.withheld ? null : s.count)));
+    // Wave 2 tune-up 3: the derived figures the model used to compute itself — shares of applied and multiples vs the baseline — are in the result.
+    const stages = d.funnelCohort.stages as unknown as Array<{ shareOfApplied: number | null }>;
+    expect(stages.map((s) => s.shareOfApplied)).toEqual(page.scorecard.cohort.funnel.stages.map((s) => (s.withheld ? null : s.shareOfApplied)));
+    const vs = (d as unknown as { baseline: { vsBaseline: { weeks: number; enrollmentsMultiple: number | null; newPayingClientsMultiple: number | null; initialCashMultiple: number | null; spendMultiple: number | null } } }).baseline.vsBaseline;
+    expect(vs.weeks).toBe(1);
+    const avg = page.baselines.averages;
+    expect(vs.spendMultiple).toBe(avg.spendPerWeekCents ? Math.round((page.scorecard.marketing.spendCents / avg.spendPerWeekCents) * 1000) / 1000 : null);
+    expect(vs.newPayingClientsMultiple).toBe(avg.newPayingClientsPerWeek ? Math.round((page.scorecard.revenue.initialCount / avg.newPayingClientsPerWeek) * 1000) / 1000 : null);
     expect(d.appliedCaveat.text).toBe(page.scorecard.appliedCaveat.text);
     expect(tool.range).toEqual({ start: page.range.start, end: page.range.end, days: 7, label: `${page.range.presetLabel} · ${page.range.resolvedLabel}` });
     expect(tool.currency).toBe(page.money.currency);

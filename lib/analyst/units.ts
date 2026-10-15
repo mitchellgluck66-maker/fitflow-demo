@@ -33,6 +33,8 @@ export const UNIT_CATALOG: Record<string, DeclaredUnit> = {
   consultsBooked: 'count',
   roadmapsBooked: 'count',
   count: 'count',
+  /** Wave 2 tune-up 3: baseline.vsBaseline.weeks — the range's length in weeks (fractional). */
+  weeks: 'number',
   /** Wave 2 tune-up 2: a bounded name list's "and N more" (tools#peopleList). */
   more: 'count',
   daysInStage: 'count',
@@ -160,6 +162,8 @@ const segments = (path: string) => path.split(/[.[]/).filter(Boolean).map((s) =>
 export function resolveUnit(path: string, declared: DeclaredUnit | null): ResolvedUnit {
   const key = lastKey(path);
   if (/Cents$/.test(key)) return { unit: 'cents', reading: null, by: 'suffix' };
+  // Wave 2 tune-up 3: a `…Multiple` leaf is a ratio read as "1.4×" (baseline.vsBaseline.*).
+  if (/Multiple$/.test(key)) return { unit: 'ratio', reading: 'multiple', by: 'suffix' };
   if (GENERIC_VALUE_KEYS.test(key)) {
     if (declared) return { unit: toLedgerUnit(declared), reading: readingOf(declared), by: 'declared' };
     // A generic key inherits its parent's unit when the parent is itself a named metric (kpis.paidCacCents.current,

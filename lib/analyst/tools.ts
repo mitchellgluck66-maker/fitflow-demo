@@ -212,6 +212,13 @@ export function peopleList<T>(items: readonly T[], max = PEOPLE_LIST_MAX): { cou
   return { count: items.length, shown: items.slice(0, max), more, note: more ? `the first ${Math.min(max, items.length)} of ${items.length}; the rest are one tool call away` : null };
 }
 
+/** The range's figures vs the baseline's per-week averages scaled to the range (multiples; null when either side is missing or zero). */
+export function vsBaseline(cur: { days: number; enrollments: number | null; newPayingClients: number | null; initialCashCents: number | null; spendCents: number | null }, avg: { enrollmentsPerWeek: number | null; newPayingClientsPerWeek: number | null; initialCashPerWeekCents: number | null; spendPerWeekCents: number | null }) {
+  const weeks = cur.days / 7;
+  const mult = (value: number | null, perWeek: number | null) => (value === null || perWeek === null || perWeek <= 0 || weeks <= 0 ? null : Math.round((value / (perWeek * weeks)) * 1000) / 1000);
+  return { weeks: Math.round(weeks * 100) / 100, enrollmentsMultiple: mult(cur.enrollments, avg.enrollmentsPerWeek), newPayingClientsMultiple: mult(cur.newPayingClients, avg.newPayingClientsPerWeek), initialCashMultiple: mult(cur.initialCashCents, avg.initialCashPerWeekCents), spendMultiple: mult(cur.spendCents, avg.spendPerWeekCents) };
+}
+
 /** A coverage block for a tool result (names only, bounded). */
 const cov = (c: Coverage) => ({ used: c.used, total: c.total, missingCount: c.total - c.used, unit: c.unit, partial: c.partial, note: c.note, missing: peopleList(c.missing.map((p) => p.name)) });
 
@@ -232,12 +239,14 @@ function gatesOut(g: SpendGates, freshness: Freshness, compact = false) {
 function summarizeFunnel(f: { mode: string; stages: Array<{ key: FunnelStageKey; label: string; count: number; shareOfApplied: number | null; conversionFromPrevious: number | null; conversionFrom: FunnelStageKey | null; capped: boolean; dropOff: number; costPerCents: number | null; withheld?: string | null }>; previousLeads: { count: number } }, maturity: { active: boolean } | null) {
   return {
     mode: f.mode,
-    // Trimmed (item 5): no shareOfApplied (count ÷ applied, derivable), conversionFrom (the stage order) or capped.
+    // Trimmed (item 5): no conversionFrom (the stage order) or capped. shareOfApplied is back (Wave 2 tune-up 3): a
+    // derivable figure the model computed in its own calculate round on every measured run.
     stages: f.stages.map((s) => ({
       key: s.key,
       label: s.label,
       count: s.withheld ? null : s.count,
       withheld: s.withheld ?? null,
+      shareOfApplied: s.withheld ? null : s.shareOfApplied,
       conversionFromPrevious: s.conversionFromPrevious,
       dropOff: s.dropOff,
       costPerCents: s.costPerCents,
@@ -346,6 +355,8 @@ const getScorecardTool = tool(
           newPayingClientsPerWeek: res.baselines.averages.newPayingClientsPerWeek,
           initialCashPerWeekCents: res.baselines.averages.initialCashPerWeekCents,
           spendPerWeekCents: res.baselines.averages.spendPerWeekCents,
+          /** Wave 2 tune-up 3: the range's figure vs the baseline average scaled to the range's length, as multiples ("1.4×") — so no calculate round is needed to compare with normal. */
+          vsBaseline: vsBaseline({ days: Math.round((Date.parse(res.range.end) - Date.parse(res.range.start)) / 86_400_000) + 1, enrollments: sc.kpis.enrollments.current, newPayingClients: sc.revenue.awaitingStripe ? null : sc.revenue.initialCount, initialCashCents: sc.revenue.awaitingStripe ? null : sc.revenue.initialCents, spendCents: m.spendCents }, res.baselines.averages),
           /** Each stage→stage conversion now vs the clean baseline (null baseline = not enough clean weeks → neutral tone). */
           conversions: sc.conversions.map((c) => ({ from: c.from, to: c.to, unit: 'pct', current: c.current, baseline: c.baseline, tone: c.tone })),
         },
