@@ -214,6 +214,39 @@ describe('incident hygiene (auto-resolve + noise sweep)', () => {
     expect((await sweepIncidentNoise()).total).toBe(0);
   });
 
+  it('a failure incident closes itself after the next successful run of the step that raised it (2026-10-15)', async () => {
+    const { syncRuns } = await import('@/db');
+    // Run kinds of their own: the suite's real ghl_delta runs would otherwise supersede the fixture.
+    const t0 = new Date('2026-10-11T20:07:00Z');
+    const [failedRun] = await db.insert(syncRuns).values({ kind: 'test_ghl', trigger: 'cron', status: 'failed', startedAt: t0, finishedAt: new Date(t0.getTime() + 7_000), error: 'GHL 503' }).returning({ id: syncRuns.id });
+    const [stillFailing] = await db.insert(syncRuns).values({ kind: 'test_meta', trigger: 'cron', status: 'failed', startedAt: t0, finishedAt: t0, error: 'Meta 500' }).returning({ id: syncRuns.id });
+    const [okRun] = await db.insert(syncRuns).values({ kind: 'test_stripe', trigger: 'cron', status: 'succeeded', startedAt: t0, finishedAt: t0 }).returning({ id: syncRuns.id });
+    const [earlierOk] = await db.insert(syncRuns).values({ kind: 'test_ghl', trigger: 'cron', status: 'succeeded', startedAt: new Date(t0.getTime() - 3_600_000), finishedAt: new Date(t0.getTime() - 3_600_000 + 5_000) }).returning({ id: syncRuns.id });
+    await db.insert(syncIncidents).values([
+      { syncRunId: failedRun.id, kind: 'error', severity: 'critical', message: 'Appointments read failed: GHL 503 GET /calendars/events', details: { calendar: 'x' } },
+      { syncRunId: stillFailing.id, kind: 'error', severity: 'critical', message: 'Meta sync failed: 500 (no later success)' },
+      { syncRunId: okRun.id, kind: 'stripe_completeness', severity: 'critical', message: 'a condition raised inside a succeeded run — its own lifecycle' },
+    ]);
+    expect(earlierOk.id).toBeTruthy();
+    // Only an EARLIER success exists for test_ghl → nothing closes.
+    expect((await sweepIncidentNoise()).supersededResolved).toBe(0);
+    // The next successful test_ghl run closes the GHL failure; the Meta failure and the condition stay open.
+    const [laterOk] = await db.insert(syncRuns).values({ kind: 'test_ghl', trigger: 'cron', status: 'succeeded', startedAt: new Date(t0.getTime() + 3_600_000), finishedAt: new Date(t0.getTime() + 3_600_000 + 9_000) }).returning({ id: syncRuns.id });
+    await db.insert(syncRuns).values({ kind: 'test_ghl', trigger: 'cron', status: 'partial', startedAt: new Date(t0.getTime() + 1_800_000), finishedAt: new Date(t0.getTime() + 1_800_000 + 9_000) }); // partial is not success
+    const r = await sweepIncidentNoise(new Date('2026-10-15T13:00:00Z'));
+    expect(r.supersededResolved).toBe(1);
+    expect(r.total).toBeGreaterThanOrEqual(1);
+    const [ghl] = await db.select().from(syncIncidents).where(eq(syncIncidents.syncRunId, failedRun.id));
+    expect(ghl.resolvedAt?.toISOString()).toBe('2026-10-15T13:00:00.000Z');
+    expect(ghl.details).toEqual({ calendar: 'x', resolvedBy: `test_ghl run ${laterOk.id} succeeded at 2026-10-11T21:07:09.000Z` });
+    const [meta] = await db.select().from(syncIncidents).where(eq(syncIncidents.syncRunId, stillFailing.id));
+    expect(meta.resolvedAt).toBeNull();
+    const [cond] = await db.select().from(syncIncidents).where(eq(syncIncidents.syncRunId, okRun.id));
+    expect(cond.resolvedAt).toBeNull();
+    // Idempotent.
+    expect((await sweepIncidentNoise()).supersededResolved).toBe(0);
+  });
+
   it('PATCH {noise:true} is the bulk action', async () => {
     await db.insert(syncIncidents).values({ kind: 'unmapped_stage', severity: 'warning', message: 'orphan 2', details: { stageId: 'st-gone-2' } });
     const res = await incidentsPatch(patch('/api/incidents', { noise: true }));

@@ -7,15 +7,21 @@
  *   - unmapped_stage whose stage now has a role, is archived, no longer
  *     exists, or belongs to an unfollowed / archived pipeline;
  *   - silence incidents older than 48h (a newer sync has run since);
- *   - repeated error incidents with the same message — all but the newest.
+ *   - repeated error incidents with the same message — all but the newest;
+ *   - (2026-10-15) an incident raised by a run that FAILED / timed out, once a later run of the same step
+ *     (same sync_runs.kind) has succeeded — resolved with details.resolvedBy naming that run. A failure is
+ *     superseded by success; a condition raised inside a succeeded run (unmapped stage, drift, token expiry)
+ *     keeps its own lifecycle and is never closed this way.
  * Runs at the start of every GHL sync, when a pipeline is unfollowed, from
  * the dispatch, from Setup ("Resolve all noise") and `npm run incidents:sweep`.
  */
 
-import { and, desc, eq, isNull, lt } from 'drizzle-orm';
-import { db, syncIncidents, stages, pipelines } from '@/db';
+import { and, asc, desc, eq, gt, isNull, lt } from 'drizzle-orm';
+import { db, syncIncidents, syncRuns, stages, pipelines } from '@/db';
 
 export interface NoiseSweepResult {
+  /** Raised by a failed / timed-out run whose step has since succeeded (2026-10-15). */
+  supersededResolved: number;
   unmappedResolved: number;
   silenceResolved: number;
   duplicateErrorsResolved: number;
@@ -27,11 +33,34 @@ export interface NoiseSweepResult {
 const SILENCE_TTL_MS = 48 * 60 * 60 * 1000;
 
 export async function sweepIncidentNoise(now: Date = new Date()): Promise<NoiseSweepResult> {
-  const out: NoiseSweepResult = { unmappedResolved: 0, silenceResolved: 0, duplicateErrorsResolved: 0, total: 0, openAfter: 0 };
+  const out: NoiseSweepResult = { supersededResolved: 0, unmappedResolved: 0, silenceResolved: 0, duplicateErrorsResolved: 0, total: 0, openAfter: 0 };
   const resolve = async (ids: string[]) => {
     for (const id of ids) await db.update(syncIncidents).set({ resolvedAt: now }).where(and(eq(syncIncidents.id, id), isNull(syncIncidents.resolvedAt)));
     return ids.length;
   };
+
+  // ---- superseded by a later successful run of the same step (2026-10-15) ------
+  const openFromRuns = await db
+    .select({ id: syncIncidents.id, details: syncIncidents.details, runKind: syncRuns.kind, runStatus: syncRuns.status, runStartedAt: syncRuns.startedAt })
+    .from(syncIncidents)
+    .innerJoin(syncRuns, eq(syncIncidents.syncRunId, syncRuns.id))
+    .where(isNull(syncIncidents.resolvedAt));
+  for (const i of openFromRuns) {
+    if (i.runStatus !== 'failed' && i.runStatus !== 'timed_out') continue;
+    const [later] = await db
+      .select({ id: syncRuns.id, startedAt: syncRuns.startedAt, finishedAt: syncRuns.finishedAt })
+      .from(syncRuns)
+      .where(and(eq(syncRuns.kind, i.runKind), eq(syncRuns.status, 'succeeded'), gt(syncRuns.startedAt, i.runStartedAt)))
+      .orderBy(asc(syncRuns.startedAt))
+      .limit(1);
+    if (!later) continue;
+    const resolvedBy = `${i.runKind} run ${later.id} succeeded at ${(later.finishedAt ?? later.startedAt).toISOString()}`;
+    await db
+      .update(syncIncidents)
+      .set({ resolvedAt: now, details: { ...(i.details ?? {}), resolvedBy } })
+      .where(and(eq(syncIncidents.id, i.id), isNull(syncIncidents.resolvedAt)));
+    out.supersededResolved += 1;
+  }
 
   // ---- unmapped_stage -------------------------------------------------------
   const openUnmapped = await db.select().from(syncIncidents).where(and(eq(syncIncidents.kind, 'unmapped_stage'), isNull(syncIncidents.resolvedAt)));
@@ -71,7 +100,7 @@ export async function sweepIncidentNoise(now: Date = new Date()): Promise<NoiseS
   }
   out.duplicateErrorsResolved = await resolve(dupes);
 
-  out.total = out.unmappedResolved + out.silenceResolved + out.duplicateErrorsResolved;
+  out.total = out.supersededResolved + out.unmappedResolved + out.silenceResolved + out.duplicateErrorsResolved;
   out.openAfter = (await db.select({ id: syncIncidents.id }).from(syncIncidents).where(isNull(syncIncidents.resolvedAt))).length;
   return out;
 }

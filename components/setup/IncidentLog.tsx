@@ -124,7 +124,7 @@ export const IncidentLog: React.FC = () => {
       defaultOpen={openCount > 0}
       action={
         <div className="flex items-center gap-2">
-          <Button variant="ghost" icon={Eraser} loading={busy === 'noise'} onClick={resolveNoise} title="Resolve unmapped-stage incidents from unfollowed / mapped / archived pipelines, stale silence notices and duplicate errors">
+          <Button variant="ghost" icon={Eraser} loading={busy === 'noise'} onClick={resolveNoise} title="Resolve unmapped-stage incidents from unfollowed / mapped / archived pipelines, stale silence notices, duplicate errors, and failures whose step has since succeeded">
             Resolve all noise
           </Button>
           <Badge variant={openCount ? 'warning' : 'success'} dot>
