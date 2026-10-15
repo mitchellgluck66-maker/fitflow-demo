@@ -6,6 +6,10 @@ import { NavBar } from '@/components/NavBar';
 import { StaleSyncBanner } from '@/components/StaleSyncBanner';
 import { PageTransition } from '@/components/PageTransition';
 import { BusinessTimezoneProvider } from '@/components/BusinessTimezone';
+import { Suspense } from 'react';
+import { AnalystProvider } from '@/components/analyst/AnalystProvider';
+import { AnalystLauncher } from '@/components/analyst/AnalystLauncher';
+import { AnalystPanel } from '@/components/analyst/AnalystPanel';
 import { getTimezone } from '@/lib/settings';
 
 // The layout reads the business timezone from the database on every request (F8) — never prerendered.
@@ -56,20 +60,30 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap"
         />
       </head>
       <body className="min-h-screen antialiased">
         <ThemeProvider>
           <BusinessTimezoneProvider timezone={tz.timezone} error={tz.error}>
-            <NavBar />
-            {tz.error && (
-              <div role="alert" className="px-4 py-2 text-[13px] text-center" style={{ background: 'var(--negative-muted, var(--danger-muted))', color: 'var(--negative-text, var(--danger))' }}>
-                {tz.error}
-              </div>
-            )}
-            <StaleSyncBanner />
-            <PageTransition>{children}</PageTransition>
+            {/* The Analyst (Wave 2): the provider reads the URL for page context (hence the Suspense boundary); the
+                app shell is what the open panel condenses; the orb and the panel are mounted once, hidden on /login. */}
+            <Suspense fallback={<div className="app-shell">{children}</div>}>
+              <AnalystProvider>
+                <div className="app-shell">
+                  <NavBar />
+                  {tz.error && (
+                    <div role="alert" className="px-4 py-2 text-[13px] text-center" style={{ background: 'var(--negative-muted, var(--danger-muted))', color: 'var(--negative-text, var(--danger))' }}>
+                      {tz.error}
+                    </div>
+                  )}
+                  <StaleSyncBanner />
+                  <PageTransition>{children}</PageTransition>
+                </div>
+                <AnalystLauncher />
+                <AnalystPanel />
+              </AnalystProvider>
+            </Suspense>
           </BusinessTimezoneProvider>
         </ThemeProvider>
       </body>

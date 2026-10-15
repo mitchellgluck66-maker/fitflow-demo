@@ -51,7 +51,7 @@ export const Toast: React.FC<ToastProps> = ({
 
   return (
     <div
-      className="fixed bottom-5 right-5 max-w-sm"
+      className="fixed bottom-5 right-[104px] max-w-sm" /* clear of the Analyst orb (Wave 2) */
       style={{
         zIndex: 'var(--z-toast)' as unknown as number,
         animation: leaving
