@@ -59,6 +59,19 @@ export interface PageContext {
   selected?: { kind: 'metric' | 'campaign' | 'client' | 'stage'; id: string; label?: string } | null;
 }
 
+/** "What does this mean?" — the glossary's definition and the worked formula for the range on screen, computed by the server (the panel's formula box). */
+export type ExplainInfo = {
+  key: string;
+  label: string;
+  definition: string;
+  differsFrom: string;
+  formula: string;
+  worked: string;
+  value: number | null;
+  reason: string | null;
+  maturing: boolean;
+};
+
 export interface UserTurnInput {
   question: string;
   kind: 'answer' | 'explain' | 'report';
@@ -66,7 +79,7 @@ export interface UserTurnInput {
   /** The data-health line for this turn, decided by the server (never by the model). */
   healthLine: string;
   /** For explain: the glossary definition + worked formula. */
-  explain?: { key: string; label: string; definition: string; differsFrom: string; formula: string; worked: string; value: number | null; reason: string | null; maturing: boolean } | null;
+  explain?: ExplainInfo | null;
   /** For a preset report: its instructions. */
   preset?: { name: string; instructions: string } | null;
   /** Today's local date, so "this week" resolves; goes in the user turn, never in system. */

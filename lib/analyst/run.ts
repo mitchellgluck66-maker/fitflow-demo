@@ -31,7 +31,7 @@ import { renderAnswer, renderText, type RenderedAnswer } from './render';
 import { applySpendDecisions, type SpendDecision } from './spendDecisions';
 import { formatUsd, priceUsage, shouldPause, splitUsage, usageTotals, type CostSplit, type UsageLike, type UsageTotals } from './cost';
 import { runAnalystTool, type AnalystTool, type Freshness, type ToolResult } from './tools';
-import { COMPACTION_INSTRUCTIONS } from './prompts';
+import { COMPACTION_INSTRUCTIONS, type ExplainInfo } from './prompts';
 import { SNAPSHOT_PREFIX } from './starter';
 import type { AnalystStore, MessageRow, NewMessage, TurnRow } from './store';
 import type { AnalystModel, AnswerMode, Effort } from './config';
@@ -53,6 +53,8 @@ export function countRepairs(events: ReadonlyArray<Record<string, unknown>>): nu
 
 export type AnalystEvent =
   | { type: 'notice'; text: string; stale: boolean }
+  /** Wave 2 item 4a: an explain turn's glossary definition and worked formula, computed by the server — the panel's formula box, shown before the model writes a word. */
+  | ({ type: 'explain' } & ExplainInfo)
   | { type: 'status'; text: string }
   /** Item 4 (2026-10-06): a repair turn, with every problem that triggered it and the rule each came from. Oct 7 item 2a: `targeted` = only the listed fields are asked for and spliced back; otherwise the whole answer is regenerated. */
   | { type: 'repair'; problems: RepairProblem[]; targeted: boolean; paths: string[] }
@@ -92,6 +94,8 @@ export interface RunDeps {
   userTurn?: string;
   /** Item 4: on a NEW thread, the server-fetched snapshot rows that open the log (they carry the user turn). */
   starterRows?: NewMessage[] | null;
+  /** Wave 2 item 4a: for an explain turn, the glossary + worked formula (emitted as an event, stored on the user row's display). */
+  explain?: ExplainInfo | null;
   /** USD the owner allowed for this run (the cap, or a confirmed amount). */
   allowedUsd: number;
   now?: () => number;
@@ -277,13 +281,15 @@ export async function runAnalystTurn(threadId: string, turnId: string, deps: Run
   const alreadyStarted = rows.some((r) => r.turnId === turnId);
   if (!alreadyStarted) {
     if (!deps.userTurn) return fail('no user turn to run', false);
+    const explainDisplay = deps.explain ? { explain: deps.explain } : {};
     if (rows.length === 0 && deps.starterRows?.length) {
       // A new thread opens with the snapshot (r1, r2) and the question inside the same user message (one row).
-      await store.appendMessages(threadId, deps.starterRows);
+      await store.appendMessages(threadId, deps.starterRows.map((r, i) => (i === 0 ? { ...r, display: { ...(r.display ?? {}), ...explainDisplay } } : r)));
       await emit({ type: 'tools', calls: deps.starterRows.flatMap((r) => ((r.display?.tools as Array<{ ref: string; name: string; label: string }> | undefined) ?? [])) });
-    } else await store.appendMessages(threadId, [{ turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: deps.userTurn } satisfies BetaMessageParam), display: { question: turn.question } }]);
+    } else await store.appendMessages(threadId, [{ turnId, role: 'user', apiJson: JSON.stringify({ role: 'user', content: deps.userTurn } satisfies BetaMessageParam), display: { question: turn.question, ...explainDisplay } }]);
     rows = await store.listMessages(threadId);
     await emit({ type: 'notice', text: deps.freshness.line, stale: deps.freshness.stale });
+    if (deps.explain) await emit({ type: 'explain', ...deps.explain });
   }
   const { ledger } = ledgerFromLog(rows);
   let calls = ledgerFromLog(rows).calls;

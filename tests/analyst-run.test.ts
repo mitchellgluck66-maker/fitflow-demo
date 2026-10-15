@@ -394,6 +394,17 @@ describe('the loop (memory store)', () => {
     expect(events.some((e) => e.type === 'status' && e.text === 'spend action "Move $500 to Broad" (shift account) replaced by a hold: a data source is stale')).toBe(true);
   });
 
+  it('Wave 2 item 4a: an explain turn emits the server-computed formula right after the notice and stores it on the user row', async () => {
+    const store = new MemoryAnalystStore();
+    const explain = { key: 'paid_cac', label: 'Paid CAC', definition: 'd', differsFrom: 'x', formula: 'spend ÷ paid enrollments', worked: '$3,697.68 CAD ÷ 4 = $924.42 CAD', value: 92_442, reason: null, maturing: false };
+    const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(answerJson({ kind: 'explain', sections: [{ key: 'what_it_is', body_md: 'a' }, { key: 'what_yours_says', body_md: '{r1:data.kpis.enrollments.current}' }, { key: 'what_to_do', body_md: 'c' }] }))])]);
+    const { thread, turn, events, deps } = await setup(store, { client, explain });
+    expect((await runAnalystTurn(thread.id, turn.id, deps)).status).toBe('done');
+    expect(events.findIndex((e) => e.type === 'explain')).toBe(events.findIndex((e) => e.type === 'notice') + 1);
+    expect(events.find((e) => e.type === 'explain')).toEqual({ type: 'explain', ...explain });
+    expect((await store.listMessages(thread.id))[0].display).toEqual({ question: 'How did we do?', explain });
+  });
+
   it('dropped thinking (input_transformations) is logged as a status, not an error', async () => {
     const store = new MemoryAnalystStore();
     const client = fakeClient([msg([toolUse('tu1')], 'tool_use'), msg([text(answerJson())], 'end_turn', {}, { input_transformations: [{ type: 'thinking_dropped', reason: 'prefix_binding_mismatch' }] })]);
