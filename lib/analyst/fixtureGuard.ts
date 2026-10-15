@@ -79,7 +79,10 @@ export function findLeaks(text: string, people: Person[]): Leak[] {
     if (n.length >= 5 && n.includes(' ') && new RegExp(escapeRe(n.toLowerCase()).replace(/ /g, '\\s+')).test(lower)) names += 1;
     if (p.email && p.email.includes('@') && lower.includes(p.email.toLowerCase())) emails += 1;
     const d = p.phone ? digits(p.phone) : '';
-    if (d.length >= 10 && (text.includes(p.phone!.trim()) || text.includes(d))) phones += 1;
+    // A phone matches as a WHOLE digit run (2026-10-15): a 10-digit string inside a longer number — the decimals of a
+    // cost such as 0.3877…004, a timestamp in ms — is not that phone. The formatted value still matches verbatim.
+    const formatted = p.phone?.trim() ?? '';
+    if (d.length >= 10 && ((formatted !== d && text.includes(formatted)) || new RegExp(`(?<!\\d)${d}(?!\\d)`).test(text))) phones += 1;
   }
   const out: Leak[] = [];
   if (names) out.push({ kind: 'name', count: names });
