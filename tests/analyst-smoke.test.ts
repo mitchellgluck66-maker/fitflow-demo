@@ -75,6 +75,8 @@ describe('item 10: the per-turn line and the targets', () => {
     expect(spendLine([{ kind: 'spend', campaign: 'Scaling', spend_change: 'hold' }, { kind: 'creative', campaign: '', spend_change: 'none' }, { kind: 'spend', campaign: '', spend_change: 'shift' }])).toBe('spend: hold Scaling, shift account');
     expect(spendLine([])).toBe('spend: none');
     expect(formatSmokeTurn(line({ spend: 'spend: hold Scaling' }))).toContain(' · sections 1 (what_happened) · spend: hold Scaling');
+    // 2026-10-15: a turn that misses a non-blocking target still prints its spend decisions — the ship gate reads them.
+    expect(formatSmokeTurn(line({ status: 'FAIL', spend: 'spend: hold Scaling', misses: ['cost $0.50 USD > $0.45 USD (warm)'] }))).toContain(' · spend: hold Scaling · missed: cost $0.50 USD > $0.45 USD (warm)');
     const row = { apiJson: JSON.stringify({ role: 'user', content: [{ type: 'text', text: `${SNAPSHOT_PREFIX}${JSON.stringify({ ref: 'r2', data: { spendGates: { account: { campaign: 'account', decision: 'hold', basis: '3 of 4 tracked enrollments, 5 of 4 weeks with spend' }, campaigns: [{ campaign: 'Scaling', decision: 'may_change', basis: '6 tracked enrollments over 5 weeks with spend' }] } } })}` }] }) };
     expect(starterGates([row])).toBe('spend gates: account hold (3 of 4 tracked enrollments, 5 of 4 weeks with spend) · Scaling may change (6 tracked enrollments over 5 weeks with spend)');
     expect(starterGates(null)).toBeNull();

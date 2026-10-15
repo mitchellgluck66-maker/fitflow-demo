@@ -254,7 +254,9 @@ export function formatRepairs(events: ReadonlyArray<AnalystEvent>, indent = '   
 
 export function formatSmokeTurn(l: SmokeTurnLine): string {
   const metrics = `${l.rounds.length} round${l.rounds.length === 1 ? '' : 's'} · tools/round ${l.rounds.map((r) => r.toolCalls).join(',') || '—'} · cache ${l.rounds.map((r) => `${Math.round(r.cacheSharePct)}%`).join('/') || '—'} · ${prefixLine(l.rounds)} · repairs ${l.repairs}${repairKindsLine(l.repairKinds)} · flagged ${l.flagged} · first section ${l.firstSectionSeconds === null || l.firstSectionSeconds === undefined ? '—' : `${l.firstSectionSeconds}s`} · total ${l.seconds}s · ${formatUsd(l.costUsd)}${l.estimateUsd !== null ? ` vs est ${formatUsd(l.estimateUsd)}${l.estimatePrefix ? ` (${l.estimatePrefix})` : ''}${pctOf(l)}` : ''}${prefixMismatchLine(l)}`;
-  if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
+  // The spend decisions print on BOTH outcomes: the ship gate "identical spend: lines across runs" (2026-10-15) is judged
+  // from this line even when a non-blocking target (cost, latency, repair share) marks the turn FAIL.
+  if (l.status === 'FAIL') return `FAIL turn ${l.turn} · "${l.question || '(explain paid_cac)'}" · ${metrics}${l.spend ? ` · ${l.spend}` : ''}${l.error ? ` · ${l.error}` : ''}${l.misses.length ? ` · missed: ${l.misses.join('; ')}` : ''}`;
   return `PASS turn ${l.turn} · ${metrics} · sections ${l.sections.length} (${l.sections.join(',')})${l.spend ? ` · ${l.spend}` : ''}${l.proposals.length ? ` · ${l.proposals.length} note proposal(s): ${l.proposals.map((p) => `"${p}"`).join(' | ')}` : ''}\n     ↳ ${l.headline}`;
 }
 
