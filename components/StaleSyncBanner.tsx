@@ -23,7 +23,7 @@ interface Status {
 }
 
 /** Pages without pipeline data on them. */
-const QUIET_PATHS = ['/login', '/setup', '/reports'];
+const QUIET_PATHS = ['/login', '/setup', '/reports', '/companion'];
 
 export function relativeAge(iso: string | null, now: number = Date.now()): string {
   if (!iso) return 'never';

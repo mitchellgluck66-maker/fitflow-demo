@@ -47,8 +47,8 @@ export const NavBar: React.FC = () => {
     }
   };
 
-  // The gate has no chrome.
-  if (pathname === '/login') return null;
+  // The gate has no chrome; the Companion has its own (components/companion/CompanionShell).
+  if (pathname === '/login' || pathname === '/companion' || pathname.startsWith('/companion/')) return null;
 
   return (
     <header

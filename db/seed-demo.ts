@@ -36,8 +36,10 @@ import {
   emailDigests,
   syncRuns,
   ghlOpportunities,
+  appUsers,
 } from './index';
 import { runMigrations } from './migrate';
+import { hashPassword } from '../lib/auth/password';
 import { clearDemoData } from '../lib/provenance';
 import { suggestRole } from '../lib/ghl/roles';
 import { normalizeEmail, normalizePhone } from '../lib/ghl/transitions';
@@ -73,6 +75,9 @@ const START_DATE = '2026-06-16';
 const FIRST = ['Vanitha', 'August', 'June', 'James', 'Sarah', 'Alex', 'Jordan', 'Casey', 'Morgan', 'Taylor', 'Riley', 'Chris', 'Jamie', 'Kelly', 'Drew', 'Quinn', 'Blake', 'Avery', 'Dakota', 'Phoenix', 'Maya', 'Elena', 'Noah', 'Liam', 'Priya', 'Marcus', 'Sofia', 'Ethan', 'Grace', 'Omar', 'Hannah', 'Leo', 'Nina', 'Caleb', 'Isla', 'Mateo', 'Zoe', 'Ravi', 'Tessa', 'Julian'];
 const LAST = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Moore', 'Jackson', 'White', 'Harris', 'Clark', 'Lewis', 'Patel', 'Nguyen', 'Kim', 'Okafor', 'Silva', 'Chen', 'Murphy', 'Reyes', 'Foster', 'Bennett'];
 const OWNERS = ['Miranda', 'Jake'];
+/** Companion stage 1: the demo onboarding login and the demo GHL user her appointments are assigned to. */
+export const DEMO_COMPANION_USER = { name: 'Miranda Demo', email: 'miranda@fitflow.demo', password: 'demo-companion', ghlUserId: 'demo-user-miranda' } as const;
+const DEMO_GHL_USER_OF: Record<string, string> = { Miranda: DEMO_COMPANION_USER.ghlUserId, Jake: 'demo-user-jake' };
 /** Names of the unmatched Stripe customers (emails FitFlow has never seen). */
 const UNMATCHED_CUSTOMERS: Array<[string, string]> = [['m.okonkwo', 'maria.okonkwo@gmail.com'], ['t.reyes', 'tomas.reyes.fit@outlook.com']];
 const customerNameOf = (email: string) => email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -622,6 +627,7 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
       startTime: a.at,
       endTime: new Date(a.at.getTime() + (a.type === 'Consult' ? 30 : 60) * 60_000),
       timezone: TZ,
+      assignedUserId: DEMO_GHL_USER_OF[l.owner] ?? null,
       assignedTo: l.owner,
       ghlStatus: a.status,
       outcome: a.status === 'showed' ? 'showed' : a.status === 'noshow' ? 'no_show' : a.status === 'cancelled' ? 'cancelled' : null,
@@ -936,6 +942,10 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
     });
   }
   await chunkInsert(digestRows, (c) => db.insert(emailDigests).values(c));
+
+  // ---- Companion login (stage 1): one onboarding user whose day is the demo appointments ------------
+  await db.delete(appUsers).where(sql`lower(${appUsers.email}) = ${DEMO_COMPANION_USER.email}`);
+  await db.insert(appUsers).values({ name: DEMO_COMPANION_USER.name, email: DEMO_COMPANION_USER.email, role: 'onboarding', passwordHash: hashPassword(DEMO_COMPANION_USER.password), ghlUserId: DEMO_COMPANION_USER.ghlUserId });
 
   // ---- Sync runs (history for the Sync health panel) -------------------------
   const runRows: Array<typeof syncRuns.$inferInsert> = [];

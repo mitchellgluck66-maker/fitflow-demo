@@ -452,6 +452,6 @@ export function AnalystProvider({ children }: { children: React.ReactNode }) {
   );
 
   // The gate has no chrome: nothing mounts on /login.
-  if (pathname === '/login') return <>{children}</>;
+  if (pathname === '/login' || pathname === '/companion' || pathname?.startsWith('/companion/')) return <>{children}</>;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

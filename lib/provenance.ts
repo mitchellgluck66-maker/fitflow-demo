@@ -3,7 +3,7 @@
  * The sample-data banner reads this; the Setup page's reset button uses it.
  */
 
-import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents, ghlOpportunities } from '@/db';
+import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents, ghlOpportunities, appUsers } from '@/db';
 import { desc, eq, like, sql } from 'drizzle-orm';
 
 export interface Provenance {
@@ -93,6 +93,8 @@ export async function clearDemoData(): Promise<{
     .returning({ id: aiReports.id });
   const d = await db.delete(emailDigests).where(like(emailDigests.subject, '[demo] %')).returning({ id: emailDigests.id });
   const r = await db.delete(syncRuns).where(eq(syncRuns.trigger, 'demo')).returning({ id: syncRuns.id });
+  // Companion stage 1: the demo onboarding login (db/seed-demo#DEMO_COMPANION_USER) — real logins are never touched.
+  await db.delete(appUsers).where(like(appUsers.email, '%@fitflow.demo'));
   await db.delete(syncIncidents).where(sql`${syncIncidents.details} ->> 'demo' = 'true'`);
   return {
     contactsRemoved: c.length,
