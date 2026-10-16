@@ -8,9 +8,13 @@
  *   skip      neither set AND not production → local dev, no auth
  *   closed    production without APP_PASSWORD or AUTH_SECRET → every
  *             protected request gets a clear error; nothing leaks
+ *
+ * Roles (Companion stage 1): a valid session carries `owner` or `onboarding`.
+ * `owner` reaches everything; `onboarding` reaches ONLY the Companion
+ * (`roleAllows`) — any other page is sent to /companion, any other API is 403.
  */
 
-import { verifySession, type SessionCheck } from './session';
+import { verifySession, type SessionCheck, type SessionClaims, type SessionRole } from './session';
 
 export type AuthMode = 'enforce' | 'skip' | 'closed';
 
@@ -58,12 +62,31 @@ export function isApiPath(pathname: string): boolean {
   return pathname === '/api' || pathname.startsWith('/api/');
 }
 
+/** The Companion's home — where an onboarding login lands and is sent back to. */
+export const COMPANION_HOME = '/companion';
+
+/** True for the Companion's pages and APIs (`/companion`, `/companion/*`, `/api/companion/*`). */
+export function isCompanionPath(pathname: string): boolean {
+  return pathname === COMPANION_HOME || pathname.startsWith(`${COMPANION_HOME}/`) || pathname.startsWith('/api/companion/');
+}
+
+/** Pure: may this role reach this path? Exempt paths are decided before this is asked. */
+export function roleAllows(role: SessionRole, pathname: string): boolean {
+  if (role === 'owner') return true;
+  // onboarding: the Companion, and signing out.
+  return isCompanionPath(pathname) || pathname.startsWith('/api/auth/');
+}
+
 export type SessionFailure = Extract<SessionCheck, { ok: false }>['reason'];
 
 export type AuthDecision =
-  | { action: 'allow'; reason: 'exempt' | 'dev_skip' | 'session'; refresh: boolean }
+  | { action: 'allow'; reason: 'exempt' | 'dev_skip' | 'session'; refresh: boolean; claims?: SessionClaims }
   | { action: 'redirect_login'; reason: SessionFailure }
   | { action: 'unauthorized_json'; reason: SessionFailure }
+  /** A signed-in onboarding user asked for a page outside the Companion → send them home. */
+  | { action: 'redirect_companion'; role: SessionRole }
+  /** … or an API outside it → 403, never data. */
+  | { action: 'forbidden_json'; role: SessionRole }
   | { action: 'fail_closed'; missing: string[]; api: boolean };
 
 export async function decide(params: { pathname: string; cookie: string | null | undefined; env: AuthEnv; nowSeconds?: number }): Promise<AuthDecision> {
@@ -75,6 +98,9 @@ export async function decide(params: { pathname: string; cookie: string | null |
   if (mode === 'closed') return { action: 'fail_closed', missing, api: isApiPath(pathname) };
 
   const check = await verifySession(cookie, env.AUTH_SECRET!, params.nowSeconds);
-  if (check.ok) return { action: 'allow', reason: 'session', refresh: check.shouldRefresh };
-  return isApiPath(pathname) ? { action: 'unauthorized_json', reason: check.reason } : { action: 'redirect_login', reason: check.reason };
+  if (!check.ok) return isApiPath(pathname) ? { action: 'unauthorized_json', reason: check.reason } : { action: 'redirect_login', reason: check.reason };
+  if (!roleAllows(check.claims.role, pathname)) {
+    return isApiPath(pathname) ? { action: 'forbidden_json', role: check.claims.role } : { action: 'redirect_companion', role: check.claims.role };
+  }
+  return { action: 'allow', reason: 'session', refresh: check.shouldRefresh, claims: check.claims };
 }

@@ -6,13 +6,14 @@
  *
  *   page, no session      → 302 /login?next=<path>
  *   API, no session       → 401 JSON
+ *   onboarding role, page outside /companion → 307 /companion; API outside → 403 JSON
  *   production, no APP_PASSWORD / AUTH_SECRET → fails CLOSED (503 + clear text)
  *   local dev, unset      → auth skipped
  * A valid session older than a day is re-issued (30-day sliding expiry).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { decide } from './lib/auth/policy';
+import { decide, COMPANION_HOME } from './lib/auth/policy';
 import { SESSION_COOKIE, signSession, sessionCookieOptions } from './lib/auth/session';
 
 const env = () => ({
@@ -41,8 +42,17 @@ export async function proxy(request: NextRequest) {
       if (!decision.refresh) return NextResponse.next();
       // Sliding expiry: re-issue the cookie on an active session.
       const res = NextResponse.next();
-      res.cookies.set(SESSION_COOKIE, await signSession(process.env.AUTH_SECRET!), sessionCookieOptions(request.nextUrl.protocol === 'https:'));
+      const identity = decision.claims ? { uid: decision.claims.uid, role: decision.claims.role } : undefined;
+      res.cookies.set(SESSION_COOKIE, await signSession(process.env.AUTH_SECRET!, identity), sessionCookieOptions(request.nextUrl.protocol === 'https:'));
       return res;
+    }
+    case 'forbidden_json':
+      return NextResponse.json({ error: 'Forbidden', detail: 'This login can only use the Companion.' }, { status: 403 });
+    case 'redirect_companion': {
+      const url = request.nextUrl.clone();
+      url.pathname = COMPANION_HOME;
+      url.search = '';
+      return NextResponse.redirect(url);
     }
     case 'unauthorized_json':
       return NextResponse.json({ error: 'Unauthorized', detail: 'Sign in at /login' }, { status: 401 });

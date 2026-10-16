@@ -130,9 +130,15 @@ export {
   analystMessages,
   appliedLedger,
   appliedRatioDaily,
+  appUsers,
+  APP_USER_ROLES,
   SEMANTIC_ROLES,
 } from './schema';
 export type {
+  AppUser,
+  NewAppUser,
+  AppUserRole,
+  CompanionPreferences,
   SemanticRole,
   Origin,
   PaymentClass,

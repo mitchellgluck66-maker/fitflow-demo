@@ -41,6 +41,7 @@ import { IncidentLog } from '@/components/setup/IncidentLog';
 import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
 import { CurrencyCard } from '@/components/setup/CurrencyCard';
 import { CredentialsKeyNotice } from '@/components/setup/CredentialsKeyNotice';
+import { UsersCard } from '@/components/setup/UsersCard';
 
 interface Credentials {
   configured: boolean;
@@ -769,6 +770,9 @@ export default function SetupPage() {
             </>
           )}
         </AccordionCard>
+
+        {/* ---- Users (Companion stage 1) ---- */}
+        <UsersCard />
 
         {/* ---- Ad spend (manual) ---- */}
         {/* ---- Money rails (Phase C) ---- */}

@@ -867,5 +867,43 @@ export const appliedRatioDaily = pgTable(
   (t) => [primaryKey({ columns: [t.campaignId, t.date] }), index('applied_ratio_key_idx').on(t.campaignKey, t.date)],
 );
 
+// ---------------------------------------------------------------------------
+// App users (Onboarding Companion stage 1, migration 0021). Per-person logins:
+// role 'owner' reaches everything, 'onboarding' only /companion. password_hash is
+// scrypt (lib/auth/password.ts); preferences = the Companion's per-user settings.
+// ---------------------------------------------------------------------------
+
+export const APP_USER_ROLES = ['owner', 'onboarding'] as const;
+export type AppUserRole = (typeof APP_USER_ROLES)[number];
+
+/** The Companion's per-user preferences (item 4). `calendarIds: null` = every calendar where the user is assigned. */
+export interface CompanionPreferences {
+  calendarIds?: string[] | null;
+  timezone?: string | null;
+  autoAdvance?: boolean;
+}
+
+export const appUsers = pgTable(
+  'app_users',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    role: text('role').$type<AppUserRole>().notNull(),
+    passwordHash: text('password_hash').notNull(),
+    /** The GoHighLevel user whose appointments are "my day" (null for an owner who takes no calls). */
+    ghlUserId: text('ghl_user_id'),
+    active: boolean('active').notNull().default(true),
+    preferences: jsonb('preferences').$type<CompanionPreferences>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [uniqueIndex('app_users_email_uidx').on(sql`lower(${t.email})`)],
+);
+export type AppUser = typeof appUsers.$inferSelect;
+export type NewAppUser = typeof appUsers.$inferInsert;
+
 export type AppliedLedgerRow = typeof appliedLedger.$inferSelect;
 export type AppliedRatioDailyRow = typeof appliedRatioDaily.$inferSelect;

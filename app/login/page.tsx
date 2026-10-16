@@ -10,6 +10,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,13 +28,16 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      const body = await res.json().catch(() => ({}));
+      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }) });
+      const body = (await res.json().catch(() => ({}))) as { error?: string; detail?: string; home?: string; role?: string };
       if (!res.ok) {
         setError(body.detail ? `${body.error}. ${body.detail}` : (body.error ?? 'Could not sign in'));
         return;
       }
-      router.replace(next);
+      // An onboarding login lives in the Companion: it lands there whatever `next` said (the interceptor would
+      // bounce anything else anyway). Owners go where they were headed.
+      const home = body.home ?? '/';
+      router.replace(body.role === 'onboarding' ? (next.startsWith(home) ? next : home) : next);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -59,8 +63,25 @@ function LoginForm() {
       <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-[10px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
         <LockKeyhole size={14} strokeWidth={2.3} className="mt-px shrink-0" style={{ color: 'var(--accent)' }} />
         <p className="text-[12.5px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
-          This dashboard holds real client data. Enter the team password to continue.
+          This dashboard holds real client data. Sign in with your login — owners can leave the email blank and use the team password.
         </p>
+      </div>
+
+      <div>
+        <label htmlFor="email" className="block text-[12.5px] font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+          Email <span style={{ color: 'var(--text-quaternary)' }}>(optional for the team password)</span>
+        </label>
+        <input
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+          autoFocus
+          placeholder="you@example.com"
+          className="w-full h-9 px-3 text-[13.5px] rounded-[8px] focus-ring"
+          style={{ background: 'var(--surface)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
+        />
       </div>
 
       <div>
@@ -74,7 +95,6 @@ function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
-            autoFocus
             required
             aria-invalid={error ? true : undefined}
             className="w-full h-9 pl-3 pr-9 text-[13.5px] rounded-[8px] focus-ring"

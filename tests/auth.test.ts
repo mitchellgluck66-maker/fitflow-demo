@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { signSession, verifySession, timingSafeEqualBytes, SESSION_COOKIE, SESSION_TTL_SECONDS, SLIDE_AFTER_SECONDS } from '@/lib/auth/session';
+import { signSession, verifySession, timingSafeEqualBytes, SESSION_COOKIE, SESSION_TTL_SECONDS, SLIDE_AFTER_SECONDS, ENV_OWNER } from '@/lib/auth/session';
 import { decide, authMode, isExemptPath, isApiPath } from '@/lib/auth/policy';
 import { passwordMatches, checkLoginRateLimit, resetLoginRateLimit, LOGIN_RATE_LIMIT } from '@/lib/auth/login';
 import { proxy } from '@/proxy';
@@ -17,17 +17,18 @@ const NOW = 1_800_000_000;
 
 describe('session tokens', () => {
   it('signs and verifies; a fresh token does not need a refresh', async () => {
-    const t = await signSession(SECRET, NOW);
-    expect(t.startsWith(`v1.${NOW}.${NOW + SESSION_TTL_SECONDS}.`)).toBe(true);
+    const t = await signSession(SECRET, ENV_OWNER, NOW);
+    expect(t.startsWith(`v2.${NOW}.${NOW + SESSION_TTL_SECONDS}.env-owner.owner.`)).toBe(true);
     const v = await verifySession(t, SECRET, NOW + 60);
-    expect(v).toMatchObject({ ok: true, claims: { iat: NOW, exp: NOW + SESSION_TTL_SECONDS }, shouldRefresh: false });
+    expect(v).toMatchObject({ ok: true, claims: { iat: NOW, exp: NOW + SESSION_TTL_SECONDS, uid: 'env-owner', role: 'owner', version: 'v2' }, shouldRefresh: false });
   });
 
   it('rejects a tampered token, a wrong secret, a malformed token and an expired one', async () => {
-    const t = await signSession(SECRET, NOW);
-    const [v, iat, exp, sig] = t.split('.');
-    expect(await verifySession(`${v}.${iat}.${Number(exp) + 86_400}.${sig}`, SECRET, NOW)).toEqual({ ok: false, reason: 'bad_signature' }); // exp edited
-    expect(await verifySession(`${v}.${iat}.${exp}.${sig.slice(0, -2)}xx`, SECRET, NOW)).toEqual({ ok: false, reason: 'bad_signature' });
+    const t = await signSession(SECRET, ENV_OWNER, NOW);
+    const [v, iat, exp, uid, role, sig] = t.split('.');
+    expect(await verifySession(`${v}.${iat}.${Number(exp) + 86_400}.${uid}.${role}.${sig}`, SECRET, NOW)).toEqual({ ok: false, reason: 'bad_signature' }); // exp edited
+    expect(await verifySession(`${v}.${iat}.${exp}.${uid}.onboarding.${sig}`, SECRET, NOW)).toEqual({ ok: false, reason: 'bad_signature' }); // role edited
+    expect(await verifySession(`${v}.${iat}.${exp}.${uid}.${role}.${sig.slice(0, -2)}xx`, SECRET, NOW)).toEqual({ ok: false, reason: 'bad_signature' });
     expect(await verifySession(t, 'another-secret', NOW)).toEqual({ ok: false, reason: 'bad_signature' });
     expect(await verifySession('garbage', SECRET, NOW)).toEqual({ ok: false, reason: 'malformed' });
     expect(await verifySession('v1.x.y.z', SECRET, NOW)).toEqual({ ok: false, reason: 'malformed' });
@@ -36,7 +37,7 @@ describe('session tokens', () => {
   });
 
   it('slides: after a day of age the token asks to be re-issued', async () => {
-    const t = await signSession(SECRET, NOW);
+    const t = await signSession(SECRET, ENV_OWNER, NOW);
     expect((await verifySession(t, SECRET, NOW + SLIDE_AFTER_SECONDS - 1)) as { shouldRefresh: boolean }).toMatchObject({ shouldRefresh: false });
     expect((await verifySession(t, SECRET, NOW + SLIDE_AFTER_SECONDS)) as { shouldRefresh: boolean }).toMatchObject({ shouldRefresh: true });
   });
@@ -69,7 +70,7 @@ describe('policy', () => {
   });
 
   it('decide: exempt allow; page redirect; API 401; valid cookie allow; tampered reject; dev skip; prod fail-closed', async () => {
-    const good = await signSession(SECRET, NOW);
+    const good = await signSession(SECRET, ENV_OWNER, NOW);
     expect(await decide({ pathname: '/api/health', cookie: null, env: PROD, nowSeconds: NOW })).toMatchObject({ action: 'allow', reason: 'exempt' });
     expect(await decide({ pathname: '/scorecard', cookie: null, env: PROD, nowSeconds: NOW })).toMatchObject({ action: 'redirect_login', reason: 'missing' });
     expect(await decide({ pathname: '/api/scorecard', cookie: null, env: PROD, nowSeconds: NOW })).toMatchObject({ action: 'unauthorized_json', reason: 'missing' });
@@ -139,11 +140,11 @@ describe('proxy (request interceptor)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toBeNull();
 
-    const old = await signSession(SECRET, Math.floor(Date.now() / 1000) - 2 * SLIDE_AFTER_SECONDS);
+    const old = await signSession(SECRET, ENV_OWNER, Math.floor(Date.now() / 1000) - 2 * SLIDE_AFTER_SECONDS);
     const refreshed = await proxy(req('/scorecard', { cookie: old }));
     expect(refreshed.status).toBe(200);
     const cookie = refreshed.headers.get('set-cookie') ?? '';
-    expect(cookie).toContain(`${SESSION_COOKIE}=v1.`);
+    expect(cookie).toContain(`${SESSION_COOKIE}=v2.`);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/Secure/i);
     expect(cookie).toMatch(/SameSite=lax/i);
