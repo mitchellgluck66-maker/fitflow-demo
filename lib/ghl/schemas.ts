@@ -238,5 +238,32 @@ export function parseMany<T>(
   return { valid, rejected, warnings };
 }
 
+/**
+ * Companion stage 1 (read-only GETs): a contact's notes and the contact search.
+ *   GET /contacts/{id}/notes      → { notes: [{ id, body, userId, dateAdded, contactId }] }
+ *   GET /contacts/?query=&limit=  → { contacts: [...] }   (the 2021-07-28 search; the newer /contacts/search is a POST)
+ */
+export const GhlNoteSchema = z.object({
+  id: z.string().min(1),
+  body: z.string().default(''),
+  userId: optionalString,
+  dateAdded: optionalString,
+  contactId: optionalString,
+});
+export type GhlNote = z.infer<typeof GhlNoteSchema>;
+export const GhlNotesResponseSchema = z.object({ notes: z.array(z.unknown()).default([]) });
+
+export const GhlContactSummarySchema = z.object({
+  id: z.string().min(1),
+  firstName: optionalString,
+  lastName: optionalString,
+  name: optionalString,
+  contactName: optionalString,
+  email: optionalString,
+  phone: optionalString,
+});
+export type GhlContactSummary = z.infer<typeof GhlContactSummarySchema>;
+export const GhlContactsSearchResponseSchema = z.object({ contacts: z.array(z.unknown()).default([]) });
+
 /** GET /opportunities/{id} — the opportunity is validated separately with GhlOpportunitySchema. */
 export const GhlOpportunityByIdResponseSchema = z.object({ opportunity: z.unknown() });

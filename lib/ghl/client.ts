@@ -22,7 +22,11 @@ import {
   GhlAppointmentSchema,
   GhlCalendarsResponseSchema,
   GhlContactResponseSchema,
+  GhlContactSummarySchema,
+  GhlContactsSearchResponseSchema,
   GhlEventsResponseSchema,
+  GhlNoteSchema,
+  GhlNotesResponseSchema,
   GhlOpportunitySchema,
   GhlOpportunityByIdResponseSchema,
   GhlOpportunitySearchResponseSchema,
@@ -32,6 +36,8 @@ import {
   type GhlAppointment,
   type GhlCalendar,
   type GhlContact,
+  type GhlContactSummary,
+  type GhlNote,
   type GhlOpportunity,
   type GhlPipeline,
 } from './schemas';
@@ -470,6 +476,30 @@ export async function getContact(contactId: string): Promise<GhlResult<{ contact
     { method: 'GET', endpoint: `/contacts/${contactId}`, family: 'contacts' },
     GhlContactResponseSchema,
   );
+}
+
+/**
+ * A contact's notes, newest first (Companion stage 1 — the pop-out brief). Read-only. A token without notes access
+ * comes back as `error` (never thrown, never silent): the brief shows "Notes unavailable: …".
+ */
+export async function listContactNotes(contactId: string): Promise<{ notes: GhlNote[]; rejected: number; error?: string }> {
+  const result = await ghlRequest({ method: 'GET', endpoint: `/contacts/${contactId}/notes`, family: 'contacts' }, GhlNotesResponseSchema);
+  if (!result.ok || !result.data) return { notes: [], rejected: 0, error: result.error ?? `GHL ${result.status}` };
+  const parsed = parseMany(GhlNoteSchema, result.data.notes, 'note');
+  const byDate = (a: GhlNote, b: GhlNote) => (Date.parse(b.dateAdded ?? '') || 0) - (Date.parse(a.dateAdded ?? '') || 0);
+  return { notes: parsed.valid.sort(byDate), rejected: parsed.rejected };
+}
+
+/** Contact search by name / email / phone (Companion stage 1 — the pop-out search). Read-only GET, ≤ `limit` rows. */
+export async function searchContacts(query: string, limit = 8): Promise<{ contacts: GhlContactSummary[]; rejected: number; error?: string }> {
+  const config = await getGhlConfig();
+  const result = await ghlRequest(
+    { method: 'GET', endpoint: '/contacts/', family: 'contacts', query: { locationId: config.locationId, query, limit } },
+    GhlContactsSearchResponseSchema,
+  );
+  if (!result.ok || !result.data) return { contacts: [], rejected: 0, error: result.error ?? `GHL ${result.status}` };
+  const parsed = parseMany(GhlContactSummarySchema, result.data.contacts, 'contact');
+  return { contacts: parsed.valid, rejected: parsed.rejected };
 }
 
 export async function listUsers(): Promise<

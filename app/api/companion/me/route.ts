@@ -16,6 +16,7 @@ export async function GET() {
     const timezone = await timezoneFor(v.viewing).catch(() => null);
     return NextResponse.json({
       user: { id: me.user.uid, name: me.user.name, email: me.user.email, role: me.user.role, source: me.user.source, hasRow: me.user.source === 'db' },
+      preferences: { calendarIds: v.viewing.preferences.calendarIds ?? null, timezone: v.viewing.preferences.timezone ?? null, autoAdvance: v.viewing.preferences.autoAdvance ?? true },
       viewing: { id: v.viewing.id, name: v.viewing.name, ghlUserId: v.viewing.ghlUserId, isSelf: v.viewing.isSelf, autoPicked: v.viewing.autoPicked },
       technicians: v.technicians,
       timezone,
