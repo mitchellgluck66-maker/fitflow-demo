@@ -44,6 +44,11 @@ large changes. This file is the standing contract.
    parsed 0 opportunities because of it. Every numeric field in
    `lib/ghl/schemas.ts` is therefore coercive (`ghlNumber`: number or numeric
    string); put any new numeric field on that helper.
+   `GET /calendars/events` applies `startTime` / `endTime` at DAY granularity in the
+   calendar's timezone (2026-10-16, Companion check: a window of Oct 13 00:00–23:59
+   Edmonton returned Oct 12's calls from 06:00 Pacific) — every per-day reader
+   post-filters by its own instants (`lib/companion/source#withinWindow`); the sync's
+   wide window is a harmless superset.
 8. **Metric definitions (Phase G, Sept 1 CEO meeting) — never present a computed
    number whose inputs are missing; show the data-health warning instead.**
    - *Currency (C1, 2026-09-29 audit — NON-NEGOTIABLE)*: the business reports in
@@ -1290,6 +1295,40 @@ proof is Mitchell's: `npm run eval:analyst`, `npm run smoke:analyst` twice, `ANA
 - **Not in this wave**: Wave 3 (report presets, storage, history, the weekly cron), retiring the Ask card, any metric
   definition, anything in `docs/deferred.md` (its decision log now records a 2026-10-15 ruling on Applied — not acted on:
   a metric-definition change needs Mitchell's explicit go).
+
+## Onboarding Companion — Stage 1 (2026-10-16, `docs/plan-companion-stage1.md`, read-only)
+
+Miranda's own front door: a login that opens ONLY `/companion`. Writes NOTHING to GHL — `ENABLE_WRITEBACK` untouched,
+every new GHL call a GET through `ghlRequest`, `verify-readonly.sh` unchanged. Migration 0021 (additive, RLS on).
+
+- **Logins + roles** (`app_users`: scrypt `lib/auth/password.ts`; `lib/auth/users.ts`): `owner` reaches everything,
+  `onboarding` only `/companion*` + `/api/companion/*` (+ sign-out) — other pages 307 `/companion`, other APIs 403
+  (`lib/auth/policy#roleAllows`). Session v2 `v2.<iat>.<exp>.<uid>.<role>.<sig>`; v1 cookies still verify as the env
+  owner; the team password (`APP_PASSWORD`) still signs an owner in (uid `env-owner`, no row, no preferences).
+  `lib/auth/currentUser.ts` re-reads `active` on every Companion / Users call → a disabled login is 401 "Account
+  disabled or removed" on its next request. Setup → Users (owner only; `GET/POST /api/users`, `PATCH /api/users/[id]`):
+  add, disable, reset password (shown once, never stored readable), link the GHL user. Passwords are never logged.
+- **My day** (`/companion`, `GET /api/companion/day?date&user`): calls matched by ASSIGNED USER (`assignedUserId` or
+  `users[]`) across every active calendar — Miranda's span nine, not the five in the brief — with the calendar list only
+  a per-user filter. LIVE from GHL, cached 120 s per (user, day, filter) in `lib/companion/source.ts`; any failure →
+  the mirror (`appointments`) with `source: 'mirror'`, `asOf` (the `ghl.appointments` marker) and the reason, never
+  cached. Status chips (`lib/companion/day#statusOf`): up next / in progress / needs outcome / logged (EMPTY until
+  stage 2) / "showed · no-show · cancelled in GHL". Counter "N calls · N logged · N need an outcome". Owner views a
+  technician ("viewing as", `?user=`). No chrome from the dashboard (NavBar / banner / Analyst hidden on `/companion`).
+- **Pop-out** (`components/companion/PopOutButton` → Document Picture-in-Picture, Chrome 116+, 360×520, an iframe of
+  `/companion/popout`; elsewhere a plain popup + "can't float" line): auto-selects the call within ±10 min of now, else
+  the one in progress, else the next, else the last (`selectCurrent`); ◀ ▶ pin a call until it ends; search = mirror +
+  live `GET /contacts/?query=`; brief = name, email, phone, call type, days in pipeline (followed-pipeline opportunity
+  `createdAt` → contact opportunity date → contact created, labelled), stage, last 3 notes (`GET /contacts/{id}/notes`;
+  a refused read is "Notes unavailable: <reason>"), outcome area disabled "Logging arrives in stage 2".
+- **Settings** (`/companion/settings`): calendar filter (live list, mirror fallback with the reason), time zone,
+  auto-advance, change password — `app_users.preferences` (`lib/companion/preferences.ts`); the team-password owner
+  gets 409 "Sign in with a personal login".
+- **Proof**: `tests/companion-{auth,day,brief,settings}.test.ts`; `npm run companion:check [-- --user <email> |
+  --ghl-user <id>]` = the last 5 working days, the Companion's live day vs an independent walk (every calendar, one
+  7-day window, bucketed by local date) vs the mirror, every difference printed, PASS only when identical
+  (2026-10-16: 5/5 for Miranda). `npm run screenshots -- --companion` (demo tenant; the seed adds
+  `miranda@fitflow.demo` / `demo-companion`). Deploy: `npm run db:migrate` (0021) THEN push, then Setup → Users.
 
 ## Working agreements
 

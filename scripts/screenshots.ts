@@ -4,6 +4,7 @@
  *   npm run screenshots            # against http://localhost:3000 (start `next dev` first)
  *   BASE_URL=http://localhost:3111 npm run screenshots
  *   npm run screenshots -- --explain-audit   # only the audit: every glossary key must appear as [data-explain] on the pages
+ *   npm run screenshots -- --companion       # only the Onboarding Companion: My day, the pop-out, settings (desktop + 360 px)
  *
  * Output: docs/screens/{light,dark}/{page}.png (full page, 1440px wide).
  * Theme is forced by stamping data-theme on <html> before each capture, the
@@ -53,6 +54,7 @@ const AUDIT_PAGES = ['/?range=last_30_days&compare=previous_period', '/scorecard
 
 async function main() {
   const auditOnly = process.argv.includes('--explain-audit');
+  const companionOnly = process.argv.includes('--companion');
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
@@ -60,6 +62,11 @@ async function main() {
     const ok = await explainAudit(page);
     await browser.close();
     process.exit(ok ? 0 : 1);
+  }
+  if (companionOnly) {
+    await captureCompanion(browser);
+    await browser.close();
+    return;
   }
 
   // Resolve the first client id for the profile shot.
@@ -75,6 +82,7 @@ async function main() {
   try {
     await capture(page, context, clientId, setCurrency, original);
     await captureAnalyst(browser);
+    await captureCompanion(browser);
   } finally {
     await setCurrency(original);
   }
@@ -139,6 +147,63 @@ async function captureAnalyst(browser: import('playwright').Browser) {
         await page.screenshot({ path: path.join(OUT, theme, `analyst-${state}${suffix}.png`), fullPage: false });
         console.log(`✓ ${theme}/analyst-${state}${suffix}.png`);
       }
+      await context.close();
+    }
+  }
+}
+
+/**
+ * The Onboarding Companion (stage 1): My day and Settings at 1440 px and 360 px, the pop-out at its real window
+ * size (360×520, `float=0` so the page shows the cannot-float line a plain window gets), both themes. The server
+ * must run on the demo tenant (auth off → the dev owner views the demo onboarding user); the day captured is today
+ * when it has calls, else the nearest earlier day with calls so the cards and the brief are not empty.
+ */
+async function captureCompanion(browser: import('playwright').Browser) {
+  const probePage = await browser.newPage();
+  const probe = await probePage.request.get(`${BASE}/api/companion/day`);
+  if (!probe.ok()) {
+    console.log(`– companion-* skipped: /api/companion/day answered ${probe.status()}`);
+    await probePage.close();
+    return;
+  }
+  const today = ((await probe.json()) as { today: string; calls: unknown[] });
+  let date = today.today;
+  if (today.calls.length === 0) {
+    for (let back = 1; back <= 60; back += 1) {
+      const d = new Date(Date.UTC(Number(today.today.slice(0, 4)), Number(today.today.slice(5, 7)) - 1, Number(today.today.slice(8, 10)) - back)).toISOString().slice(0, 10);
+      const r = (await (await probePage.request.get(`${BASE}/api/companion/day?date=${d}`)).json()) as { calls: unknown[] };
+      if (r.calls.length > 0) {
+        date = d;
+        break;
+      }
+    }
+  }
+  await probePage.close();
+  const shots: Array<{ name: string; path: string; viewport: { width: number; height: number }; mobile: boolean; fullPage: boolean }> = [
+    { name: 'companion-day', path: `/companion?date=${date}`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'companion-day-mobile', path: `/companion?date=${date}`, viewport: { width: 360, height: 740 }, mobile: true, fullPage: true },
+    { name: 'companion-popout', path: `/companion/popout?date=${date}&float=0`, viewport: { width: 360, height: 520 }, mobile: false, fullPage: false },
+    { name: 'companion-settings', path: '/companion/settings', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'companion-settings-mobile', path: '/companion/settings', viewport: { width: 360, height: 740 }, mobile: true, fullPage: true },
+  ];
+  for (const theme of ['light', 'dark'] as const) {
+    fs.mkdirSync(path.join(OUT, theme), { recursive: true });
+    for (const shot of shots) {
+      const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: 1, isMobile: shot.mobile, hasTouch: shot.mobile });
+      await context.addInitScript((t) => {
+        try {
+          localStorage.setItem('fitflow-theme', t);
+        } catch {
+          /* ignore */
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      }, theme);
+      const page = await context.newPage();
+      await page.goto(`${BASE}${shot.path}`, { waitUntil: 'networkidle' });
+      await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: path.join(OUT, theme, `${shot.name}.png`), fullPage: shot.fullPage });
+      console.log(`✓ ${theme}/${shot.name}.png`);
       await context.close();
     }
   }
