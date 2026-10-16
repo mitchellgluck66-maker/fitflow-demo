@@ -102,6 +102,12 @@ function toRaw(e: LiveEvent, calendar: { id: string; name: string }): RawCall {
   };
 }
 
+/** True when the event's start lies inside [startMs, endMs] — exported for the sync-side readers that share the quirk. */
+export function withinWindow(startTime: string, startMs: number, endMs: number): boolean {
+  const t = Date.parse(startTime);
+  return Number.isFinite(t) && t >= startMs && t <= endMs;
+}
+
 const byStart = (a: RawCall, b: RawCall) => Date.parse(a.startIso) - Date.parse(b.startIso) || a.eventId.localeCompare(b.eventId);
 
 /** Live first (cached 2 min), mirror on failure. Never throws for a GHL problem — it reports it. */
@@ -133,7 +139,9 @@ async function readLive(p: LoadDayParams, startMs: number, endMs: number): Promi
       const res = await p.live.listAppointments({ startTimeMs: startMs, endTimeMs: endMs, calendarId: cal.id });
       // One calendar failing would silently drop its calls: the whole day falls back instead.
       if (res.error) return { ok: false, error: `Calendar "${cal.name}": ${res.error}` };
-      for (const e of res.events) if (isAssignedTo(e, p.ghlUserId)) calls.push(toRaw(e, cal));
+      // GHL applies startTime/endTime at DAY granularity in the calendar's timezone (runtime evidence 2026-10-16:
+      // a window of Oct 13 00:00–23:59 Edmonton returned Oct 12's calls from 06:00 Pacific). Our instants decide.
+      for (const e of res.events) if (isAssignedTo(e, p.ghlUserId) && withinWindow(e.startTime, startMs, endMs)) calls.push(toRaw(e, cal));
     }
     return { ok: true, calls, calendars: active };
   } catch (err) {

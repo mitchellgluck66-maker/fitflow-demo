@@ -133,6 +133,26 @@ describe('loadDayRaw', () => {
     expect(new Date(endMs).toISOString()).toBe('2026-10-17T05:59:59.999Z');
   });
 
+  it("drops events GHL returns outside the asked window (its filter is day-granular in the calendar's timezone)", async () => {
+    // The fake honours the window; GHL does not. Simulate GHL by ignoring the window for this calendar.
+    const sloppy: LiveGhl = {
+      async listCalendars() {
+        return { ok: true, calendars: [{ id: 'cal-consult', name: '15-Minute Fit Physician Consult ', isActive: true }] };
+      },
+      async listAppointments() {
+        return {
+          events: [
+            { id: 'prev-day', calendarId: 'cal-consult', contactId: 'c0', startTime: '2026-10-12T13:00:00-07:00', assignedUserId: ME }, // Oct 12 14:00 Edmonton
+            { id: 'this-day', calendarId: 'cal-consult', contactId: 'c1', startTime: '2026-10-13T07:00:00-07:00', assignedUserId: ME }, // Oct 13 08:00 Edmonton
+            { id: 'next-day', calendarId: 'cal-consult', contactId: 'c2', startTime: '2026-10-13T23:30:00-07:00', assignedUserId: ME }, // Oct 14 00:30 Edmonton
+          ],
+        };
+      },
+    };
+    const day = await loadDayRaw({ ...base, live: sloppy, date: '2026-10-13' });
+    expect(day.calls.map((c) => c.eventId)).toEqual(['this-day']);
+  });
+
   it('the calendar filter narrows the live read; an unknown filter id reads nothing (no silent widening)', async () => {
     const { live, calls } = fakeLive({ 'cal-consult': [{ id: 'e1', contactId: 'c1', startTime: '2026-10-16T15:00:00Z', assignedUserId: ME }], 'cal-roadmap': [{ id: 'r1', contactId: 'c6', startTime: '2026-10-16T19:00:00Z', assignedUserId: ME }] });
     const day = await loadDayRaw({ ...base, live, calendarFilter: ['cal-roadmap'] });
