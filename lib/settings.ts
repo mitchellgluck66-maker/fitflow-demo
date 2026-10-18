@@ -110,6 +110,8 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.metaBackfillFrom]: '2026-07-16',
   [SETTING_KEYS.historyCompleteSince]: '2026-09-01',
   [SETTING_KEYS.disclaimerSunset]: '2026-10-15',
+  // Companion stage 2: outcome logging is a DRY RUN until the owner turns it off on Setup → Companion.
+  companion_dry_run: 'true',
   [SETTING_KEYS.reportingCurrency]: 'CAD',
   [SETTING_KEYS.contractValueCurrency]: 'CAD',
   // First sends go to Mitchell until recipients are changed on the Reports page.
