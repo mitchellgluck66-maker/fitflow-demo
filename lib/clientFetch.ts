@@ -9,11 +9,14 @@
 export class FetchJsonError extends Error {
   readonly status: number | null;
   readonly kind: 'network' | 'timeout' | 'http' | 'parse';
-  constructor(message: string, kind: FetchJsonError['kind'], status: number | null = null) {
+  /** The API's JSON body on an HTTP error (a 409 may carry more than `error`). */
+  readonly body: unknown;
+  constructor(message: string, kind: FetchJsonError['kind'], status: number | null = null, body: unknown = null) {
     super(message);
     this.name = 'FetchJsonError';
     this.kind = kind;
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -49,7 +52,7 @@ export async function fetchJson<T>(url: string, init: RequestInit = {}, opts: { 
     if (!res.ok) {
       const b = (body ?? {}) as { error?: string; detail?: string };
       const text = b.error ? (b.detail && b.detail !== b.error ? `${b.error} — ${b.detail}` : b.error) : `HTTP ${res.status}`;
-      throw new FetchJsonError(text, 'http', res.status);
+      throw new FetchJsonError(text, 'http', res.status, body);
     }
     return body as T;
   } catch (error) {

@@ -7,12 +7,14 @@
  *   up_next        starts later
  *   in_progress    now is between start and end (end defaults to start + 30 min)
  *   needs_outcome  ended, no outcome anywhere
- *   logged         logged in the Companion — stays EMPTY until stage 2 (no code path sets it)
+ *   logged         logged in the Companion (stage 2): the newest live log for the event is ok (or still running)
+ *   dry_run        logged while dry run was on — recorded in FitFlow, nothing sent to GHL
+ *   failed         the newest log is partial / failed — stays red until retried or undone
  */
 
 import type { CallType } from './calendars';
 
-export type CallStatus = 'up_next' | 'in_progress' | 'needs_outcome' | 'logged' | 'ghl_outcome';
+export type CallStatus = 'up_next' | 'in_progress' | 'needs_outcome' | 'logged' | 'dry_run' | 'failed' | 'ghl_outcome';
 export type GhlOutcome = 'showed' | 'no_show' | 'cancelled';
 
 export const DEFAULT_CALL_MINUTES = 30;
@@ -38,14 +40,29 @@ export interface CompanionCall {
   ghlStatus: string | null;
   outcomeInGhl: GhlOutcome | null;
   status: CallStatus;
-  /** Stage 2 — always false here. */
+  /** True when a live (not undone) Companion log exists for the event. */
   logged: boolean;
+  /** The newest live log for the event (stage 2), for the chip and the pop-out. */
+  action: CallAction | null;
+}
+
+/** What My day knows about a log (the full view is GET /api/companion/actions/{id}). */
+export interface CallAction {
+  id: string;
+  state: 'running' | 'ok' | 'partial' | 'failed' | 'dry_run' | 'undone';
+  label: string;
+  outcomeKey: string;
+  createdAt: string;
+  undoUntil: string;
+  failedStep: string | null;
+  error: string | null;
 }
 
 export interface DayCounts {
   calls: number;
   logged: number;
   needOutcome: number;
+  failed: number;
 }
 
 /** GHL's appointmentStatus → the outcome it already records (null while nothing is recorded). */
@@ -70,8 +87,13 @@ export function endOf(call: { startIso: string; endIso: string | null }): number
   return Number.isFinite(end) && end > start ? end : start + DEFAULT_CALL_MINUTES * 60_000;
 }
 
-export function statusOf(call: { startIso: string; endIso: string | null; outcomeInGhl: GhlOutcome | null; logged?: boolean }, now: Date): CallStatus {
-  if (call.logged) return 'logged';
+export function statusOf(call: { startIso: string; endIso: string | null; outcomeInGhl: GhlOutcome | null; logged?: boolean; action?: Pick<CallAction, 'state'> | null }, now: Date): CallStatus {
+  const a = call.action ?? null;
+  if (a) {
+    if (a.state === 'partial' || a.state === 'failed') return 'failed';
+    if (a.state === 'dry_run') return 'dry_run';
+    if (a.state !== 'undone') return 'logged';
+  } else if (call.logged) return 'logged';
   if (call.outcomeInGhl) return 'ghl_outcome';
   const t = now.getTime();
   const start = Date.parse(call.startIso);
@@ -80,12 +102,13 @@ export function statusOf(call: { startIso: string; endIso: string | null; outcom
   return 'needs_outcome';
 }
 
-/** The header counter: "N calls · N logged · N need an outcome". */
+/** The header counter: "N calls · N logged · N need an outcome" (+ "N failed" when any). Dry runs count as logged. */
 export function summarize(calls: ReadonlyArray<{ status: CallStatus }>): DayCounts {
   return {
     calls: calls.length,
-    logged: calls.filter((c) => c.status === 'logged').length,
+    logged: calls.filter((c) => c.status === 'logged' || c.status === 'dry_run').length,
     needOutcome: calls.filter((c) => c.status === 'needs_outcome').length,
+    failed: calls.filter((c) => c.status === 'failed').length,
   };
 }
 

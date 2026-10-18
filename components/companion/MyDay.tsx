@@ -75,7 +75,7 @@ export const MyDay: React.FC = () => {
             My day{day && !day.viewing.isSelf ? <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}> · viewing as {day.viewing.name}</span> : day ? <span className="font-normal" style={{ color: 'var(--text-tertiary)' }}> · {day.viewing.name}</span> : null}
           </h1>
           <p className="text-[12.5px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-            {day ? `${day.counts.calls} call${day.counts.calls === 1 ? '' : 's'} · ${day.counts.logged} logged · ${day.counts.needOutcome} need${day.counts.needOutcome === 1 ? 's' : ''} an outcome` : '…'}
+            {day ? `${day.counts.calls} call${day.counts.calls === 1 ? '' : 's'} · ${day.counts.logged} logged · ${day.counts.needOutcome} need${day.counts.needOutcome === 1 ? 's' : ''} an outcome${day.counts.failed ? ` · ${day.counts.failed} failed` : ''}` : '…'}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -168,7 +168,7 @@ export const MyDay: React.FC = () => {
                     <span className="text-[14px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                       {c.name}
                     </span>
-                    <StatusChip status={c.status} outcomeInGhl={c.outcomeInGhl} />
+                    <StatusChip status={c.status} outcomeInGhl={c.outcomeInGhl} action={c.action} />
                   </div>
                   <div className="mt-0.5">
                     <CallTypeTag callType={c.callType} calendarName={c.calendarName} />

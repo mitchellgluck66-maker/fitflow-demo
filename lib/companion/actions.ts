@@ -24,12 +24,14 @@ export function skippedStep(reason: string, at: Date): CompanionStepRecord {
 /** Pure: the state a set of step results implies. */
 export function stateOfSteps(steps: CompanionSteps, dryRun: boolean): CompanionActionState {
   const records = STEP_ORDER.map((n) => steps[n]).filter((r): r is CompanionStepRecord => Boolean(r));
-  if (records.some((r) => r.status === 'pending')) return 'running';
-  if (dryRun) return 'dry_run';
   const applied = records.filter((r) => r.status === 'ok').length;
   const failed = records.filter((r) => r.status === 'failed').length;
-  if (failed === 0) return 'ok';
-  return applied > 0 ? 'partial' : 'failed';
+  // A failed step stops the sequence: the steps after it stay `pending` (not attempted) and the row is partial /
+  // failed, never running. Without a failure, a pending step means the sequence is still going.
+  if (failed > 0) return applied > 0 ? 'partial' : 'failed';
+  if (records.some((r) => r.status === 'pending')) return 'running';
+  if (dryRun) return 'dry_run';
+  return 'ok';
 }
 
 /** Pure: a `running` row nobody has touched for RUNNING_STALE_MS is a failure the user can retry. */

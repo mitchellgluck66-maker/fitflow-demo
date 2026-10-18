@@ -4,7 +4,7 @@
  * `maxLive` per request) and otherwise shown as "Unknown contact". Pure over injected readers.
  */
 
-import { outcomeInGhlOf, statusOf, type CompanionCall } from './day';
+import { outcomeInGhlOf, statusOf, type CallAction, type CompanionCall } from './day';
 import type { RawCall } from './source';
 
 export interface MirrorContact {
@@ -23,6 +23,8 @@ export interface LiveContact {
 export interface EnrichDeps {
   lookupContacts(ghlContactIds: string[]): Promise<Map<string, MirrorContact>>;
   liveContact(ghlContactId: string): Promise<LiveContact | null>;
+  /** Stage 2: the newest live Companion log per event id (none → every call unlogged). */
+  actions?(eventIds: string[]): Promise<Map<string, CallAction>>;
   maxLive?: number;
 }
 
@@ -42,19 +44,23 @@ export async function enrichCalls(raw: RawCall[], now: Date, deps: EnrichDeps): 
     if (live.size >= maxLive) break;
     live.set(id, await deps.liveContact(id).catch(() => null));
   }
+  const actions = deps.actions && raw.length ? await deps.actions(raw.map((r) => r.eventId)) : new Map<string, CallAction>();
   return raw.map((r) => {
     const m = mirror.get(r.ghlContactId);
     const l = live.get(r.ghlContactId) ?? null;
     const outcomeInGhl = outcomeInGhlOf(r.ghlStatus);
-    const base = { ...r, outcomeInGhl, logged: false as const };
+    const action = actions.get(r.eventId) ?? null;
     const call: CompanionCall = {
-      ...base,
+      ...r,
+      outcomeInGhl,
+      logged: Boolean(action && action.state !== 'undone'),
+      action,
       contactId: m?.contactId ?? null,
       name: m?.name ?? l?.name ?? unknownName(r.ghlContactId),
       email: m?.email ?? l?.email ?? null,
       phone: m?.phone ?? l?.phone ?? null,
       stage: m?.stage ?? null,
-      status: statusOf({ startIso: r.startIso, endIso: r.endIso, outcomeInGhl }, now),
+      status: statusOf({ startIso: r.startIso, endIso: r.endIso, outcomeInGhl, action }, now),
     };
     return call;
   });

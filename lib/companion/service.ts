@@ -10,6 +10,7 @@ import type { CurrentUser } from '../auth/currentUser';
 import { enrichCalls, type EnrichDeps } from './enrich';
 import { loadDayRaw, type LiveGhl, type MirrorReader } from './source';
 import { lookupMirrorContacts, readLiveContact, readMirrorDay } from './mirror';
+import { callActionsForEvents } from './actionsView';
 import { resolveViewing, type TechnicianOption, type Viewing } from './viewing';
 import { summarize, type CompanionCall, type DayCounts } from './day';
 
@@ -64,7 +65,7 @@ export async function getMyDay(
   if (!DATE_RE.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return { ok: false, status: 400, error: 'Bad date', detail: 'Use YYYY-MM-DD.' };
   const head = { date, timezone, today, viewing: { id: v.viewing.id, name: v.viewing.name, ghlUserId: v.viewing.ghlUserId, isSelf: v.viewing.isSelf, autoPicked: v.viewing.autoPicked }, technicians: v.technicians };
   if (!v.viewing.ghlUserId) {
-    return { ok: true, day: { ...head, source: 'none', fetchedAt: now.toISOString(), asOf: null, reason: 'No GoHighLevel user is linked to this login — the owner sets it in Setup → Users.', calendars: [], calls: [], counts: { calls: 0, logged: 0, needOutcome: 0 } } };
+    return { ok: true, day: { ...head, source: 'none', fetchedAt: now.toISOString(), asOf: null, reason: 'No GoHighLevel user is linked to this login — the owner sets it in Setup → Users.', calendars: [], calls: [], counts: { calls: 0, logged: 0, needOutcome: 0, failed: 0 } } };
   }
   const raw = await loadDayRaw({
     ghlUserId: v.viewing.ghlUserId,
@@ -76,6 +77,6 @@ export async function getMyDay(
     mirror: deps.mirror ?? readMirrorDay,
     cache: deps.cache,
   });
-  const calls = await enrichCalls(raw.calls, now, deps.enrich ?? { lookupContacts: lookupMirrorContacts, liveContact: readLiveContact });
+  const calls = await enrichCalls(raw.calls, now, deps.enrich ?? { lookupContacts: lookupMirrorContacts, liveContact: readLiveContact, actions: (ids) => callActionsForEvents(ids, now) });
   return { ok: true, day: { ...head, source: raw.source, fetchedAt: raw.fetchedAt, asOf: raw.asOf, reason: raw.reason, calendars: raw.calendars, calls, counts: summarize(calls) } };
 }

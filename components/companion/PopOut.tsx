@@ -2,13 +2,14 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Search, X, Mail, Phone, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X, Mail, Phone } from 'lucide-react';
 import { fetchJson } from '@/lib/clientFetch';
 import { formatDayLabel, formatTime } from '@/lib/day';
 import { selectCurrent, endOf, type CompanionCall } from '@/lib/companion/day';
 import type { MyDay } from '@/lib/companion/service';
 import type { ClientBrief, SearchRow } from '@/lib/companion/brief';
-import { CallTypeTag, SourceLine, StatusChip } from './calls';
+import { CallTypeTag, DryRunBanner, SourceLine, StatusChip } from './calls';
+import { LogPanel, type LogPanelPreview } from './LogPanel';
 
 const DAY_REFRESH_MS = 60_000;
 const ADVANCE_TICK_MS = 30_000;
@@ -29,6 +30,10 @@ export const PopOut: React.FC = () => {
   const user = params.get('user');
   const eventParam = params.get('event');
   const cannotFloat = params.get('float') === '0';
+  /** Screenshots only: a canned log-panel state served by /api/companion/preview (404 outside COMPANION_PREVIEW=1). */
+  const previewParam = params.get('preview');
+  const [preview, setPreview] = useState<LogPanelPreview | null>(null);
+  const [dryRun, setDryRun] = useState(false);
 
   const [day, setDay] = useState<MyDay | null>(null);
   const [dayError, setDayError] = useState<string | null>(null);
@@ -71,6 +76,21 @@ export const PopOut: React.FC = () => {
       clearTimeout(t);
     };
   }, [date, user, tick]);
+
+  useEffect(() => {
+    if (!previewParam) return;
+    let cancelled = false;
+    fetchJson<LogPanelPreview>(`/api/companion/preview?state=${encodeURIComponent(previewParam)}`)
+      .then((p) => {
+        if (cancelled) return;
+        setPreview(p);
+        setDryRun(p.outcomes.dryRun.on);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [previewParam]);
 
   // The clock ticks only while auto-advance is on; with it off the selection made at load stays.
   const autoAdvance = me?.preferences.autoAdvance ?? true;
@@ -238,6 +258,11 @@ export const PopOut: React.FC = () => {
         )}
       </div>
 
+      {dryRun && (
+        <div className="px-2.5 pt-2">
+          <DryRunBanner compact />
+        </div>
+      )}
       {day && day.source !== 'live' && (
         <div className="px-2.5 pt-2">
           <SourceLine compact source={day.source} fetchedAt={day.fetchedAt} asOf={day.asOf} reason={day.reason} timezone={tz} onRetry={() => setTick((x) => x + 1)} />
@@ -364,19 +389,16 @@ export const PopOut: React.FC = () => {
               )}
             </section>
 
-            <section aria-label="Outcome" className="rounded-[8px] px-2.5 py-2" style={{ border: '1px dashed var(--border-default)' }}>
-              <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-quaternary)' }}>
-                <Lock size={11} /> Outcome · Logging arrives in stage 2
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {['Showed', 'No-show', 'Rescheduled'].map((label) => (
-                  <button key={label} type="button" disabled aria-disabled="true" title="Logging arrives in stage 2" className="h-7 rounded-[6px] text-[11.5px] font-medium cursor-not-allowed" style={{ background: 'var(--surface-sunken)', color: 'var(--text-quaternary)', border: '1px solid var(--border-subtle)' }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <textarea disabled aria-disabled="true" rows={2} placeholder="Call notes — logging arrives in stage 2" className="mt-1.5 w-full rounded-[6px] px-2 py-1 text-[11.5px] cursor-not-allowed" style={{ background: 'var(--surface-sunken)', color: 'var(--text-quaternary)', border: '1px solid var(--border-subtle)' }} />
-            </section>
+            <LogPanel
+              key={targetKey ?? 'none'}
+              ghlContactId={shownBrief.contact.ghlContactId}
+              call={current && !picked ? current : null}
+              timezone={tz}
+              existingActionId={current && !picked ? (current.action?.id ?? null) : null}
+              onChanged={() => setTick((x) => x + 1)}
+              onDryRun={setDryRun}
+              preview={preview}
+            />
           </>
         )}
       </div>

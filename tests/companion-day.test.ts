@@ -58,8 +58,9 @@ describe('day (pure)', () => {
     expect(outcomeInGhlOf('confirmed')).toBeNull();
     expect(outcomeInGhlOf(null)).toBeNull();
   });
-  it('the counter never counts a logged call in stage 1 and excludes GHL-recorded outcomes from "need an outcome"', () => {
-    expect(summarize([{ status: 'up_next' }, { status: 'needs_outcome' }, { status: 'needs_outcome' }, { status: 'ghl_outcome' }, { status: 'in_progress' }])).toEqual({ calls: 5, logged: 0, needOutcome: 2 });
+  it('the counter: logged + dry runs, failed, and GHL-recorded outcomes excluded from "need an outcome"', () => {
+    expect(summarize([{ status: 'up_next' }, { status: 'needs_outcome' }, { status: 'needs_outcome' }, { status: 'ghl_outcome' }, { status: 'in_progress' }])).toEqual({ calls: 5, logged: 0, needOutcome: 2, failed: 0 });
+    expect(summarize([{ status: 'logged' }, { status: 'dry_run' }, { status: 'failed' }, { status: 'needs_outcome' }])).toEqual({ calls: 4, logged: 2, needOutcome: 1, failed: 1 });
   });
   it('selectCurrent: ±10 min of start (closest), else in progress, else next upcoming, else last; cancelled skipped', () => {
     const calls = [
