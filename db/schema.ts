@@ -907,3 +907,84 @@ export type NewAppUser = typeof appUsers.$inferInsert;
 
 export type AppliedLedgerRow = typeof appliedLedger.$inferSelect;
 export type AppliedRatioDailyRow = typeof appliedRatioDaily.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Companion stage 2 — outcome logs (the one path that writes to GoHighLevel).
+// APPEND-ONLY: rows are never deleted; a row's step results and state are
+// updated as its GHL calls complete, retry or undo.
+// ---------------------------------------------------------------------------
+
+export const COMPANION_ACTION_STATES = ['running', 'ok', 'partial', 'failed', 'dry_run', 'undone'] as const;
+export type CompanionActionState = (typeof COMPANION_ACTION_STATES)[number];
+export const COMPANION_STEP_NAMES = ['stage', 'appointment', 'note'] as const;
+export type CompanionStepName = (typeof COMPANION_STEP_NAMES)[number];
+
+/** One GHL call's outcome, written the moment it completes. */
+export interface CompanionStepRecord {
+  status: 'pending' | 'ok' | 'failed' | 'skipped' | 'dry_run';
+  /** The exact request (method, path, body) — what a dry run would have sent, what a live step did send. */
+  request: { method: 'PUT' | 'POST'; path: string; body: Record<string, unknown> } | null;
+  httpStatus: number | null;
+  /** The response text, ≤ 2 KB. */
+  body: string | null;
+  error: string | null;
+  /** Why a step was skipped ("no appointment", "stage unchanged"). */
+  reason: string | null;
+  at: string | null;
+}
+export type CompanionSteps = Partial<Record<CompanionStepName, CompanionStepRecord>>;
+
+/** The position before / after a log: what undo restores. */
+export interface CompanionPosition {
+  stageId: string | null;
+  stageName: string | null;
+  status: string | null;
+  appointmentStatus: string | null;
+}
+
+export const companionActions = pgTable(
+  'companion_actions',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** Minted by the client per Log press — a double-click or a resent request finds the same row. */
+    requestId: text('request_id').notNull(),
+    userId: text('user_id').notNull(),
+    userName: text('user_name').notNull(),
+    ghlUserId: text('ghl_user_id'),
+    ghlEventId: text('ghl_event_id'),
+    ghlContactId: text('ghl_contact_id').notNull(),
+    contactId: text('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+    /** The person's name as shown when the log was made (names only — never email or phone). */
+    clientName: text('client_name').notNull(),
+    ghlOpportunityId: text('ghl_opportunity_id'),
+    pipelineId: text('pipeline_id'),
+    /** Consult | Roadmap | Other | none (a person opened from search). */
+    callType: text('call_type').notNull(),
+    callStartAt: timestamp('call_start_at', { withTimezone: true, mode: 'date' }),
+    outcomeKey: text('outcome_key').notNull(),
+    label: text('label').notNull(),
+    note: text('note').notNull(),
+    before: jsonb('before').$type<CompanionPosition>().notNull(),
+    after: jsonb('after').$type<CompanionPosition>().notNull(),
+    dryRun: boolean('dry_run').notNull().default(false),
+    steps: jsonb('steps').$type<CompanionSteps>().notNull().default({}),
+    undoSteps: jsonb('undo_steps').$type<CompanionSteps>(),
+    /** running | ok | partial | failed | dry_run | undone */
+    state: text('state').$type<CompanionActionState>().notNull(),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    undoneAt: timestamp('undone_at', { withTimezone: true, mode: 'date' }),
+    undoneBy: text('undone_by'),
+  },
+  (t) => [
+    uniqueIndex('companion_actions_request_uidx').on(t.requestId),
+    index('companion_actions_event_idx').on(t.ghlEventId),
+    index('companion_actions_contact_idx').on(t.ghlContactId),
+    index('companion_actions_created_idx').on(t.createdAt),
+  ],
+);
+export type CompanionAction = typeof companionActions.$inferSelect;
+export type NewCompanionAction = typeof companionActions.$inferInsert;
