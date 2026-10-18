@@ -42,6 +42,7 @@ import { DataCaveatsCard } from '@/components/setup/DataCaveatsCard';
 import { CurrencyCard } from '@/components/setup/CurrencyCard';
 import { CredentialsKeyNotice } from '@/components/setup/CredentialsKeyNotice';
 import { UsersCard } from '@/components/setup/UsersCard';
+import { CompanionCard } from '@/components/setup/CompanionCard';
 
 interface Credentials {
   configured: boolean;
@@ -773,6 +774,7 @@ export default function SetupPage() {
 
         {/* ---- Users (Companion stage 1) ---- */}
         <UsersCard />
+        <CompanionCard />
 
         {/* ---- Ad spend (manual) ---- */}
         {/* ---- Money rails (Phase C) ---- */}
