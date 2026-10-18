@@ -42,6 +42,11 @@ export const WRITE_ALLOW_LIST: readonly AllowedWrite[] = [
   { name: 'add_contact_note', method: 'POST', pattern: new RegExp(`^/contacts/${ID}/notes$`), family: 'contacts' },
 ] as const;
 
+/** The HTTP method of an allow-listed call, so no other module ever names one. */
+export function methodOf(name: AllowedWrite['name']): WriteMethod {
+  return WRITE_ALLOW_LIST.find((a) => a.name === name)!.method;
+}
+
 export class CompanionWriteRefused extends Error {
   constructor(method: string, path: string, reason = 'not in the Companion write allow-list') {
     super(`Refused ${method} ${path}: ${reason}`);

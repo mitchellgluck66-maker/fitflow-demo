@@ -12,7 +12,7 @@ import type { CurrentUser } from '../auth/currentUser';
 import type { CompanionAction, CompanionPosition, CompanionStepName, CompanionStepRecord, CompanionSteps } from '@/db';
 import { callTypeOf, type CallType } from './calendars';
 import { readDryRun } from './config';
-import { addContactNote, hasWriteKey, updateAppointmentStatus, updateOpportunity, type WriteResult } from './ghlWrite';
+import { addContactNote, hasWriteKey, methodOf, updateAppointmentStatus, updateOpportunity, type WriteResult } from './ghlWrite';
 import { readOutcomeCatalogue, type OutcomeCatalogue } from './outcomeService';
 import { MOVE_TO_KEY, resolveMoveTo, resolveOutcome, type AppointmentEffect, type ResolvedOutcome } from './outcomes';
 import { applyMirror, readContactPosition, readMirrorAppointment, syncActionIncident, type ContactPosition } from './logDb';
@@ -161,7 +161,7 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
     else
       steps.push({
         name: 'stage',
-        request: { method: 'PUT', path: `/opportunities/${opp.id}`, body: { pipelineId: position.pipeline!.id, ...(stageChange ? { pipelineStageId: resolved.toStage!.id } : {}), ...(statusChange ? { status: resolved.opportunityStatus } : {}) } },
+        request: { method: methodOf('update_opportunity'), path: `/opportunities/${opp.id}`, body: { pipelineId: position.pipeline!.id, ...(stageChange ? { pipelineStageId: resolved.toStage!.id } : {}), ...(statusChange ? { status: resolved.opportunityStatus } : {}) } },
         skipReason: null,
         summary: stageChange ? `Stage ${opp.stageName ?? 'no stage'} → ${resolved.toStage!.name}${statusChange ? ` · ${resolved.opportunityStatus}` : ''}` : `Opportunity ${opp.status} → ${resolved.opportunityStatus}`,
       });
@@ -169,10 +169,10 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
   // 2. appointment — PUT /calendars/events/appointments/{eventId}
   if (!call) steps.push({ name: 'appointment', request: null, skipReason: 'no appointment', summary: 'Appointment — none' });
   else if (resolved.appointment === 'leave') steps.push({ name: 'appointment', request: null, skipReason: 'left as is', summary: `Appointment — left ${call.ghlStatus ?? 'as is'}` });
-  else steps.push({ name: 'appointment', request: { method: 'PUT', path: `/calendars/events/appointments/${call.eventId}`, body: { appointmentStatus: resolved.appointment } }, skipReason: null, summary: `Appointment ${call.ghlStatus ?? '?'} → ${resolved.appointment}` });
+  else steps.push({ name: 'appointment', request: { method: methodOf('update_appointment_status'), path: `/calendars/events/appointments/${call.eventId}`, body: { appointmentStatus: resolved.appointment } }, skipReason: null, summary: `Appointment ${call.ghlStatus ?? '?'} → ${resolved.appointment}` });
   // 3. note — POST /contacts/{id}/notes
   const text = noteText({ callType, startIso: call?.startIso ?? null, timezone: input.timezone, userName: input.user.name, label: resolved.label, from: before.stageName, to: after.stageName, note: input.note });
-  steps.push({ name: 'note', request: { method: 'POST', path: `/contacts/${input.ghlContactId}/notes`, body: { body: text, ...(input.user.ghlUserId ? { userId: input.user.ghlUserId } : {}) } }, skipReason: null, summary: 'Note added to the contact' });
+  steps.push({ name: 'note', request: { method: methodOf('add_contact_note'), path: `/contacts/${input.ghlContactId}/notes`, body: { body: text, ...(input.user.ghlUserId ? { userId: input.user.ghlUserId } : {}) } }, skipReason: null, summary: 'Note added to the contact' });
 
   const appointment = call ? { eventId: call.eventId, from: call.ghlStatus, to: resolved.appointment, startIso: call.startIso, callType: call.callType ?? 'Other' } : null;
   return {
