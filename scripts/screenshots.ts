@@ -4,7 +4,9 @@
  *   npm run screenshots            # against http://localhost:3000 (start `next dev` first)
  *   BASE_URL=http://localhost:3111 npm run screenshots
  *   npm run screenshots -- --explain-audit   # only the audit: every glossary key must appear as [data-explain] on the pages
- *   npm run screenshots -- --companion       # only the Onboarding Companion: My day, the pop-out, settings (desktop + 360 px)
+ *   npm run screenshots -- --companion       # only the Onboarding Companion: My day, the pop-out, settings (desktop + 360 px),
+ *                                            # + stage 2's log states (confirm, success, partial failure, dry run) from canned
+ *                                            # data served only with COMPANION_PREVIEW=1, and Setup → Companion
  *
  * Output: docs/screens/{light,dark}/{page}.png (full page, 1440px wide).
  * Theme is forced by stamping data-theme on <html> before each capture, the
@@ -185,7 +187,12 @@ async function captureCompanion(browser: import('playwright').Browser) {
     { name: 'companion-popout', path: `/companion/popout?date=${date}&float=0`, viewport: { width: 360, height: 520 }, mobile: false, fullPage: false },
     { name: 'companion-settings', path: '/companion/settings', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
     { name: 'companion-settings-mobile', path: '/companion/settings', viewport: { width: 360, height: 740 }, mobile: true, fullPage: true },
+    // Stage 2: the log panel's states through the real pop-out from canned data (/api/companion/preview, COMPANION_PREVIEW=1).
+    ...(['confirm', 'success', 'partial', 'dryrun'] as const).map((state) => ({ name: `companion-popout-${state}`, path: `/companion/popout?date=${date}&float=0&preview=${state}`, viewport: { width: 360, height: 640 }, mobile: false, fullPage: true })),
+    { name: 'companion-setup', path: '/setup#companion', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
   ];
+  const previewProbe = await (await browser.newPage()).request.get(`${BASE}/api/companion/preview?state=confirm`);
+  if (!previewProbe.ok()) console.log(`– companion-popout-{confirm,success,partial,dryrun} will show the live pop-out: /api/companion/preview answered ${previewProbe.status()} — start the server with COMPANION_PREVIEW=1 to capture the canned states`);
   for (const theme of ['light', 'dark'] as const) {
     fs.mkdirSync(path.join(OUT, theme), { recursive: true });
     for (const shot of shots) {
@@ -202,6 +209,7 @@ async function captureCompanion(browser: import('playwright').Browser) {
       await page.goto(`${BASE}${shot.path}`, { waitUntil: 'networkidle' });
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForTimeout(1200);
+      if (shot.name.startsWith('companion-popout-')) await page.waitForSelector('[data-testid^="log-"]', { timeout: 10_000 }).catch(() => undefined);
       await page.screenshot({ path: path.join(OUT, theme, `${shot.name}.png`), fullPage: shot.fullPage });
       console.log(`✓ ${theme}/${shot.name}.png`);
       await context.close();

@@ -8,10 +8,19 @@ large changes. This file is the standing contract.
 
 ## Non-negotiable rules
 
-1. **NEVER write to GoHighLevel.** Miranda's pipeline is the source of truth; this app
-   only reads. The old write-back engine in `lib/ghl/sync.ts` + `lib/ghl/mapping.ts` is
-   dormant behind `ENABLE_WRITEBACK` (hard-off). Do not re-enable it, do not add new
-   GHL writes. If a task seems to need one, stop and ask Mitchell.
+1. **NEVER write to GoHighLevel — except through the Companion's one write module.**
+   Miranda's pipeline is the source of truth; the dashboard, every sync and every
+   other feature only read. The old write-back engine in `lib/ghl/sync.ts` +
+   `lib/ghl/mapping.ts` is dormant behind `ENABLE_WRITEBACK` (hard-off); `ghlRequest`
+   throws on any non-GET. **Companion stage 2 (2026-10-18, Mitchell's go)** added the ONE
+   sanctioned write path: `lib/companion/ghlWrite.ts`, under its OWN key
+   (`ghl_companion_write_token`) and an allow-list of EXACTLY three calls —
+   `PUT /opportunities/{id}`, `PUT /calendars/events/appointments/{eventId}`,
+   `POST /contacts/{contactId}/notes` — used only by the outcome log
+   (`lib/companion/log.ts`). `scripts/verify-readonly.sh` steps 6–8 prove no non-GET
+   exists outside that module and that it reaches only those three paths. Do not add
+   a fourth call, do not use the write key anywhere else, do not re-enable the dormant
+   engine. If a task seems to need another GHL write, stop and ask Mitchell.
 2. **Weeks are Sunday–Saturday** (Meta Ads convention), hard-coded in all weekly
    bucketing. Business timezone from settings governs day boundaries — never UTC.
 3. **The metrics engine (`lib/metrics/`) is pure functions** over (dateRange, pipelineId).
@@ -1329,6 +1338,90 @@ every new GHL call a GET through `ghlRequest`, `verify-readonly.sh` unchanged. M
   7-day window, bucketed by local date) vs the mirror, every difference printed, PASS only when identical
   (2026-10-16: 5/5 for Miranda). `npm run screenshots -- --companion` (demo tenant; the seed adds
   `miranda@fitflow.demo` / `demo-companion`). Deploy: `npm run db:migrate` (0021) THEN push, then Setup → Users.
+
+## Onboarding Companion — Stage 2 (2026-10-18, `docs/plan-companion-stage2.md`, writes outcomes to GHL)
+
+The ONE write path to GoHighLevel (rule 1). Built in six commits, `npm run check` green, NOT pushed. Migration 0022
+(additive, RLS on). Live proof is Mitchell's: `npm run companion:live-test` once Jake names the test contact and the
+write key is on Setup.
+
+- **Write key + guard** (`lib/companion/ghlWrite.ts`): its own `fetch` transport, its own sealed key
+  (`settings.ghl_companion_write_token`, Setup → Companion "Companion write key", masked, Verify = one GET
+  `/opportunities/pipelines` with the write key — proves it authenticates to the location; GHL has no scope
+  introspection, so the write scopes are proven only by the live test). `WRITE_ALLOW_LIST` = exactly three calls;
+  `assertAllowed(method, path)` throws `CompanionWriteRefused` BEFORE any I/O for anything else (query string, `..`,
+  another path or method). Typed builders `updateOpportunity` (GHL requires `pipelineId` in the body),
+  `updateAppointmentStatus`, `addContactNote` validate with Zod. `verify-readonly.sh` 6–8: `GHL_BASE_URL` imported only
+  by client.ts + ghlWrite.ts; no non-GET literal in any GHL-touching file outside ghlWrite.ts + the dormant modules;
+  ghlWrite.ts has 3 allow-list entries, builds only the 3 paths, calls `assertAllowed` before the transport, reads its
+  own key. Owner API: `GET/PATCH /api/setup/companion`, `POST/DELETE …/write-key` (under `/api/setup/*`, which the
+  policy denies to onboarding logins).
+- **Dry run default ON** (`settings.companion_dry_run`; `dryRunOf`: only `'false'` turns it off, a malformed value
+  reads ON and is named on Setup). Everything runs — plan, GHL re-read, request id, per-step records, undo — but
+  `companionWrite` returns `{ status: 'dry_run' }` with the exact request and never touches the transport; the row
+  is `state = 'dry_run'`, the mirror is NOT updated. Yellow banner in the pop-out and on Setup → Companion; turning it
+  off asks for a confirm (`PATCH { dryRun: false, confirm: true }`, 400 without).
+- **Outcome map** (`lib/companion/outcomes.ts`, pure; `outcomeService.ts` against the DB): outcomes name a stage ROLE,
+  resolved from the followed pipeline's stage map at log time (`resolveStage`: lowest position wins; none → refused
+  "No stage in <pipeline> is mapped to the role <role> — map it in Setup → Pipelines", never a name match). Defaults
+  per the brief (Consult: Showed, roadmap booked → roadmap_booked/showed/open · No-show → consult_noshow/noshow/open ·
+  Reschedule → consult_rescheduled/<setting>/open · Cancelled → unchanged/cancelled/open · Not a fit →
+  unchanged/showed/lost; Roadmap: Enrolled → enrolled/showed/won · Showed, objection → roadmap_showed/showed/open ·
+  No-show → roadmap_noshow/noshow/open · Reschedule → roadmap_rescheduled/<setting>/open · Not a fit →
+  unchanged/showed/lost). `settings.companion_reschedule_appointment` = cancelled (default) | leave;
+  `settings.companion_outcome_map` = JSON overrides, validated strictly on PATCH, parsed leniently on read (a bad
+  entry is ignored and named on Setup). "Move to…" = any stage of the followed pipeline + showed / noshow /
+  cancelled / leave, opportunity status kept; the only choice for an "Other" call or a person without a call.
+  `GET /api/companion/outcomes?callType=` feeds the pop-out.
+- **Logging flow** (`lib/companion/log.ts`; routes `POST /api/companion/actions/plan`, `POST /api/companion/actions`,
+  `GET …/actions/{id}`, `POST …/{id}/retry`, `POST …/{id}/undo`): note ≥ 10 chars → plan (the sheet: "Move <client>
+  from <stage> to <stage>, mark the <time> <type> <status>, add this note. This may send GoHighLevel messages to the
+  client.") → confirm: GHL re-read of the opportunity (`getOpportunity`, read-only client; unreadable → 502, nothing
+  written); stage ≠ `expectedStageId` and ≠ `acceptedStageId` → 409 `{ staleStage }` "Stage changed to X since you
+  opened this — continue?"; the LIVE stage/status become `before`. `request_id` UNIQUE (`insertOrFindAction`): a resent
+  id returns the row, never a second run. Steps in order stage (one PUT with `pipelineStageId` and/or `status`;
+  skipped "already in …" / "stage unchanged" / "no opportunity in <pipeline>") → appointment (skipped "no
+  appointment" / "left as is") → note ("Onboarding call · <type> · <date time> · <user>\nOutcome: <label> (<from> →
+  <to>)\nNote: <text>", `userId` = the login's GHL user); each result `{ status, request, httpStatus, body ≤ 2 KB,
+  error, at }` written to the row as it lands (`recordStep`); a failure stops the sequence, later steps stay
+  `pending`. State: ok · partial (some ok, one failed) · failed (the first step failed) · dry_run · undone;
+  `running` older than 2 min with no update is presented as partial/failed ("the function stopped mid-way"). On ok
+  (and for the ok steps of a partial) the mirror follows at once (`logDb#applyMirror`: `contacts`,
+  `ghl_opportunities`, `appointments.ghl_status/outcome`, one `stage_transitions` row `kind = 'companion'`,
+  `source = 'companion'`, ON CONFLICT DO NOTHING — the next sync observes the same state and writes nothing). A
+  partial/failed log opens ONE `companion_action_failed` warning incident (`details.actionId`), resolved by a
+  successful retry or an undo (`details.resolvedBy`). Retry re-runs only the steps not ok/skipped. Undo (5 min from
+  `created_at`, `UNDO_WINDOW_MS`; 410 after): reverse order — appointment back to `before.appointmentStatus`
+  (skipped when unknown / not a GHL status), opportunity back to `before.stageId + status`, then the note "Undone by
+  <user> — <label> logged <time> was reversed."; `undo_steps` recorded; mirror reverted; `state = 'undone'`. A
+  technician reaches only their own logs; an owner all of them.
+- **Data** (`companion_actions`, migration 0022, append-only — `tests/companion-log` greps that nothing deletes a
+  row): request_id UNIQUE, user, event / contact / opportunity / pipeline ids, `client_name`, call type + start,
+  outcome key + label, note, `before` / `after` `{ stageId, stageName, status, appointmentStatus }`, dry_run, `steps`,
+  `undo_steps`, state, error, undone_at/by. My day chips (`CompanionCall.action`, `statusOf`): Logged · <label>
+  (green; ok and running), Dry run · <label> (yellow), Failed · <step> (red, Retry) — a partial/failed log stays red
+  until retried or undone, is listed on Setup → Companion ("N failed logs") and in Incidents; the counter gains
+  "· N failed". Undone rows no longer drive the chip.
+- **Pop-out** (`components/companion/LogPanel.tsx`, keyed per contact + event): outcome buttons for the call's type
+  (disabled with the reason when a role has no stage) + Move to… (stage + appointment selects), the note with
+  "4 / 10", Log → the confirmation sheet (steps, the note as GHL will show it, dry-run line) → Confirm → three
+  per-step checks (✓ / ✗ / –), Retry on the failing step, Undo with a countdown, "Log another". A call already
+  logged opens on its result. `?preview=confirm|success|partial|dryrun` renders canned states from
+  `GET /api/companion/preview` (`COMPANION_PREVIEW=1` outside production only) for `npm run screenshots -- --companion`
+  (`companion-popout-{confirm,success,partial,dryrun}.png`, `companion-setup.png`).
+- **Tests**: `tests/companion-write.test.ts` (allow-list + 15 near-misses before I/O, own key, headers, 429, token
+  never in an error, dry run, Verify), `tests/companion-outcomes.test.ts` (every default row both call types, the
+  reschedule rule, Move to, overrides, role resolution, Setup PATCH), `tests/companion-log.test.ts` (PGlite + one
+  fetch fake routing by method + URL: happy path with the exact wire order and bodies, idempotent request id, 409
+  stale stage then accepted, 502 on an unreadable GHL, partial + incident + retry of the missing steps only, undo
+  inside/outside the window incl. a partial's undo, dry run sends nothing, Move to without an appointment, the
+  refusals, append-only). `npm run verify:readonly` extended (and proven to fail on a 4th path / a stray non-GET).
+- **Live proof (Mitchell)**: `npm run companion:live-test -- --contact <id> [--event <id>] --i-understand-this-writes`
+  refuses without the flag, with dry run ON, without a write key, or when the contact has no followed-pipeline
+  opportunity in the mirror; walks every outcome (+ Move to) with log → GHL re-read → undo → re-read, a forced
+  appointment failure → partial → retry → ok → undo, prints PASS/FAIL per check and the number of writes; the contact
+  ends where it started. Not run by Claude. Deploy: `npm run db:migrate` (0022) THEN push, then Setup → Companion
+  (write key, Verify; dry run stays ON until the live test passes).
 
 ## Working agreements
 

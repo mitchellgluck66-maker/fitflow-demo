@@ -37,7 +37,8 @@
     "reclassify": "npm run reclassify:payments && npm run reclassify:attribution",
     "incidents:sweep": "tsx scripts/sweep-incidents.ts",
     "credentials:encrypt": "tsx scripts/encrypt-credentials.ts",
-    "companion:check": "tsx scripts/companion-check.ts"
+    "companion:check": "tsx scripts/companion-check.ts",
+    "companion:live-test": "tsx scripts/companion-live-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.130.0",
