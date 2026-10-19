@@ -1292,10 +1292,13 @@ proof is Mitchell's: `npm run eval:analyst`, `npm run smoke:analyst` twice, `ANA
   ≥ 24/25); explain = 10 metrics × 2 ranges (three sections, formula box = engine, 0 flagged); behaviour = 5 cases on
   the seeded demo tenant in a child process (stale → warning first + every decision a server hold; healthy → no
   invented advice; ambiguous → clarify; a 5-turn "that campaign" conversation; a campaign-row question). Flags
-  `--suite`, `--max-usd` (15), `--skip-sources`; writes `docs/eval-analyst-<date>.md`; USD everywhere. Finding: on the
-  DEMO seed the harness shows 42 engine-vs-SQL differences (verify.sql's `has_stripe` reads origin = stripe, the seed
-  writes origin demo; one applicant on a month boundary) — the real tenant passed 360 / 360; `tests/verify-harness`
-  asserts the question → SQL mapping equals the engine wherever the harness found SQL = engine.
+  `--suite`, `--max-usd` (15), `--skip-sources`; writes `docs/eval-analyst-<date>.md`; USD everywhere. **2026-10-18:**
+  the demo tenant is a tenant — `tests/verify-harness` asserts **0 FAIL** engine-vs-SQL on the seed (it used to report
+  26–50 differences, all stale rules in the SQL / harness: `has_stripe` read origin = stripe where the engine's rule is
+  "no payment rows at all"; LTV:CAC ignored the partial-data rule; a demo applicant was dated by the contact's creation).
+  Every eval question's `expected()` is null-safe (a week with no enrollment has a null `enrolled_by_att`; null = not
+  available, never a crash — `tests/eval-questions-null`); `runVerify({ now })` pins the instant and two tests hold a
+  Monday-UTC / Sunday-Edmonton boundary; the demo seed reads the business timezone from settings (it was New York).
 - **Screenshots**: `ANALYST_PREVIEW=1 npm run dev` then `npm run screenshots` captures `analyst-{launcher, welcome,
   thinking, answer, explain, error, threads, confirm}[-mobile].png` in both themes through the real components from a
   canned state (`GET /api/analyst/preview?state=…`, built by `lib/analyst/preview.ts` from the demo-tenant replay
