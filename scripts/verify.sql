@@ -23,9 +23,11 @@ moved as (
     where t.ghl_opportunity_id is not null and t.pipeline_id is not null and t.pipeline_id not in (select id from tp) group by 1) x
   join stage_transitions t2 on t2.ghl_opportunity_id=x.opp and t2.pipeline_id in (select id from tp) and t2.observed_at > x.first_else
   group by x.opp),
+-- One rule for every origin (2026-10-18): the demo tenant is a tenant, and the engine has no sample-data branch. The old
+-- demo-only shortcut (the contact's creation) dated a manual late entry 30 days before its application and put one
+-- applicant on the wrong side of the Jul 16 boundary.
 c as (select c.*, s.semantic_role role,
-        (case when c.origin='demo' then (coalesce(c.ghl_created_at,c.created_at) at time zone '{TZ}')::date
-              else (coalesce(mv.entered, o.ghl_created_at, c.opportunity_created_at) at time zone '{TZ}')::date end) applied_on
+        (coalesce(mv.entered, o.ghl_created_at, c.opportunity_created_at) at time zone '{TZ}')::date applied_on
       from contacts c left join stages s on s.id=c.stage_id
         left join ghl_opportunities o on o.id=c.ghl_opportunity_id
         left join moved mv on mv.opp=c.ghl_opportunity_id
@@ -123,7 +125,8 @@ select json_build_object(
  'cohort_previous_leads', (select count(*) from prev_cohort),
  'parked_total', (select count(*) from parked),
  'applicants_without_date', (select count(*) from c where applied_on is null),
- 'has_stripe', (select exists(select 1 from payments where origin='stripe')),
+ -- "awaiting Stripe" means NO payment rows at all (lib/metrics#hasPaymentRows): any origin counts, the demo tenant included.
+ 'has_stripe', (select exists(select 1 from payments)),
  'enrolled_by_att', (select json_object_agg(coalesce(att,'none'),n) from (select att,count(*) n from enr group by att) x),
  'show_rates', (select json_agg(shows order by type) from shows),
  'by_ccy', (select json_object_agg(rep, row_to_json(z)) from (

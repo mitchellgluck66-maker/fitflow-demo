@@ -43,7 +43,7 @@ import { hashPassword } from '../lib/auth/password';
 import { clearDemoData } from '../lib/provenance';
 import { suggestRole } from '../lib/ghl/roles';
 import { normalizeEmail, normalizePhone } from '../lib/ghl/transitions';
-import { setSetting, SETTING_KEYS } from '../lib/settings';
+import { getTimezone, setSetting, SETTING_KEYS } from '../lib/settings';
 import { runPaymentClassification } from '../lib/stripe/classify';
 import { runAttributionClassification } from '../lib/attribution/run';
 import { addDays, weekStart, weekEnd, resolvePreset, formatRangeLabel, todayInTimezone, localDate } from '../lib/dates';
@@ -68,7 +68,12 @@ const chance = (p: number) => random() < p;
 const between = (lo: number, hi: number) => lo + random() * (hi - lo);
 const jitter = (n: number, pct: number) => n * (1 + between(-pct, pct));
 
-const TZ = 'America/New_York';
+/**
+ * The story's local days are the BUSINESS timezone's (settings.timezone, America/Edmonton since migration 0011) — the
+ * engine and the verify SQL bucket by it, so the seed must too (2026-10-18: a New York constant had the seed's "today"
+ * and its day boundaries two hours off the engine's). Set from settings when the seed runs; never New York.
+ */
+let TZ = 'America/Edmonton';
 const DAY = 86_400_000;
 const START_DATE = '2026-06-16';
 
@@ -515,8 +520,9 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
   const removed = await clearDemoData();
   log(`  cleared previous demo rows: ${removed.contactsRemoved} contacts, ${removed.appointmentsRemoved} appointments, ${removed.paymentsRemoved} payments`);
 
+  TZ = await getTimezone();
   const now = new Date();
-  const today = todayInTimezone(TZ);
+  const today = todayInTimezone(TZ, now);
   const prov = { source: 'demo', origin: 'demo', syncedAt: now, backfilled: false } as const;
 
   // ---- Pipeline + stages ---------------------------------------------------

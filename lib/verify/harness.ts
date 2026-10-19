@@ -154,7 +154,10 @@ async function engineVsSql(RANGES: Range[], tz: string, asOf: Date, OUT: string)
       cmp(r.key, ccy, 'paidCacCents', per(spend, n(att.paid)), M.paidCacCents);
       cmp(r.key, ccy, 'blendedCacCents', per(spend, enr), M.blendedCacCents);
       cmp(r.key, ccy, 'roas (paid initial ÷ spend)', S.has_stripe && spend > 0 ? n(ia.paid?.cents) / spend : null, M.roas);
-      cmp(r.key, ccy, 'ltvToCac', enr > 0 && spend > 0 && n(B.contract_missing) === 0 && n(B.contract_value) > 0 ? n(B.contract_value) / spend : null, M.ltvToCac);
+      // The partial-data rule (Definition of done #6): average contract value over the new clients WITH a value ÷ Blended
+      // CAC — the clients without a value leave both sides. null when nothing is usable.
+      const valued = enr - n(B.contract_missing);
+      cmp(r.key, ccy, 'ltvToCac', valued > 0 && enr > 0 && spend > 0 && n(B.contract_value) > 0 ? n(B.contract_value) / valued / (spend / enr) : null, M.ltvToCac);
       cmp(r.key, ccy, 'costPerLeadCents', per(spend, n(P.applied)), K.costPerLeadCents);
       cmp(r.key, ccy, 'costPerConsultCents', per(spend, n(P.consult_booked)), K.costPerConsultCents);
       cmp(r.key, ccy, 'costPerRoadmapCents', per(spend, n(P.roadmap_booked)), K.costPerRoadmapCents);
@@ -497,13 +500,13 @@ export class VerifyRefused extends Error {}
  * Run the harness (read-only) and return every check; writes docs/verification/<today>/ and docs/verification-<today>.md
  * as the CLI does. Throws VerifyRefused when the business timezone is not America/Edmonton (unless VERIFY_ALLOW_TZ).
  */
-export async function runVerify(opts: { mode?: VerifyMode; log?: (line: string) => void; /** Where docs/verification-<date>.md and docs/verification/<date>/ go (default: the repo's docs/). */ docsDir?: string } = {}): Promise<VerifyResult> {
+export async function runVerify(opts: { mode?: VerifyMode; log?: (line: string) => void; /** Where docs/verification-<date>.md and docs/verification/<date>/ go (default: the repo's docs/). */ docsDir?: string; /** The run's instant (tests pin it to a week boundary); "today" is this instant in the business timezone, never UTC. */ now?: Date } = {}): Promise<VerifyResult> {
   const docsDir = opts.docsDir ?? path.join(process.cwd(), 'docs');
   const what: VerifyMode = opts.mode ?? 'all';
   checks.length = 0;
   const tz = await getTimezone(); // throws when not configured (F8) — never New York by default
   if (tz !== 'America/Edmonton' && !process.env.VERIFY_ALLOW_TZ) throw new VerifyRefused(`Business timezone resolved to ${tz}, not America/Edmonton — refusing (set VERIFY_ALLOW_TZ=1 to override).`);
-  const asOf = new Date();
+  const asOf = opts.now ?? new Date();
   const today = todayInTimezone(tz, asOf);
   const RANGES = rangesFor(today);
   const OUT = path.join(docsDir, 'verification', today);
