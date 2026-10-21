@@ -28,10 +28,20 @@ export const StatusChipButton: React.FC<{ chip: StatusChipModel | null; defaultO
   if (!chip) return null;
   return (
     <>
-      <button ref={ref} type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} data-testid="popout-status-chip" data-tone={chip.tone} className="focus-ring rounded-[5px] shrink-0">
-        <Badge variant={chip.tone} size="xs" dot>
-          {chip.label}
-        </Badge>
+      <button
+        ref={ref}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-testid="popout-status-chip"
+        data-tone={chip.tone}
+        className="inline-flex items-center gap-1 h-[18px] px-1.5 rounded-[4px] text-[10.5px] font-medium whitespace-nowrap border leading-none focus-ring shrink-0"
+        // Text + border only: the tone colour on the canvas reads ≥ 4.5:1 in both themes (a tinted background did not).
+        style={{ color: chip.tone === 'danger' ? 'var(--danger)' : 'var(--warning)', borderColor: chip.tone === 'danger' ? 'var(--danger-border)' : 'var(--warning-border)', background: 'var(--bg-canvas)' }}
+      >
+        <span className="rounded-full shrink-0" style={{ width: 5, height: 5, background: 'currentColor' }} />
+        {chip.label}
       </button>
       <Popover open={open} anchorRef={ref} onClose={() => setOpen(false)} width={300} align="left" aria-label="Status details">
         <div className="px-3 py-2.5 space-y-2 text-[12px]" data-testid="popout-status-popover">
@@ -108,7 +118,7 @@ export const CollapsedBar: React.FC<{ name: string; time: string; next: string; 
       </span>
     )}
     {next && (
-      <span className="text-[11.5px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+      <span className="text-[11.5px] truncate" style={{ color: 'var(--text-secondary)' }}>
         {next}
       </span>
     )}
@@ -137,14 +147,14 @@ export const SettingsPopover: React.FC<{
       <Popover open={open} anchorRef={ref} onClose={() => setOpen(false)} width={320} align="right" aria-label="Pop-out settings">
         <div className="px-3 py-2.5 space-y-3 text-[12px]" style={{ color: 'var(--text-primary)' }}>
           <div>
-            <label className="block text-[10.5px] uppercase tracking-wide mb-1" style={{ color: 'var(--text-quaternary)' }} htmlFor="popout-search">
+            <label className="block text-[10.5px] uppercase tracking-wide mb-1" style={{ color: 'var(--text-secondary)' }} htmlFor="popout-search">
               Find someone
             </label>
             <input id="popout-search" type="search" value={search.q} onChange={(e) => search.onChange(e.target.value)} placeholder="Name or email" className="w-full h-8 px-2.5 text-[12.5px] rounded-[7px] focus-ring" style={{ background: 'var(--surface)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }} />
             {search.results && (
               <ul className="mt-1 rounded-[7px] overflow-hidden max-h-[180px] overflow-y-auto" style={{ border: '1px solid var(--border-subtle)' }} aria-label="Search results">
                 {search.results.results.length === 0 && !search.searching && (
-                  <li className="px-2.5 py-1.5" style={{ color: 'var(--text-tertiary)' }}>
+                  <li className="px-2.5 py-1.5" style={{ color: 'var(--text-secondary)' }}>
                     No one matches “{search.q}”.
                   </li>
                 )}
@@ -159,7 +169,7 @@ export const SettingsPopover: React.FC<{
                       className="w-full text-left px-2.5 py-1.5 hover:bg-[var(--surface-hover)] focus-ring"
                     >
                       <span className="font-medium">{r.name}</span>
-                      <span className="ml-1.5 text-[11px]" style={{ color: 'var(--text-quaternary)' }}>
+                      <span className="ml-1.5 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         {r.email ?? r.phone ?? ''}
                         {r.source === 'live' ? ' · GHL' : ''}
                       </span>
@@ -196,10 +206,10 @@ const STATUS_WORD: Record<CompanionCall['status'], { text: (c: CompanionCall) =>
   up_next: { text: () => 'Up next', color: 'var(--info)' },
   in_progress: { text: () => 'In progress', color: 'var(--accent)' },
   needs_outcome: { text: () => 'Needs outcome', color: 'var(--warning)' },
-  logged: { text: (c) => `Logged${c.action ? ` · ${c.action.label}` : ''}`, color: 'var(--success)' },
+  logged: { text: (c) => `Logged${c.action ? ` · ${c.action.label}` : ''}`, color: 'var(--positive-text)' },
   dry_run: { text: (c) => `Dry run${c.action ? ` · ${c.action.label}` : ''}`, color: 'var(--warning)' },
   failed: { text: (c) => `Failed${c.action?.failedStep ? ` · ${c.action.failedStep}` : ''}`, color: 'var(--danger)' },
-  ghl_outcome: { text: (c) => (c.outcomeInGhl === 'showed' ? 'Showed in GHL' : c.outcomeInGhl === 'no_show' ? 'No-show in GHL' : 'Cancelled in GHL'), color: 'var(--text-tertiary)' },
+  ghl_outcome: { text: (c) => (c.outcomeInGhl === 'showed' ? 'Showed in GHL' : c.outcomeInGhl === 'no_show' ? 'No-show in GHL' : 'Cancelled in GHL'), color: 'var(--text-secondary)' },
 };
 
 export const timeRangeOf = (c: { startIso: string; endIso: string | null }, tz: string) => (c.endIso ? `${formatTime(c.startIso, tz)}–${formatTime(c.endIso, tz)}` : formatTime(c.startIso, tz));
@@ -209,7 +219,7 @@ export const BriefBlock: React.FC<{ brief: ClientBrief | null; call: CompanionCa
   if (!brief) {
     return (
       <div className="px-3 pt-2.5 pb-1 shrink-0" style={{ minHeight: 84 }}>
-        <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+        <p className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
           {loading ? 'Loading the brief…' : 'Pick a call with the arrows or find someone in settings.'}
         </p>
       </div>
@@ -218,10 +228,10 @@ export const BriefBlock: React.FC<{ brief: ClientBrief | null; call: CompanionCa
   const status = call && !fromSearch ? STATUS_WORD[call.status] : null;
   return (
     <div className="px-3 pt-2.5 pb-1 shrink-0 min-w-0">
-      <div className="text-[11.5px] truncate flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+      <div className="text-[11.5px] truncate flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
         {call && !fromSearch ? (
           <>
-            <span style={{ color: call.callType === 'Roadmap' ? 'var(--accent)' : call.callType === 'Consult' ? 'var(--info)' : 'var(--text-tertiary)' }} className="font-medium">
+            <span style={{ color: call.callType === 'Roadmap' ? 'var(--accent)' : call.callType === 'Consult' ? 'var(--info)' : 'var(--text-secondary)' }} className="font-medium">
               {call.callType === 'Other' ? call.calendarName : call.callType}
             </span>
             <span>· {timeRangeOf(call, timezone)}</span>
@@ -251,7 +261,7 @@ export const BriefBlock: React.FC<{ brief: ClientBrief | null; call: CompanionCa
           {brief.daysInPipeline ? `${brief.daysInPipeline.days} d in pipeline` : 'no application date'}
         </Badge>
         {brief.ghlUrl ? (
-          <a href={brief.ghlUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-[18px] px-1.5 rounded-[4px] text-[10.5px] font-medium border focus-ring shrink-0" style={{ color: 'var(--accent)', borderColor: 'color-mix(in srgb, var(--accent) 26%, transparent)', background: 'var(--accent-muted)' }}>
+          <a href={brief.ghlUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 h-[18px] px-1.5 rounded-[4px] text-[10.5px] font-medium border focus-ring shrink-0" style={{ color: 'var(--accent)', borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)', background: 'var(--bg-canvas)' }}>
             Open in GHL <ExternalLink size={10} />
           </a>
         ) : (
@@ -271,10 +281,11 @@ export const OutcomeGrid: React.FC<{ log: OutcomeLog; hasCall: boolean }> = ({ l
   const list = log.outcomes?.outcomes ?? [];
   const move = log.outcomes?.moveTo;
   const selectedMove = log.choice && 'move' in log.choice ? log.choice.move : null;
-  const cell = (on: boolean) => ({ background: on ? 'var(--accent-muted)' : 'var(--surface-raised)', color: on ? 'var(--accent)' : 'var(--text-primary)', border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border-default)'}` });
+  // Selected = accent border + accent tint; the label stays text-primary (accent-on-tint was 3.9:1 in dark).
+  const cell = (on: boolean) => ({ background: on ? 'var(--accent-muted)' : 'var(--surface-raised)', color: 'var(--text-primary)', fontWeight: on ? 600 : 500, border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border-default)'}` });
   if (!log.outcomes && !log.outcomesError) {
     return (
-      <p className="text-[11.5px]" style={{ color: 'var(--text-quaternary)' }}>
+      <p className="text-[11.5px]" style={{ color: 'var(--text-secondary)' }}>
         Loading outcomes…
       </p>
     );
@@ -296,7 +307,7 @@ export const OutcomeGrid: React.FC<{ log: OutcomeLog; hasCall: boolean }> = ({ l
           </button>
           <Popover open={moveOpen && Boolean(move.pipeline)} anchorRef={moveRef} onClose={() => setMoveOpen(false)} width={300} align="right" aria-label="Move to a stage">
             <div className="px-3 py-2.5 space-y-2 text-[12px]">
-              <div className="text-[10.5px] uppercase tracking-wide" style={{ color: 'var(--text-quaternary)' }}>
+              <div className="text-[10.5px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
                 Move to any stage of {move.pipeline?.name}
               </div>
               <select aria-label="Move to stage" value={selectedMove?.stageId ?? ''} onChange={(e) => log.setChoice(e.target.value ? { move: { stageId: e.target.value, appointment: selectedMove?.appointment ?? (hasCall ? 'showed' : 'leave') } } : null)} className="w-full h-8 rounded-[7px] px-2 text-[12px]" style={{ background: 'var(--surface)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
@@ -314,7 +325,7 @@ export const OutcomeGrid: React.FC<{ log: OutcomeLog; hasCall: boolean }> = ({ l
                   </option>
                 ))}
               </select>
-              <button type="button" onClick={() => setMoveOpen(false)} className="h-8 w-full rounded-[7px] text-[12px] font-semibold focus-ring" style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
+              <button type="button" onClick={() => setMoveOpen(false)} className="h-8 w-full rounded-[7px] text-[12px] font-semibold focus-ring" style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}>
                 Done
               </button>
             </div>
@@ -329,7 +340,7 @@ export const OutcomeGrid: React.FC<{ log: OutcomeLog; hasCall: boolean }> = ({ l
 export const NoteField: React.FC<{ log: OutcomeLog }> = ({ log }) => (
   <div className="shrink-0">
     <textarea value={log.note} onChange={(e) => log.setNote(e.target.value)} placeholder="Call note (required) — what happened, what was agreed, next step" aria-label="Call note" className="w-full h-[76px] resize-none rounded-[8px] px-2.5 py-2 text-[12.5px] leading-snug focus-ring" style={{ background: 'var(--surface)', border: `1px solid ${log.note && !log.noteOk ? 'var(--warning)' : 'var(--border-default)'}`, color: 'var(--text-primary)' }} />
-    <div className="text-right text-[10.5px] tabular -mt-0.5" style={{ color: log.noteOk ? 'var(--text-quaternary)' : 'var(--warning)' }}>
+    <div className="text-right text-[10.5px] tabular -mt-0.5" style={{ color: log.noteOk ? 'var(--text-secondary)' : 'var(--warning)' }}>
       {log.noteOk ? 'Note ready' : `${log.noteLen} / ${NOTE_MIN_CHARS}`}
     </div>
   </div>
@@ -347,14 +358,14 @@ export const LastNote: React.FC<{ notes: ClientBrief['notes'] | null }> = ({ not
     text = `Last note${when ? ` · ${when}` : ''} · ${n.body.replace(/\s+/g, ' ').trim()}`;
   }
   return (
-    <p className="text-[11.5px] leading-snug line-clamp-2 shrink-0 min-h-[16px]" style={{ color: 'var(--text-tertiary)' }} title={text}>
+    <p className="text-[11.5px] leading-snug line-clamp-2 shrink-0 min-h-[16px]" style={{ color: 'var(--text-secondary)' }} title={text}>
       {text}
     </p>
   );
 };
 
 const StepIcon: React.FC<{ status: string }> = ({ status }) => {
-  if (status === 'ok') return <Check size={13} strokeWidth={2.5} style={{ color: 'var(--success)' }} aria-label="done" />;
+  if (status === 'ok') return <Check size={13} strokeWidth={2.5} style={{ color: 'var(--positive-text)' }} aria-label="done" />;
   if (status === 'failed') return <X size={13} strokeWidth={2.5} style={{ color: 'var(--danger)' }} aria-label="failed" />;
   if (status === 'dry_run') return <Check size={13} strokeWidth={2.5} style={{ color: 'var(--warning)' }} aria-label="dry run" />;
   if (status === 'pending') return <Loader2 size={13} className="animate-spin" style={{ color: 'var(--text-quaternary)' }} aria-label="pending" />;
@@ -362,7 +373,7 @@ const StepIcon: React.FC<{ status: string }> = ({ status }) => {
 };
 
 export const resultTitle = (a: ActionView) => (a.state === 'ok' ? 'Logged' : a.state === 'dry_run' ? 'Dry run — logged, not sent' : a.state === 'undone' ? `Undone${a.undoneBy ? ` by ${a.undoneBy}` : ''}` : a.state === 'partial' ? 'Partly applied' : a.state === 'running' ? 'Logging…' : 'Failed');
-export const resultTone = (a: ActionView) => (a.state === 'ok' ? 'var(--success)' : a.state === 'dry_run' ? 'var(--warning)' : a.state === 'undone' ? 'var(--text-tertiary)' : 'var(--danger)');
+export const resultTone = (a: ActionView) => (a.state === 'ok' ? 'var(--positive-text)' : a.state === 'dry_run' ? 'var(--warning)' : a.state === 'undone' ? 'var(--text-secondary)' : 'var(--danger)');
 
 /** After confirm: the three per-step checks (✓ / ✗ / –), Retry on the failing step. Takes the grid's place in the body. */
 export const ResultSteps: React.FC<{ action: ActionView; busy: string | null; onRetry: () => void; timezone: string }> = ({ action: a, busy, onRetry, timezone }) => (
@@ -371,7 +382,7 @@ export const ResultSteps: React.FC<{ action: ActionView; busy: string | null; on
       <div className="text-[12.5px] font-semibold truncate" style={{ color: resultTone(a) }}>
         {resultTitle(a)} · {a.label}
       </div>
-      <div className="text-[10.5px] tabular shrink-0" style={{ color: 'var(--text-quaternary)' }}>
+      <div className="text-[10.5px] tabular shrink-0" style={{ color: 'var(--text-secondary)' }}>
         {formatTime(a.createdAt, timezone)} · {a.userName}
       </div>
     </div>
@@ -382,12 +393,12 @@ export const ResultSteps: React.FC<{ action: ActionView; busy: string | null; on
             <StepIcon status={s.status} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className={s.status === 'skipped' ? '' : 'font-medium'} style={{ color: s.status === 'skipped' ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>
+            <div className={s.status === 'skipped' ? '' : 'font-medium'} style={{ color: s.status === 'skipped' ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
               {s.summary}
               {s.status === 'dry_run' && <span style={{ color: 'var(--warning)' }}> · dry run — not sent</span>}
             </div>
             {s.detail && (
-              <div className="text-[11px] break-words" style={{ color: s.status === 'failed' ? 'var(--danger)' : 'var(--text-quaternary)' }}>
+              <div className="text-[11px] break-words" style={{ color: s.status === 'failed' ? 'var(--danger)' : 'var(--text-secondary)' }}>
                 {s.detail}
               </div>
             )}
@@ -415,10 +426,10 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
   const secondary = `${primary} px-4`;
   let controls: React.ReactNode;
   let line: string;
-  let lineColor = 'var(--text-tertiary)';
+  let lineColor = 'var(--text-secondary)';
   if (phase.kind === 'pick') {
     controls = (
-      <button type="button" onClick={log.plan} disabled={!log.canLog || !hasTarget} data-testid="log-button" className={`${primary} w-full`} style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
+      <button type="button" onClick={log.plan} disabled={!log.canLog || !hasTarget} data-testid="log-button" className={`${primary} w-full`} style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}>
         {log.busy === 'plan' ? 'Preparing…' : 'Log outcome'}
       </button>
     );
@@ -433,7 +444,7 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
         <button type="button" onClick={log.cancel} disabled={running} className={secondary} style={{ background: 'var(--surface-raised)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}>
           Cancel
         </button>
-        <button type="button" onClick={log.confirm} disabled={running} data-testid="log-confirm-button" className={`${primary} flex-1 min-w-0`} style={{ background: p.dryRun ? 'var(--warning)' : 'var(--accent)', color: 'var(--accent-text)' }}>
+        <button type="button" onClick={log.confirm} disabled={running} data-testid="log-confirm-button" className={`${primary} flex-1 min-w-0`} style={{ background: p.dryRun ? 'var(--warning)' : 'var(--accent)', color: 'var(--text-inverse)' }}>
           {running ? (
             <>
               <Loader2 size={14} className="animate-spin" /> Logging…
@@ -462,13 +473,13 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
             <Undo2 size={14} /> {log.busy === 'undo' ? 'Undoing…' : `Undo${log.countdown ? ` (${log.countdown})` : ''}`}
           </button>
         )}
-        <button type="button" onClick={log.reset} className={`${primary} flex-1`} style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
+        <button type="button" onClick={log.reset} className={`${primary} flex-1`} style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}>
           Log another
         </button>
       </div>
     );
     line = log.error ?? `${resultTitle(a)} · ${a.label} · ${formatTime(a.createdAt, timezone)} by ${a.userName}${a.state === 'partial' ? ' — Retry the failing step above' : ''}`;
-    lineColor = log.error ? 'var(--danger)' : a.state === 'partial' || a.state === 'failed' ? 'var(--danger)' : 'var(--text-tertiary)';
+    lineColor = log.error ? 'var(--danger)' : a.state === 'partial' || a.state === 'failed' ? 'var(--danger)' : 'var(--text-secondary)';
   }
   return (
     <footer className="shrink-0 px-3 pt-2 pb-2.5" style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>

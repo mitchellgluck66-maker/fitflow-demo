@@ -251,37 +251,58 @@ async function captureCompanion(browser: import('playwright').Browser) {
     }
   }
   await probePage.close();
-  const shots: Array<{ name: string; path: string; viewport: { width: number; height: number }; mobile: boolean; fullPage: boolean }> = [
+  type Shot = { name: string; path: string; viewport: { width: number; height: number }; mobile: boolean; fullPage: boolean; collapsed?: boolean; noScroll?: boolean; click?: string };
+  const popout = (name: string, extra: string, more: Partial<Shot> = {}): Shot => ({ name, path: `/companion/popout?date=${date}&float=0${extra}`, viewport: { width: 360, height: 560 }, mobile: false, fullPage: false, noScroll: true, ...more });
+  const shots: Shot[] = [
     { name: 'companion-day', path: `/companion?date=${date}`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
     { name: 'companion-day-mobile', path: `/companion?date=${date}`, viewport: { width: 360, height: 740 }, mobile: true, fullPage: true },
-    { name: 'companion-popout', path: `/companion/popout?date=${date}&float=0`, viewport: { width: 360, height: 520 }, mobile: false, fullPage: false },
+    // Stage 4: the pop-out at its real window size (360×560 inner, never scrolls — asserted), the collapsed bar at
+    // Chrome's 66 px minimum, and the states from canned data (/api/companion/preview, COMPANION_PREVIEW=1).
+    popout('companion-popout', ''),
+    popout('companion-popout-collapsed', '', { viewport: { width: 360, height: 66 }, collapsed: true }),
+    popout('companion-popout-confirm', '&preview=confirm'),
+    popout('companion-popout-ghl-error', '&preview=ghl_error'),
+    popout('companion-popout-success', '&preview=success'),
+    popout('companion-popout-partial', '&preview=partial'),
+    popout('companion-popout-dryrun', '&preview=dryrun'),
+    // The no-PiP fallback: the in-page floating panel over My day (?popout=panel opens it on load).
+    { name: 'companion-popout-panel', path: `/companion?date=${date}&popout=panel`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: false },
     { name: 'companion-settings', path: '/companion/settings', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
     { name: 'companion-settings-mobile', path: '/companion/settings', viewport: { width: 360, height: 740 }, mobile: true, fullPage: true },
-    // Stage 2: the log panel's states through the real pop-out from canned data (/api/companion/preview, COMPANION_PREVIEW=1).
-    ...(['confirm', 'success', 'partial', 'dryrun'] as const).map((state) => ({ name: `companion-popout-${state}`, path: `/companion/popout?date=${date}&float=0&preview=${state}`, viewport: { width: 360, height: 640 }, mobile: false, fullPage: true })),
     { name: 'companion-setup', path: '/setup#companion', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
   ];
   const previewProbe = await (await browser.newPage()).request.get(`${BASE}/api/companion/preview?state=confirm`);
-  if (!previewProbe.ok()) console.log(`– companion-popout-{confirm,success,partial,dryrun} will show the live pop-out: /api/companion/preview answered ${previewProbe.status()} — start the server with COMPANION_PREVIEW=1 to capture the canned states`);
+  if (!previewProbe.ok()) console.log(`– companion-popout-{confirm,ghl-error,success,partial,dryrun} will show the live pop-out: /api/companion/preview answered ${previewProbe.status()} — start the server with COMPANION_PREVIEW=1 to capture the canned states`);
   for (const theme of ['light', 'dark'] as const) {
     fs.mkdirSync(path.join(OUT, theme), { recursive: true });
     for (const shot of shots) {
       const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: 1, isMobile: shot.mobile, hasTouch: shot.mobile });
-      await context.addInitScript((t) => {
-        try {
-          localStorage.setItem('fitflow-theme', t);
-        } catch {
-          /* ignore */
-        }
-        document.documentElement.setAttribute('data-theme', t);
-      }, theme);
+      await context.addInitScript(
+        ({ t, collapsed }) => {
+          try {
+            localStorage.setItem('fitflow-theme', t);
+            localStorage.setItem('companion_popout_collapsed', collapsed ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+          document.documentElement.setAttribute('data-theme', t);
+        },
+        { t: theme, collapsed: Boolean(shot.collapsed) },
+      );
       const page = await context.newPage();
       await page.goto(`${BASE}${shot.path}`, { waitUntil: 'networkidle' });
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForTimeout(1200);
-      if (shot.name.startsWith('companion-popout-')) await page.waitForSelector('[data-testid^="log-"]', { timeout: 10_000 }).catch(() => undefined);
+      if (shot.name.startsWith('companion-popout')) await page.waitForSelector('[data-testid="popout-root"]', { timeout: 10_000 }).catch(() => undefined);
+      if (shot.name === 'companion-popout-ghl-error') await page.waitForSelector('[data-testid="popout-status-popover"]', { timeout: 5_000 }).catch(() => console.log('  ! the status popover did not open'));
+      let note = '';
+      if (shot.noScroll) {
+        // The expanded layout never scrolls at 360×560 (stage 4, item 1) — measured, not assumed.
+        const m = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight, inner: window.innerHeight, overflowing: [...document.querySelectorAll('*')].filter((e) => e.scrollHeight > e.clientHeight + 1 && getComputedStyle(e).overflowY !== 'hidden' && e.clientHeight > 0 && e.tagName !== 'SPAN').length }));
+        note = m.doc <= m.inner && m.overflowing === 0 ? ` · no scroll (${m.doc}/${m.inner})` : ` · !! SCROLLS: document ${m.doc} > ${m.inner}, ${m.overflowing} overflowing element(s)`;
+      }
       await page.screenshot({ path: path.join(OUT, theme, `${shot.name}.png`), fullPage: shot.fullPage });
-      console.log(`✓ ${theme}/${shot.name}.png`);
+      console.log(`✓ ${theme}/${shot.name}.png${note}`);
       await context.close();
     }
   }

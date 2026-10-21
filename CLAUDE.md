@@ -1504,6 +1504,59 @@ NOT pushed. Report: `docs/companion-stage3-report.md`. No new GHL write (`verify
   the append-only guard allows). Deploy: `npm run db:migrate` (0023) THEN push, then /reports → recipients → Preview →
   Send test → On.
 
+## Onboarding Companion — Stage 4 (2026-10-21, `docs/companion-stage4-plan.md`, the pop-out redesign)
+
+The pop-out is one 360×560 window that never scrolls, with ONE status chip, a 2×3 outcome grid, a fixed "Log outcome"
+footer whose one line says what will happen, a collapse button that shrinks the window to a bar without moving its
+top-left corner, and a theme that follows the app live. Six commits on stage 3, `npm run check` green, NOT pushed.
+Report: `docs/companion-stage4-report.md` (the quadrant table, the contrast table). The write path is untouched.
+
+- **Layout** (`components/companion/PopOutView.tsx` + `PopOutParts.tsx`; stage 2's `LogPanel` became the hook
+  `useOutcomeLog.ts` — the same fetches, byte-identical bodies, the state reset derived during render when the target
+  changes): header 48 px (accent mark · "Today · 2 of 4" · chip · ‹ › · gear · collapse) → brief (type · time · status
+  word, the name 20 px / 700, chips stage · days · Open in GHL — `ClientBrief.ghlUrl`, null for a demo row or without
+  a location id) → grid (five outcomes + "Move to…" popover; selected = accent border + tint, text-primary) → note
+  76 px → "Last note · date · text" → footer ("Log outcome" 44 px; the first click plans and the button becomes
+  "Confirm: <outcome>" + Cancel; the line = `popoutState#effectLine` — "Moves to Enrolled · marks showed · adds
+  note"; a stale stage → amber line + "Continue anyway"; after confirm the per-step checks with Retry, the footer Undo
+  + Log another). Search lives in the gear popover ("Find someone"), with Auto-advance, the window-mode sentence
+  (incl. "can't float") and links. No banner anywhere; env var names never appear (`scrubEnvNames`).
+- **ONE chip** (`lib/companion/popoutState.ts#statusChip`): "GHL error" (red) > "Error" (red: a FitFlow API call or
+  the window) > "Dry run" (amber) > nothing; the popover lists every problem. Problems are DERIVED each render (day /
+  brief / notes / search / outcomes / log result / preference save) plus the window's own (resize refused, corner
+  moved, theme sync failed — `console.error` + the chip, never swallowed).
+- **Collapse** — ONLY the button (`collapseReducer`; `aria-label` Collapse / Expand + `aria-expanded`; exactly one
+  such control, no `onDoubleClick` — source-guarded). Saved under `companion_popout_collapsed` (try/catch), read via
+  `useSyncExternalStore` (the server renders expanded; no hydration mismatch) and the `COLLAPSED_EVENT`. Hosts
+  (`components/companion/popoutHosts.ts`, `PopOutView#PopOutHost`): `pip` — inside the click `window.top.resizeTo(360,
+  inner + titleBar)`, the corner measured before / 250 ms after, logged in dev, > 2 px or a refused resize
+  (`resizeRefusal`) on the chip; `panel` — the in-page `FloatingPanel` (no Document PiP: portal at `--z-overlay`,
+  draggable by the header, collapses from the bottom, position under `companion_popout_pos`, clamped on resize, ✕ to
+  close; `/companion?popout=panel` opens it on load); `tab` — a plain tab folds the layout only. **Chrome's minimum
+  PiP inner height is 66 px** (`COLLAPSED_INNER_MIN`): the bar is 66 tall with the 48 row centred. Measured 2026-10-21
+  on Chrome 155: four quadrants × 10 toggles, Δx = Δy = 0 on all 40 (`npx tsx scripts/popout-measure.ts`, Playwright
+  `channel: 'chrome'`; quadrants via `--window-position`, which applies to the PiP window; Chromium 131 jumped once on
+  a top-right expand — a Chromium-131 quirk). `moveTo` on a PiP window is a silent no-op.
+- **Remember location**: `requestWindow` gets ONLY `{ width, height }` for the saved state (`popout#requestedPipSize`;
+  a different size would re-place the window) — never `preferInitialWindowPlacement`. Proven on Chromium 131 (moved by
+  System Events, closed, reopened at the moved spot); Chrome 155 consistent (cannot be moved by script).
+- **Theme** (`lib/companion/popoutTheme.ts#startThemeSync`, wired in `PopOutButton`): the OPENER copies its
+  `<html data-theme>` + `color-scheme` into the PiP wrapper and the iframe's document on open, on iframe load and on
+  every mutation (MutationObserver on its own root — system mode included because the ThemeProvider writes the
+  attribute); the wrapper body is painted from the computed `--bg-canvas` (`pipDocumentHtml` takes theme +
+  background; no hex). A failing target → `onError` → `postMessage` `companion-popout:problem` → the chip. Verified
+  live on Chrome: 100 ms after the toggle both documents switched.
+- **Dev badge**: the pop-out page renders `<style>nextjs-portal{display:none !important}</style>`.
+- **Contrast ≥ 4.5:1 both themes** — readable text is `--text-secondary` (tertiary is 3.66:1 on light), labels on
+  accent / warning are `--text-inverse` (white on the dark accent is 3.81:1), the chips carry no tint, "Logged" is
+  `--positive-text`. Table in the report.
+- **Proof**: `tests/companion-popout.test.ts` (chip priority, env scrub, the reducer, storage incl. a throwing one,
+  panel clamp, the header markup, effect line, next-call label, resize refusal, theme sync with a fake observer);
+  `npm run screenshots -- --companion` (asserts no scroll at 360×560 per shot; `companion-popout{,-collapsed,-confirm,
+  -ghl-error,-success,-partial,-dryrun,-panel}`); `scripts/popout-measure.ts` (headed; Chrome windows appear).
+  Not verified: a real OS appearance flip in system mode (Playwright's emulateMedia does not reach the PiP window),
+  the real tenant, Edge / Windows.
+
 ## Working agreements
 
 - **Fix the class, design for any tenant; no tenant-specific logic in `lib/`** (Mitchell, 2026-10-03).
