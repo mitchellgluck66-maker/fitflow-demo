@@ -8,7 +8,7 @@ import { runMigrations } from '@/db/migrate';
 import { db, pipelines, stages, contacts, emailDigests } from '@/db';
 import { buildDailyTodo } from '@/lib/email/digests';
 import { runDigest, resolveRecipients, MAX_FAILED_ATTEMPTS } from '@/lib/email/send';
-import { localHour, inSendWindow, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
+import { localHour } from '@/lib/email/cron';
 
 const TODAY = '2026-08-26';
 const YESTERDAY = '2026-08-25';
@@ -38,14 +38,26 @@ beforeAll(async () => {
 
 describe('buildDailyTodo', () => {
   it('lists an applicant with no consult under Day-1, plainly', async () => {
-    const d = await buildDailyTodo(TODAY);
+    // Sent just after midnight on TODAY: the report is FOR yesterday; Day-1 = the people whose stage entry was that day.
+    const sentAt = new Date(`${TODAY}T06:40:00Z`); // 00:40 MDT
+    const d = await buildDailyTodo(TODAY, sentAt);
     expect(d.empty).toBe(false);
-    expect(d.periodStart).toBe(TODAY);
+    expect(d.periodStart).toBe(YESTERDAY);
+    expect(d.periodEnd).toBe(YESTERDAY);
     expect(d.html).toContain('Jane Doe');
     expect(d.html).toContain('jane@example.com');
     expect(d.text).toContain('DAY-1 FOLLOW-UPS');
     expect(d.text).toMatch(/Applied, no consult booked \(1\)\n\s+- Jane Doe — jane@example.com — Facebook — 2026-08-25/);
-    expect(d.subject).toContain('(1 to call)');
+    expect(d.subject).toContain('Tue, Aug 25');
+    expect(d.subject).toContain('(1 to call today)');
+    // Meta spend for the reported day: no rows in this fixture, and the day closed 40 min before the send → still settling.
+    expect(d.text).toContain('Meta spend Tue, Aug 25, 2026: no spend rows yet · still settling');
+  });
+
+  it('drops the settling mark once the reported day is 48 h old', async () => {
+    const d = await buildDailyTodo(TODAY, new Date(`2026-08-28T06:40:00Z`));
+    expect(d.text).toContain('Meta spend Tue, Aug 25, 2026: no spend rows yet');
+    expect(d.text).not.toContain('still settling');
   });
 
   it('is empty on a quiet day', async () => {
@@ -83,11 +95,11 @@ describe('runDigest', () => {
   });
 
   it('is idempotent per period once a digest has been sent', async () => {
-    // Simulate a prior successful send for the same period.
+    // Simulate a prior successful send for the same period (the report run on TODAY is FOR yesterday).
     await db.insert(emailDigests).values({
       kind: 'daily_todo',
-      periodStart: TODAY,
-      periodEnd: TODAY,
+      periodStart: YESTERDAY,
+      periodEnd: YESTERDAY,
       recipients: ['x@example.com'],
       subject: 'prior',
       html: '<p/>',
@@ -119,7 +131,8 @@ describe('runDigest', () => {
 
   it('stops retrying a period after MAX_FAILED_ATTEMPTS failures (force still sends)', async () => {
     const day = '2026-08-28';
-    const failed = { kind: 'daily_todo', periodStart: day, periodEnd: day, recipients: ['x@example.com'], subject: 'f', html: '<p/>', status: 'failed', error: 'boom' };
+    const reported = '2026-08-27'; // the period a run on `day` reports
+    const failed = { kind: 'daily_todo', periodStart: reported, periodEnd: reported, recipients: ['x@example.com'], subject: 'f', html: '<p/>', status: 'failed', error: 'boom' };
     await db.insert(emailDigests).values(Array.from({ length: MAX_FAILED_ATTEMPTS }, () => ({ ...failed })));
     const before = (await db.select().from(emailDigests)).length;
     const r = await runDigest('daily_todo', { today: day });
@@ -145,37 +158,5 @@ describe('cron local-hour gate', () => {
     expect(localHour(new Date('2026-12-16T11:00:00Z'), 'America/New_York')).toBe(6);
   });
 
-  // M1 (2026-09-29 audit): the Hobby dispatch lands ~13:28 UTC every day. In
-  // Edmonton that is 7:28 MDT in summer but 6:28 MST from Nov 1 — a ≥7am guard
-  // would have skipped every digest all winter.
-  describe('send window opens at 6am local, across DST (America/Edmonton)', () => {
-    const TZ = 'America/Edmonton';
-    const at = (isoStr: string) => new Date(isoStr);
-    it('opens at 6', () => expect(SEND_WINDOW_START_LOCAL).toBe(6));
-    it('summer (MDT): 13:28 UTC = 7:28 → send', () => {
-      expect(localHour(at('2026-09-29T13:28:00Z'), TZ)).toBe(7);
-      expect(inSendWindow(at('2026-09-29T13:28:00Z'), TZ)).toBe(true);
-    });
-    it('last MDT day, Sat Oct 31: 7:28 → send', () => expect(inSendWindow(at('2026-10-31T13:28:00Z'), TZ)).toBe(true));
-    it('fall-back day, Sun Nov 1: 13:28 UTC = 6:28 MST → send (the bug)', () => {
-      expect(localHour(at('2026-11-01T13:28:00Z'), TZ)).toBe(6);
-      expect(inSendWindow(at('2026-11-01T13:28:00Z'), TZ)).toBe(true);
-    });
-    it('first winter Monday, Nov 2: 6:28 MST → the weekly digest sends', () => {
-      expect(localHour(at('2026-11-02T13:28:00Z'), TZ)).toBe(6);
-      expect(inSendWindow(at('2026-11-02T13:28:00Z'), TZ)).toBe(true);
-    });
-    it('mid-winter, Dec 1 (the monthly): 6:28 MST → send', () => expect(inSendWindow(at('2026-12-01T13:28:00Z'), TZ)).toBe(true));
-    it('spring-forward, Sun Mar 14 2027: 13:28 UTC = 7:28 MDT → send', () => {
-      expect(localHour(at('2027-03-14T13:28:00Z'), TZ)).toBe(7);
-      expect(inSendWindow(at('2027-03-14T13:28:00Z'), TZ)).toBe(true);
-    });
-    it('still closed before 6: 12:28 UTC in winter = 5:28 MST', () => {
-      expect(localHour(at('2026-11-02T12:28:00Z'), TZ)).toBe(5);
-      expect(inSendWindow(at('2026-11-02T12:28:00Z'), TZ)).toBe(false);
-    });
-    it('Eastern business timezone keeps working: 8:28 EST in winter → send', () => {
-      expect(inSendWindow(at('2026-12-16T13:28:00Z'), 'America/New_York')).toBe(true);
-    });
-  });
+  // The 6 am send window (M1) was retired 2026-10-21: reports send after midnight — see tests/report-schedule.test.ts.
 });

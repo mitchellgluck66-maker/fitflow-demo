@@ -25,6 +25,7 @@ export async function GET() {
       digestEnabledTodo: stored[SETTING_KEYS.digestEnabledTodo] !== 'false',
       digestEnabledWeekly: stored[SETTING_KEYS.digestEnabledWeekly] !== 'false',
       digestEnabledMonthly: stored[SETTING_KEYS.digestEnabledMonthly] !== 'false',
+      digestIncludeWeekends: stored[SETTING_KEYS.digestIncludeWeekends] === 'true',
       lastAutoSyncAt: stored[SETTING_KEYS.ghlLastSyncAt] ?? null,
       backfillFrom: stored[SETTING_KEYS.backfillFrom] ?? '2026-06-01',
       metaBackfillFrom: stored[SETTING_KEYS.metaBackfillFrom] ?? '2026-07-16',
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
       ['digestEnabledTodo', SETTING_KEYS.digestEnabledTodo],
       ['digestEnabledWeekly', SETTING_KEYS.digestEnabledWeekly],
       ['digestEnabledMonthly', SETTING_KEYS.digestEnabledMonthly],
+      ['digestIncludeWeekends', SETTING_KEYS.digestIncludeWeekends],
     ] as const) {
       if (typeof body[field] === 'boolean') await setSetting(key, body[field] ? 'true' : 'false');
     }
@@ -112,6 +114,7 @@ export async function POST(request: NextRequest) {
       digestEnabledTodo: stored[SETTING_KEYS.digestEnabledTodo] !== 'false',
       digestEnabledWeekly: stored[SETTING_KEYS.digestEnabledWeekly] !== 'false',
       digestEnabledMonthly: stored[SETTING_KEYS.digestEnabledMonthly] !== 'false',
+      digestIncludeWeekends: stored[SETTING_KEYS.digestIncludeWeekends] === 'true',
       timezone: stored[SETTING_KEYS.timezone],
       autoSyncEnabled: stored[SETTING_KEYS.autoSyncEnabled] !== 'false',
       summaryRecipientEmail: stored[SETTING_KEYS.summaryRecipientEmail] ?? '',

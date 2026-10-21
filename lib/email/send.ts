@@ -50,6 +50,11 @@ const ENABLED_KEY: Record<DigestKind, string> = {
   monthly: SETTING_KEYS.digestEnabledMonthly,
 };
 
+/** Owner setting "Include weekends": only the literal 'true' turns it on (default off). */
+export async function includeWeekends(): Promise<boolean> {
+  return (await getSetting(SETTING_KEYS.digestIncludeWeekends)) === 'true';
+}
+
 export async function digestEnabled(kind: DigestKind): Promise<boolean> {
   return (await getSetting(ENABLED_KEY[kind])) !== 'false';
 }

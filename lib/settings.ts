@@ -26,6 +26,8 @@ export const SETTING_KEYS = {
   digestEnabledTodo: 'digest_enabled_todo',
   digestEnabledWeekly: 'digest_enabled_weekly',
   digestEnabledMonthly: 'digest_enabled_monthly',
+  /** Daily report: also send the reports FOR Saturday and Sunday (owner setting; default off). */
+  digestIncludeWeekends: 'digest_include_weekends',
   summaryRecipientEmail: 'summary_recipient_email',
   summaryRecipientHistory: 'summary_recipient_history',
   /** ISO timestamp of the last successful GHL delta sync (delta lower bound). */
@@ -121,6 +123,7 @@ export const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.digestEnabledTodo]: 'true',
   [SETTING_KEYS.digestEnabledWeekly]: 'true',
   [SETTING_KEYS.digestEnabledMonthly]: 'true',
+  [SETTING_KEYS.digestIncludeWeekends]: 'false',
 };
 
 export async function getSetting(key: string): Promise<string | null> {

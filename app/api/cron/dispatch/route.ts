@@ -18,7 +18,7 @@ import { runAppliedLedgerStep } from '@/lib/reconcile/appliedLedger';
 import { runAppliedRatioStep } from '@/lib/reconcile/appliedRatio';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
 import { runDigest } from '@/lib/email/send';
-import { inSendWindow, localHour, SEND_WINDOW_START_LOCAL } from '@/lib/email/cron';
+import { localHour, decideReport } from '@/lib/email/cron';
 import { getSetting, getTimezone, SETTING_KEYS } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
 import {
@@ -79,10 +79,14 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const hour = localHour(now, timezone);
   const today = todayInTimezone(timezone);
-  const [y, m, d] = today.split('-').map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 1 = Monday
-  const isSendHour = force || inSendWindow(now, timezone);
-  const gate = (ok: boolean, reason: string) => (ok ? null : reason);
+  // 2026-10-21 schedules (lib/email/schedule.ts): daily = yesterday (weekends off unless "Include weekends"),
+  // weekly = Sunday for the week just ended, monthly = the 1st for the month just ended; any hour after 00:00 local.
+  const [dailyDue, weeklyDue, monthlyDue] = await Promise.all([
+    decideReport('daily_todo', now, timezone),
+    decideReport('weekly', now, timezone),
+    decideReport('monthly', now, timezone),
+  ]);
+  const gate = (ok: boolean, reason: string | null) => (ok ? null : (reason ?? 'not due'));
 
   const ghlKinds = ['ghl_delta', 'ghl_backfill'];
   const [state, lastGhlOk, liveGhl, trackedMarker] = await Promise.all([
@@ -135,11 +139,11 @@ export async function GET(request: NextRequest) {
     // 2026-10-15: paused (INSIGHTS_ENABLED unset) until the generator is rebuilt on the Analyst's safeguards — skipped with the reason.
     { name: 'insights', skip: insightsSkipReason(), run: () => runInsights({ range: 'this_week', compare: 'previous_period', minIntervalMs: force ? undefined : INSIGHT_MIN_INTERVAL_MS }) },
     // Narratives wait for the send window so the run that sends the digest writes its narrative first (once per period).
-    { name: 'narrative_weekly', skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runWeeklyNarrative('weekly', { force }) },
-    { name: 'narrative_monthly', skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runWeeklyNarrative('monthly', { force }) },
-    { name: 'daily', skip: gate(isSendHour, `before ${SEND_WINDOW_START_LOCAL}am local`), run: () => runDigest('daily_todo', { force }) },
-    { name: 'weekly', after: ['narrative_weekly'], skip: gate(isSendHour && (force || dow === 1), dow === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not Monday'), run: () => runDigest('weekly', { force }) },
-    { name: 'monthly', after: ['narrative_monthly'], skip: gate(isSendHour && (force || d === 1), d === 1 ? `before ${SEND_WINDOW_START_LOCAL}am local` : 'not the 1st'), run: () => runDigest('monthly', { force }) },
+    { name: 'narrative_weekly', skip: gate(force || weeklyDue.due, weeklyDue.reason), run: () => runWeeklyNarrative('weekly', { force }) },
+    { name: 'narrative_monthly', skip: gate(force || monthlyDue.due, monthlyDue.reason), run: () => runWeeklyNarrative('monthly', { force }) },
+    { name: 'daily', skip: gate(force || dailyDue.due, dailyDue.reason), run: () => runDigest('daily_todo', { force }) },
+    { name: 'weekly', after: ['narrative_weekly'], skip: gate(force || weeklyDue.due, weeklyDue.reason), run: () => runDigest('weekly', { force }) },
+    { name: 'monthly', after: ['narrative_monthly'], skip: gate(force || monthlyDue.due, monthlyDue.reason), run: () => runDigest('monthly', { force }) },
   ].filter((s) => want(s.name === 'narrative_weekly' || s.name === 'narrative_monthly' ? 'narrative' : s.name));
 
   const record = async (name: string, outcome: StepOutcome) => {

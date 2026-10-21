@@ -18,13 +18,16 @@ import {
   EmptyState,
   Toggle,
 } from '@/components';
+import { scheduleText, SENDS_AT_TEXT } from '@/lib/email/schedule';
 
 type Kind = 'daily_todo' | 'weekly' | 'monthly';
 
-const KINDS: Array<{ kind: Kind; label: string; schedule: string }> = [
-  { kind: 'daily_todo', label: 'Daily to-do', schedule: 'Every day · first run after 6am' },
-  { kind: 'weekly', label: 'Weekly scorecard', schedule: 'Mondays · first run after 6am' },
-  { kind: 'monthly', label: 'Monthly scorecard', schedule: '1st of the month · first run after 6am' },
+// 2026-10-21 schedules: every report sends on the first run after midnight business time for the
+// period that just ended (lib/email/schedule.ts). No send-time field — the cards say when.
+const KINDS: Array<{ kind: Kind; label: string }> = [
+  { kind: 'daily_todo', label: 'Daily report' },
+  { kind: 'weekly', label: 'Weekly scorecard' },
+  { kind: 'monthly', label: 'Monthly scorecard' },
 ];
 
 interface DigestRow {
@@ -48,6 +51,7 @@ interface SettingsData {
   digestEnabledTodo: boolean;
   digestEnabledWeekly: boolean;
   digestEnabledMonthly: boolean;
+  digestIncludeWeekends: boolean;
   email: { configured: boolean; from: string | null };
 }
 
@@ -83,6 +87,7 @@ export default function ReportsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [recipients, setRecipients] = useState({ todo: '', weekly: '', monthly: '' });
   const [enabled, setEnabled] = useState({ todo: true, weekly: true, monthly: true });
+  const [includeWeekends, setIncludeWeekends] = useState(false);
   const [preview, setPreview] = useState<{ title: string; src?: string; html?: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -103,6 +108,7 @@ export default function ReportsPage() {
         weekly: s.digestEnabledWeekly !== false,
         monthly: s.digestEnabledMonthly !== false,
       });
+      setIncludeWeekends(s.digestIncludeWeekends === true);
       setDigests(Array.isArray(d.digests) ? d.digests : []);
     } catch {
       setToast({ message: 'Could not load reports', type: 'error' });
@@ -132,6 +138,7 @@ export default function ReportsPage() {
           digestEnabledTodo: enabled.todo,
           digestEnabledWeekly: enabled.weekly,
           digestEnabledMonthly: enabled.monthly,
+          digestIncludeWeekends: includeWeekends,
         }),
       });
       const data = await res.json();
@@ -206,7 +213,7 @@ export default function ReportsPage() {
     <>
       <PageHeader
         title="Reports"
-        description="The daily to-do, Monday scorecard and monthly scorecard — who gets them, what they look like, and every one that went out."
+        description="The daily report, Sunday scorecard and monthly scorecard — each sent ~12:40 am business time for the period that just ended; who gets them, what they look like, and every one that went out."
         actions={
           <Button icon={RefreshCw} onClick={loadAll}>
             Refresh
@@ -245,31 +252,39 @@ export default function ReportsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Input
-              label="Daily to-do → Miranda + Jake"
+              label="Daily report → Miranda + Jake"
               value={recipients.todo}
               onChange={(e) => setRecipients((r) => ({ ...r, todo: e.target.value }))}
               placeholder="miranda@…, jake@…"
-              hint="Every day, on the first hourly run after 6am (business timezone) — usually by 6:40."
+              hint={`${SENDS_AT_TEXT} business time, covering yesterday (00:00–23:59). Reports for Saturday and Sunday are skipped unless "Include weekends" is on.`}
             />
             <Input
               label="Weekly scorecard → Jake"
               value={recipients.weekly}
               onChange={(e) => setRecipients((r) => ({ ...r, weekly: e.target.value }))}
               placeholder="jake@…"
-              hint="Mondays, on the first hourly run after 6am, covering the Sun–Sat week just ended."
+              hint={`Sundays, ${SENDS_AT_TEXT.toLowerCase()}, covering the Sun–Sat week that ended Saturday.`}
             />
             <Input
               label="Monthly scorecard"
               value={recipients.monthly}
               onChange={(e) => setRecipients((r) => ({ ...r, monthly: e.target.value }))}
               placeholder="jake@…"
-              hint="1st of the month, on the first hourly run after 6am, covering the previous month."
+              hint={`1st of the month, ${SENDS_AT_TEXT.toLowerCase()}, covering the month that just ended.`}
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-            <Toggle checked={enabled.todo} onChange={(v) => setEnabled((e) => ({ ...e, todo: v }))} label="Daily to-do enabled" description={enabled.todo ? 'Runs on schedule' : 'Skipped by the schedule; Send now still works'} />
-            <Toggle checked={enabled.weekly} onChange={(v) => setEnabled((e) => ({ ...e, weekly: v }))} label="Weekly scorecard enabled" description={enabled.weekly ? 'Runs on Mondays' : 'Skipped by the schedule'} />
+            <Toggle checked={enabled.todo} onChange={(v) => setEnabled((e) => ({ ...e, todo: v }))} label="Daily report enabled" description={enabled.todo ? 'Runs every night after midnight' : 'Skipped by the schedule; Send now still works'} />
+            <Toggle checked={enabled.weekly} onChange={(v) => setEnabled((e) => ({ ...e, weekly: v }))} label="Weekly scorecard enabled" description={enabled.weekly ? 'Runs on Sundays' : 'Skipped by the schedule'} />
             <Toggle checked={enabled.monthly} onChange={(v) => setEnabled((e) => ({ ...e, monthly: v }))} label="Monthly scorecard enabled" description={enabled.monthly ? 'Runs on the 1st' : 'Skipped by the schedule'} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+            <Toggle
+              checked={includeWeekends}
+              onChange={setIncludeWeekends}
+              label="Include weekends"
+              description={includeWeekends ? 'The daily report also covers Saturdays and Sundays' : 'The reports for Saturday and Sunday are skipped'}
+            />
           </div>
           <div className="mt-3">
             <Button variant="primary" icon={Save} loading={busy === 'save'} onClick={saveRecipients}>
@@ -296,7 +311,7 @@ export default function ReportsPage() {
                   {k.label}
                 </div>
                 <div className="text-[11.5px] mb-3" style={{ color: 'var(--text-quaternary)' }}>
-                  {k.schedule}
+                  {scheduleText(k.kind, { includeWeekends })}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button icon={Eye} onClick={() => openPreview(k.kind, k.label)}>
@@ -350,7 +365,7 @@ export default function ReportsPage() {
             <EmptyState
               icon={<Mail size={18} />}
               title="No digests yet"
-              description="The first one appears after the first scheduled run past 6am, or when you press Send now above."
+              description="The first one appears after the first scheduled run past midnight, or when you press Send now above."
             />
           ) : (
             <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>

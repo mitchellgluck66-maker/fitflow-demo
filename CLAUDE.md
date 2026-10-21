@@ -289,10 +289,11 @@ D. Intelligence: Anthropic insights + weekly narrative, Sentry + sync-health + r
 - Crons (Vercel Hobby = 2 jobs, each once daily): `vercel.json` has only
   `/api/cron/sync-ghl` (12:00 UTC) and `/api/cron/dispatch` (13:00 UTC).
   Dispatch runs GHL delta → Meta → Stripe → Google → insights → narratives →
-  daily/weekly/monthly digests. Digest guards are "at/after 6am local"
-  (`lib/email/cron#inSendWindow`; was 7am until the M1 fix) + Monday / 1st,
-  and every step is idempotent, so a once-daily run still sends each digest
-  exactly once. **Pro plan:** set sync-ghl to
+  daily/weekly/monthly digests. Digest guards were "at/after 6am local" +
+  Monday / 1st until 2026-10-21 — now "first run after 00:00 business time
+  for the period that just ended" (`lib/email/schedule.ts`, see "Report
+  schedules"); every step is idempotent, so a once-daily run still sends each
+  digest exactly once. **Pro plan:** set sync-ghl to
   `0 * * * *`, dispatch to `0 11,12 * * *` (lands on 7am ET across DST) and
   optionally add per-job lines (routes still exist under `app/api/cron/*`).
   **Superseded 2026-09-30: Vercel Pro.** vercel.json runs sync-ghl hourly at
@@ -727,10 +728,11 @@ cycle) had never run.
     card for the same period younger than that is served, so the model is
     called ~once a day, not whenever the numbers move. Manual/API calls
     unaffected.
-  - `narrative_weekly` / `_monthly`: gated to the 6am-local send window
-    (so the run that sends the digest writes it first) and ONE per period —
-    an unforced run reuses any stored paragraph for the period.
-  - digests: at/after 6am local; `runDigest` decides a period once —
+  - `narrative_weekly` / `_monthly`: gated to the same schedule decision as
+    their digest (Sunday / the 1st, any hour after midnight — "Report
+    schedules" below; so the run that sends the digest writes it first) and
+    ONE per period — an unforced run reuses any stored paragraph for the period.
+  - digests: after 00:00 local (was 6am until 2026-10-21); `runDigest` decides a period once —
     `sent` → `already_sent`; `stored` / `skipped_empty` → `already_recorded`
     (no new archive row); after `MAX_FAILED_ATTEMPTS` (3) `failed` rows →
     `retries_exhausted`. "Send now" (force) bypasses all of it. Consequence:
@@ -1307,6 +1309,43 @@ proof is Mitchell's: `npm run eval:analyst`, `npm run smoke:analyst` twice, `ANA
 - **Not in this wave**: Wave 3 (report presets, storage, history, the weekly cron), retiring the Ask card, any metric
   definition, anything in `docs/deferred.md` (its decision log now records a 2026-10-15 ruling on Applied — not acted on:
   a metric-definition change needs Mitchell's explicit go).
+
+## Report schedules (2026-10-21 — every report just after midnight, for the period that just ended)
+
+Mitchell's change to the "stage 3" schedules, applied to the three digests (the only report system in the
+app). Supersedes the 6 am send window (M1) and the Monday weekly. No migration; one new setting.
+
+- **The rule** (`lib/email/schedule.ts`, pure; `reportDecision(kind, now, timezone, { includeWeekends })` →
+  `{ localDate, period, due, reason }`): a report is due on ANY run after 00:00 business time — in practice
+  the first :37 dispatch, so the cards read **"Sends ~12:40 am"** (`SENDS_AT_TEXT`; there is no send-time field).
+  **Daily** = yesterday (00:00–23:59 local; `periodStart = periodEnd = yesterday`); the reports FOR a Saturday
+  or a Sunday are skipped (`weekend — the report for Sat, Oct 24, 2026 is skipped (Include weekends is off)`)
+  unless the owner setting **Include weekends** (`settings.digest_include_weekends`, only the literal `'true'`
+  turns it on; /reports toggle, `/api/settings digestIncludeWeekends`) is on. **Weekly** = due on a Sunday for
+  the Sun–Sat week that ended Saturday (`not Sunday — the week ending Sat, Oct 31, 2026 sends after midnight on
+  Sun, Nov 1, 2026` the rest of the week); `scorecardPresetPeriod` proves it is the scorecard's `last_week`.
+  **Monthly** = due on the 1st for the month just ended (`not the 1st — …`). The period is computed whether or
+  not the report is due, so a forced "Send now" always reports the right thing. `lib/email/cron#decideReport`
+  resolves the timezone + setting; the dispatch's `daily` / `weekly` / `monthly` / `narrative_*` gates and the
+  per-job `/api/cron/{daily-todo,weekly-scorecard,monthly-scorecard}` routes all call it; `?force=1` bypasses.
+- **DST-safe by construction:** only the business-local calendar date (Intl) decides; the clocks move at 2 am,
+  after the 00:37 run, and two runs inside a fall-back's repeated hour resolve to the same date → the same
+  period → `already_sent`. Idempotency per (kind, period) is unchanged (`runDigest`).
+- **Daily body:** the to-do for the send day (Day-1 = the people whose stage entry was the reported day) plus
+  an Ads line `Meta spend Tue, Oct 20, 2026: $123 CAD · still settling (Meta restates a day for up to 48 h)`
+  (`digests#metaSpendLine` over `computeAdsKpis` for that one day; `schedule#metaSettling` = the day closed
+  < 48 h before the send; no rows → "no spend rows yet"; a currency / FX failure is named in the line, never
+  hidden; the line never makes an empty day non-empty). The weekly scorecard carries the settled figures and no
+  mark. Subject `FitFlow daily — Tue, Oct 20, 2026 (4 to call today)`.
+- **Fails:** not due → the dispatch row `dispatch:daily` is `skipped` with the reason above (never `succeeded`);
+  the per-job route answers `{ kind, skipped: <reason>, localDate, period }`; sends and failures are unchanged.
+- **Tests:** `tests/report-schedule.test.ts` (the midnight boundary 23:59 vs 00:01, the weekend skip + the
+  setting, Sunday weekly = `last_week`, the 1st monthly = `last_month`, the Nov 1 2026 fall-back night incl. the
+  repeated hour and the Mar 14 2027 spring-forward, the 48 h settling across DST, the card text);
+  `tests/email.test.ts` (daily period = yesterday, the settling mark, idempotency on the new period);
+  `tests/fetch-errors.test.ts` forbids "6am" / "7am" in the UI. **Deploy note:** the daily's period key
+  changed (yesterday, not today), so the first post-deploy run sends one extra daily for that day.
+- **Not changed:** the Companion stage 3 "Jake's review" 6 pm email (not built; the plan doc still says 6 pm).
 
 ## Onboarding Companion — Stage 1 (2026-10-16, `docs/plan-companion-stage1.md`, read-only)
 

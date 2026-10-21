@@ -9,9 +9,10 @@
  */
 
 import { getScorecard, getTodoBuckets } from '../metrics/service';
-import { TODO_LABELS, REBOOK_LABELS, formatCents, type TodoKind, type RebookKind } from '../metrics';
+import { TODO_LABELS, REBOOK_LABELS, formatCents, computeAdsKpis, type TodoKind, type RebookKind } from '../metrics';
 import { assembleScorecard, type ScorecardView, type ScorecardStat } from '../scorecard/assemble';
-import { formatLongDate } from '../dates';
+import { formatLongDate, addDays } from '../dates';
+import { metaSettling, META_SETTLING_HOURS } from './schedule';
 import { shell, sectionTitle, note, statRow, table, peopleList, textHeader, textTable, escapeHtml } from './templates';
 import { getNarrative } from '../anthropic/narrative';
 
@@ -39,9 +40,36 @@ export const DIGEST_LABELS: Record<DigestKind, string> = {
 
 const TODO_ORDER: TodoKind[] = ['applied_no_booking', 'consult_noshow', 'roadmap_noshow'];
 
-export async function buildDailyTodo(today?: string): Promise<Digest> {
-  const { today: day, buckets } = await getTodoBuckets(today);
-  const title = formatLongDate(day);
+/**
+ * Meta spend for the reported day, marked "still settling" while the day closed
+ * less than 48 h before the send (Meta restates a day for up to two days; the
+ * weekly scorecard, a week later, carries the settled figures and no mark).
+ * Never throws: a currency / FX failure is named in the line, not hidden.
+ */
+export function metaSpendLine(input: Parameters<typeof computeAdsKpis>[0], day: string, timezone: string, now: Date): string {
+  const label = `Meta spend ${formatLongDate(day)}`;
+  const settling = metaSettling(day, timezone, now) ? ` · still settling (Meta restates a day for up to ${META_SETTLING_HOURS} h)` : '';
+  try {
+    const k = computeAdsKpis(input, { start: day, end: day });
+    const meta = k.byPlatform.find((p) => p.platform === 'meta');
+    if (!meta || meta.spendCents === 0) return `${label}: no spend rows yet${settling}`;
+    return `${label}: ${formatCents(meta.spendCents, k.currency)}${settling}`;
+  } catch (e) {
+    return `${label}: unavailable — ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+/**
+ * The daily report is FOR yesterday (the period that just ended at midnight):
+ * `periodStart` = `periodEnd` = the day before `today`. Its body is the to-do
+ * for `today` — Day-1 follow-ups are exactly the people whose stage entry was
+ * the reported day — plus the reported day's Meta spend.
+ */
+export async function buildDailyTodo(today?: string, now: Date = new Date()): Promise<Digest> {
+  const { today: day, buckets, input, timezone } = await getTodoBuckets(today);
+  const reported = addDays(day, -1);
+  const title = formatLongDate(reported);
+  const spendLine = metaSpendLine(input, reported, timezone, now);
 
   const section = (label: string, bucket: typeof buckets.day1) => {
     const count = TODO_ORDER.reduce((s, k) => s + bucket[k].length, 0);
@@ -69,9 +97,11 @@ export async function buildDailyTodo(today?: string): Promise<Digest> {
     (buckets.total === 0 ? note('Nothing needs a call today.') : '') +
     section('Day-1 follow-ups', buckets.day1) +
     section('Day-3 follow-ups', buckets.day3) +
-    rebookSection;
+    rebookSection +
+    sectionTitle('Ads') +
+    `<div style="font-size:12.5px;color:#55585e;margin-top:4px;">${escapeHtml(spendLine)}</div>`;
 
-  const textLines = textHeader('Daily to-do', title);
+  const textLines = textHeader('Daily to-do', title, `Follow-ups for ${formatLongDate(day)}`);
   for (const [label, bucket] of [
     ['DAY-1 FOLLOW-UPS', buckets.day1],
     ['DAY-3 FOLLOW-UPS', buckets.day3],
@@ -90,19 +120,19 @@ export async function buildDailyTodo(today?: string): Promise<Digest> {
       textLines.push(`  - ${p.name} — ${p.email ?? 'no email'} — ${p.source ?? 'source unknown'} — since ${p.on} (${p.daysWaiting} day${p.daysWaiting === 1 ? '' : 's'})`);
     }
   }
-  textLines.push('');
+  textLines.push('', 'ADS', '-'.repeat(40), spendLine, '');
 
   return {
     kind: 'daily_todo',
-    periodStart: day,
-    periodEnd: day,
-    subject: `FitFlow to-do — ${title} (${buckets.total} to call)`,
+    periodStart: reported,
+    periodEnd: reported,
+    subject: `FitFlow daily — ${title} (${buckets.total} to call today)`,
     html: shell({
-      kicker: 'Daily to-do',
+      kicker: 'Daily report',
       title,
-      subtitle: 'Day-1 and Day-3 follow-ups · awaiting rebook',
+      subtitle: `Follow-ups for ${formatLongDate(day)} · Day-1 and Day-3 · awaiting rebook`,
       bodyHtml,
-      footerNote: 'Day-1 = happened yesterday. Day-3 = three days ago and still not moved. Awaiting rebook = in a rescheduled stage; repeats daily until they leave it. Read-only mirror of GoHighLevel.',
+      footerNote: 'Sent just after midnight for the day that just ended. Day-1 = happened yesterday. Day-3 = three days ago and still not moved. Awaiting rebook = in a rescheduled stage; repeats daily until they leave it. Read-only mirror of GoHighLevel.',
     }),
     text: textLines.join('\n'),
     empty: buckets.total === 0,
