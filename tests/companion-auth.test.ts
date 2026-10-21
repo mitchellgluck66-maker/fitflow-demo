@@ -20,8 +20,8 @@ const PROD = { APP_PASSWORD: 'correct horse battery staple', AUTH_SECRET: SECRET
 const NOW = 1_800_000_000;
 
 /** Every page and API group the app has (the nav + the dormant routes + the API families), for the role rule. */
-const OWNER_ONLY_PAGES = ['/', '/scorecard', '/funnel', '/ads', '/revenue', '/clients', '/clients/abc', '/reports', '/setup', '/metrics', '/settings', '/today', '/audit-log', '/companionx'];
-const OWNER_ONLY_APIS = ['/api/scorecard', '/api/scorecard/view', '/api/settings', '/api/users', '/api/users/abc', '/api/clients', '/api/clients/abc', '/api/analyst/turns', '/api/anthropic/ask', '/api/sync', '/api/sync/status', '/api/sync-health', '/api/payments', '/api/spend', '/api/meta/token', '/api/ghl/reconcile', '/api/incidents', '/api/appointments', '/api/contacts', '/api/currency', '/api/reconciliation', '/api/companionx'];
+const OWNER_ONLY_PAGES = ['/', '/scorecard', '/funnel', '/ads', '/revenue', '/clients', '/clients/abc', '/onboarding', '/reports', '/setup', '/metrics', '/settings', '/today', '/audit-log', '/companionx'];
+const OWNER_ONLY_APIS = ['/api/scorecard', '/api/scorecard/view', '/api/onboarding', '/api/reports/settings', '/api/settings', '/api/users', '/api/users/abc', '/api/clients', '/api/clients/abc', '/api/analyst/turns', '/api/anthropic/ask', '/api/sync', '/api/sync/status', '/api/sync-health', '/api/payments', '/api/spend', '/api/meta/token', '/api/ghl/reconcile', '/api/incidents', '/api/appointments', '/api/contacts', '/api/currency', '/api/reconciliation', '/api/companionx'];
 const COMPANION_PATHS = ['/companion', '/companion/settings', '/companion/popout', '/api/companion/day', '/api/companion/me', '/api/companion/brief', '/api/companion/settings', '/api/companion/password', '/api/auth/logout'];
 
 describe('passwords (scrypt)', () => {

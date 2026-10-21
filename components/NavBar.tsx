@@ -12,6 +12,7 @@ import {
   Megaphone,
   Banknote,
   Users,
+  Headset,
   FileText,
   Plug,
   Eye,
@@ -28,6 +29,7 @@ const LINKS = [
   { href: '/ads', label: 'Ads', icon: Megaphone },
   { href: '/revenue', label: 'Revenue', icon: Banknote },
   { href: '/clients', label: 'Clients', icon: Users },
+  { href: '/onboarding', label: 'Onboarding', icon: Headset },
   { href: '/reports', label: 'Reports', icon: FileText },
   { href: '/setup', label: 'Setup', icon: Plug },
 ];
