@@ -9,7 +9,8 @@ import { computeMaturity, isMaturingMetric, isMaturingStage, dataCaveats, maturi
 import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { computeMetricTrend, trendMetric, TREND_METRICS } from '@/lib/metrics/trendMetrics';
 import { assembleScorecard } from '@/lib/scorecard/assemble';
-import { renderScorecardDigest } from '@/lib/email/digests';
+import { weeklyModel } from '@/lib/reports/weekly';
+import { renderReport } from '@/lib/reports/model';
 import { buildInsightInput } from '@/lib/metrics/insights';
 import { buildAskContext } from '@/lib/metrics/ask';
 import { computeScorecard, computeTrend, computeAdsKpis, computeCampaignTable, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
@@ -175,13 +176,13 @@ describe('scorecard, email and AI inputs carry the caveat only while active', ()
   });
 
   it('email marks affected stats with † and explains once', () => {
-    const d = renderScorecardDigest('weekly', assembleScorecard(activeResult, null), activeResult.range);
+    const d = renderReport(weeklyModel({ result: activeResult, narrative: null, onboarding: null, health: null }));
     expect(d.html).toContain('Consults booked †');
     expect(d.html).toContain('Cost per lead †');
     expect(d.html).toContain('Enrollments †'); // a stage entry (2026-10-06)
     expect(d.html).not.toContain('ROAS †');
     expect(d.html).toContain('Stage history before Sep 1 is partial');
-    const retired = renderScorecardDigest('weekly', assembleScorecard(retiredResult, null), retiredResult.range);
+    const retired = renderReport(weeklyModel({ result: retiredResult, narrative: null, onboarding: null, health: null }));
     expect(retired.html).not.toContain('†');
     expect(retired.html).not.toContain('Stage history before');
   });

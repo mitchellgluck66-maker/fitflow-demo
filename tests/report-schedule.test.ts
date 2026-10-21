@@ -16,19 +16,19 @@ const on = { includeWeekends: true };
 
 describe('the midnight boundary (23:59 vs 00:01 business time)', () => {
   it('23:59 on Tue Oct 20 is still Oct 20: the daily due is for Oct 19 (already sent that morning)', () => {
-    const d = reportDecision('daily_todo', at('2026-10-21T05:59:00Z'), TZ, off); // 23:59 MDT Oct 20
+    const d = reportDecision('daily', at('2026-10-21T05:59:00Z'), TZ, off); // 23:59 MDT Oct 20
     expect(d.localDate).toBe('2026-10-20');
     expect(d.period).toEqual({ start: '2026-10-19', end: '2026-10-19' });
   });
   it('00:01 on Wed Oct 21 flips the period to Oct 20 — the report for the day that just ended', () => {
-    const d = reportDecision('daily_todo', at('2026-10-21T06:01:00Z'), TZ, off); // 00:01 MDT Oct 21
+    const d = reportDecision('daily', at('2026-10-21T06:01:00Z'), TZ, off); // 00:01 MDT Oct 21
     expect(d.localDate).toBe('2026-10-21');
     expect(d.period).toEqual({ start: '2026-10-20', end: '2026-10-20' });
     expect(d.due).toBe(true);
     expect(d.reason).toBeNull();
   });
   it('the :37 run (00:37 local) is the first run after midnight and is due; the 06:37 UTC instant is 00:37 MDT', () => {
-    const d = reportDecision('daily_todo', at('2026-10-21T06:37:00Z'), TZ, off);
+    const d = reportDecision('daily', at('2026-10-21T06:37:00Z'), TZ, off);
     expect(d.localDate).toBe('2026-10-21');
     expect(d.due).toBe(true);
   });
@@ -46,25 +46,25 @@ describe('the midnight boundary (23:59 vs 00:01 business time)', () => {
 
 describe('the weekend skip', () => {
   it('the Sunday 00:37 run would report Saturday → skipped, naming the day and the setting', () => {
-    const d = reportDecision('daily_todo', at('2026-10-25T06:37:00Z'), TZ, off);
+    const d = reportDecision('daily', at('2026-10-25T06:37:00Z'), TZ, off);
     expect(d.period.start).toBe('2026-10-24');
     expect(isWeekend(d.period.start)).toBe(true);
     expect(d.due).toBe(false);
     expect(d.reason).toBe('weekend — the report for Sat, Oct 24, 2026 is skipped (Include weekends is off)');
   });
   it('the Monday 00:37 run would report Sunday → skipped too', () => {
-    const d = reportDecision('daily_todo', at('2026-10-26T06:37:00Z'), TZ, off);
+    const d = reportDecision('daily', at('2026-10-26T06:37:00Z'), TZ, off);
     expect(d.period.start).toBe('2026-10-25');
     expect(d.due).toBe(false);
   });
   it('Tuesday reports Monday → due', () => {
-    const d = reportDecision('daily_todo', at('2026-10-27T06:37:00Z'), TZ, off);
+    const d = reportDecision('daily', at('2026-10-27T06:37:00Z'), TZ, off);
     expect(d.period).toEqual({ start: '2026-10-26', end: '2026-10-26' });
     expect(d.due).toBe(true);
   });
   it('"Include weekends" on → both weekend reports are due', () => {
-    expect(reportDecision('daily_todo', at('2026-10-25T06:37:00Z'), TZ, on).due).toBe(true);
-    expect(reportDecision('daily_todo', at('2026-10-26T06:37:00Z'), TZ, on).due).toBe(true);
+    expect(reportDecision('daily', at('2026-10-25T06:37:00Z'), TZ, on).due).toBe(true);
+    expect(reportDecision('daily', at('2026-10-26T06:37:00Z'), TZ, on).due).toBe(true);
   });
 });
 
@@ -117,7 +117,7 @@ describe('the 1st monthly', () => {
 describe('a DST change night', () => {
   it('fall back, Sun Nov 1 2026: the 00:37 MDT run (06:37 UTC) — weekly + monthly due, Saturday\'s daily skipped', () => {
     const now = at('2026-11-01T06:37:00Z'); // 00:37 MDT, 80 min before the clocks go back
-    const daily = reportDecision('daily_todo', now, TZ, off);
+    const daily = reportDecision('daily', now, TZ, off);
     expect(daily.localDate).toBe('2026-11-01');
     expect(daily.period.start).toBe('2026-10-31');
     expect(daily.due).toBe(false); // a Saturday
@@ -136,8 +136,8 @@ describe('a DST change night', () => {
     expect(b.period).toEqual(a.period);
   });
   it('the night before the change still ends at local midnight: 05:59 UTC is Oct 31 23:59, 06:01 UTC is Nov 1 00:01', () => {
-    expect(reportDecision('daily_todo', at('2026-11-01T05:59:00Z'), TZ, off).localDate).toBe('2026-10-31');
-    expect(reportDecision('daily_todo', at('2026-11-01T06:01:00Z'), TZ, off).localDate).toBe('2026-11-01');
+    expect(reportDecision('daily', at('2026-11-01T05:59:00Z'), TZ, off).localDate).toBe('2026-10-31');
+    expect(reportDecision('daily', at('2026-11-01T06:01:00Z'), TZ, off).localDate).toBe('2026-11-01');
   });
   it('spring forward, Sun Mar 14 2027: the 00:37 MST run (07:37 UTC) — the weekly covers Mar 7–13; 03:37 MDT (09:37 UTC) agrees', () => {
     const a = reportDecision('weekly', at('2027-03-14T07:37:00Z'), TZ, off);
@@ -147,7 +147,7 @@ describe('a DST change night', () => {
     const b = reportDecision('weekly', at('2027-03-14T09:37:00Z'), TZ, off);
     expect(b.period).toEqual(a.period);
     // The next night the clock is MDT: 06:37 UTC is 00:37 local again.
-    const mon = reportDecision('daily_todo', at('2027-03-15T06:37:00Z'), TZ, off);
+    const mon = reportDecision('daily', at('2027-03-15T06:37:00Z'), TZ, off);
     expect(mon.localDate).toBe('2027-03-15');
     expect(mon.period.start).toBe('2027-03-14'); // Sunday → skipped
     expect(mon.due).toBe(false);
@@ -171,8 +171,8 @@ describe('Meta spend "still settling"', () => {
 describe('what the report cards say', () => {
   it('no send-time field: a fixed "Sends ~12:40 am"', () => {
     expect(SENDS_AT_TEXT).toBe('Sends ~12:40 am');
-    expect(scheduleText('daily_todo', off)).toBe('Sends ~12:40 am · covers yesterday · weekends off');
-    expect(scheduleText('daily_todo', on)).toBe('Sends ~12:40 am · covers yesterday · every day');
+    expect(scheduleText('daily', off)).toBe('Sends ~12:40 am · covers yesterday · weekends off');
+    expect(scheduleText('daily', on)).toBe('Sends ~12:40 am · covers yesterday · every day');
     expect(scheduleText('weekly', off)).toBe('Sundays · Sends ~12:40 am · the Sun–Sat week just ended');
     expect(scheduleText('monthly', off)).toBe('1st of the month · Sends ~12:40 am · the month just ended');
   });

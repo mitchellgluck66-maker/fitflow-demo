@@ -17,7 +17,7 @@ import { runAnalystSweepStep } from '@/lib/analyst/service';
 import { runAppliedLedgerStep } from '@/lib/reconcile/appliedLedger';
 import { runAppliedRatioStep } from '@/lib/reconcile/appliedRatio';
 import { runWeeklyNarrative } from '@/lib/anthropic/narrative';
-import { runDigest } from '@/lib/email/send';
+import { runReport } from '@/lib/reports/run';
 import { localHour, decideReport } from '@/lib/email/cron';
 import { getSetting, getTimezone, SETTING_KEYS } from '@/lib/settings';
 import { todayInTimezone } from '@/lib/dates';
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
   // 2026-10-21 schedules (lib/email/schedule.ts): daily = yesterday (weekends off unless "Include weekends"),
   // weekly = Sunday for the week just ended, monthly = the 1st for the month just ended; any hour after 00:00 local.
   const [dailyDue, weeklyDue, monthlyDue] = await Promise.all([
-    decideReport('daily_todo', now, timezone),
+    decideReport('daily', now, timezone),
     decideReport('weekly', now, timezone),
     decideReport('monthly', now, timezone),
   ]);
@@ -141,9 +141,9 @@ export async function GET(request: NextRequest) {
     // Narratives wait for the send window so the run that sends the digest writes its narrative first (once per period).
     { name: 'narrative_weekly', skip: gate(force || weeklyDue.due, weeklyDue.reason), run: () => runWeeklyNarrative('weekly', { force }) },
     { name: 'narrative_monthly', skip: gate(force || monthlyDue.due, monthlyDue.reason), run: () => runWeeklyNarrative('monthly', { force }) },
-    { name: 'daily', skip: gate(force || dailyDue.due, dailyDue.reason), run: () => runDigest('daily_todo', { force }) },
-    { name: 'weekly', after: ['narrative_weekly'], skip: gate(force || weeklyDue.due, weeklyDue.reason), run: () => runDigest('weekly', { force }) },
-    { name: 'monthly', after: ['narrative_monthly'], skip: gate(force || monthlyDue.due, monthlyDue.reason), run: () => runDigest('monthly', { force }) },
+    { name: 'daily', skip: gate(force || dailyDue.due, dailyDue.reason), run: () => runReport('daily', { force }) },
+    { name: 'weekly', after: ['narrative_weekly'], skip: gate(force || weeklyDue.due, weeklyDue.reason), run: () => runReport('weekly', { force }) },
+    { name: 'monthly', after: ['narrative_monthly'], skip: gate(force || monthlyDue.due, monthlyDue.reason), run: () => runReport('monthly', { force }) },
   ].filter((s) => want(s.name === 'narrative_weekly' || s.name === 'narrative_monthly' ? 'narrative' : s.name));
 
   const record = async (name: string, outcome: StepOutcome) => {

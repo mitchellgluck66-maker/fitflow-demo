@@ -39,7 +39,8 @@ describe('every surface renders the note', () => {
   });
   it('trend popover, digest, data-health notice, glossary, Analyst tools and contract carry it', () => {
     expect(src('components/KpiTrendPopover.tsx')).toContain('data-testid="trend-partial-note"');
-    expect(src('lib/email/digests.ts')).toContain('partial.note');
+    expect(src('lib/reports/weekly.ts')).toContain('partial.note'); // stage 3: the weekly / monthly reports render the assembled stats
+    expect(src('lib/reports/monthly.ts')).toContain('partial.note');
     expect(src('components/DataHealth.tsx')).toContain('LTV:CAC is partial');
     expect(src('lib/metrics/glossary.ts')).toContain('coverage');
     expect(src('lib/analyst/tools.ts')).toContain('ltvCoverage: cov(');

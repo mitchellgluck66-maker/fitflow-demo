@@ -38,7 +38,8 @@
     "incidents:sweep": "tsx scripts/sweep-incidents.ts",
     "credentials:encrypt": "tsx scripts/encrypt-credentials.ts",
     "companion:check": "tsx scripts/companion-check.ts",
-    "companion:live-test": "tsx scripts/companion-live-test.ts"
+    "companion:live-test": "tsx scripts/companion-live-test.ts",
+    "reports:preview": "tsx scripts/reports-preview.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.130.0",

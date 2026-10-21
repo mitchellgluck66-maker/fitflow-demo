@@ -19,7 +19,7 @@
 
 import { localDate, addDays, dayOfWeek, weekStart, monthStart, addMonths, formatLongDate, resolvePreset } from '../dates';
 import { getDayBounds } from '../day';
-import type { DigestKind } from './digests';
+import type { ReportKind } from '../reports/kinds';
 
 /** The :37 dispatch plus a couple of minutes of steps — what the report cards show instead of a send-time field. */
 export const SENDS_AT_TEXT = 'Sends ~12:40 am';
@@ -33,7 +33,7 @@ export interface ReportPeriod {
 }
 
 export interface ScheduleDecision {
-  kind: DigestKind;
+  kind: ReportKind;
   /** Business-local calendar date of the run. */
   localDate: string;
   /** The period that most recently ended — computed whether or not the report is due. */
@@ -49,8 +49,8 @@ export function isWeekend(date: string): boolean {
 }
 
 /** The period each kind reports on when run on `localDate`: yesterday / the week that ended last Saturday / last month. */
-export function periodEndedBefore(kind: DigestKind, localDay: string): ReportPeriod {
-  if (kind === 'daily_todo') {
+export function periodEndedBefore(kind: ReportKind, localDay: string): ReportPeriod {
+  if (kind === 'daily') {
     const y = addDays(localDay, -1);
     return { start: y, end: y };
   }
@@ -64,7 +64,7 @@ export function periodEndedBefore(kind: DigestKind, localDay: string): ReportPer
 
 /** Pure: is `kind` due at `now`, and for which period? */
 export function reportDecision(
-  kind: DigestKind,
+  kind: ReportKind,
   now: Date,
   timezone: string,
   opts: { includeWeekends: boolean },
@@ -73,7 +73,7 @@ export function reportDecision(
   const period = periodEndedBefore(kind, localDay);
   const base = { kind, localDate: localDay, period };
 
-  if (kind === 'daily_todo') {
+  if (kind === 'daily') {
     if (!opts.includeWeekends && isWeekend(period.start)) {
       return { ...base, due: false, reason: `weekend — the report for ${formatLongDate(period.start)} is skipped (Include weekends is off)` };
     }
@@ -106,8 +106,8 @@ export function metaSettling(day: string, timezone: string, sentAt: Date): boole
 }
 
 /** One line per report card. */
-export function scheduleText(kind: DigestKind, opts: { includeWeekends: boolean }): string {
-  if (kind === 'daily_todo') return `${SENDS_AT_TEXT} · covers yesterday${opts.includeWeekends ? ' · every day' : ' · weekends off'}`;
+export function scheduleText(kind: ReportKind, opts: { includeWeekends: boolean }): string {
+  if (kind === 'daily') return `${SENDS_AT_TEXT} · covers yesterday${opts.includeWeekends ? ' · every day' : ' · weekends off'}`;
   if (kind === 'weekly') return `Sundays · ${SENDS_AT_TEXT} · the Sun–Sat week just ended`;
   return `1st of the month · ${SENDS_AT_TEXT} · the month just ended`;
 }

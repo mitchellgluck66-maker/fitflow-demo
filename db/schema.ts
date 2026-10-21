@@ -529,6 +529,8 @@ export const emailDigests = pgTable('email_digests', {
   resendId: text('resend_id'),
   error: text('error'),
   sentAt: timestamp('sent_at', { withTimezone: true, mode: 'date' }),
+  /** Stage 3: a "Send test to me" row — archived, never the period's scheduled send. */
+  isTest: boolean('is_test').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 }, (t) => [
   // F5 (2026-09-30): a digest is SENT at most once per (kind, period) — enforced by the database, not only by runDigest.

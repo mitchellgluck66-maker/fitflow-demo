@@ -109,6 +109,23 @@ export function peopleList(people: Array<{ name: string; email: string | null; s
     .join('')}</ul>`;
 }
 
+/** A bulleted list (escaped). */
+export function bullets(lines: string[], tone: 'normal' | 'bad' | 'warn' = 'normal'): string {
+  if (lines.length === 0) return '';
+  const color = tone === 'bad' ? '#9b1c12' : tone === 'warn' ? '#8a4b05' : TEXT;
+  return `<ul style="margin:6px 0 10px;padding-left:18px;font-size:13.5px;line-height:1.55;color:${color};">${lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`;
+}
+
+/** The one headline sentence under the header. */
+export function headline(text: string): string {
+  return `<p style="margin:0 0 18px;font-size:19px;font-weight:700;line-height:1.3;letter-spacing:-0.01em;color:${TEXT};">${escapeHtml(text)}</p>`;
+}
+
+/** A primary button (a link styled for email clients). */
+export function button(label: string, url: string): string {
+  return `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:22px 0 4px;"><tr><td style="background:${ACCENT};border-radius:10px;"><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 20px;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;">${escapeHtml(label)}</a></td></tr></table>`;
+}
+
 /** Plain-text helpers. */
 export function textHeader(kicker: string, title: string, subtitle?: string | null): string[] {
   return [`FitFlow ${kicker} — ${title}`, ...(subtitle ? [subtitle] : []), '='.repeat(60), ''];

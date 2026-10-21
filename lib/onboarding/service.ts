@@ -10,7 +10,7 @@ import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import { db, appUsers } from '@/db';
 import { getTimezone } from '../settings';
 import { getDayBounds, todayInTimezone, formatTime } from '../day';
-import { localDate, weekStart, weekEnd, formatLongDate, formatRangeLabel } from '../dates';
+import { localDate, weekStart, weekEnd, monthStart, monthEnd, formatLongDate, formatRangeLabel } from '../dates';
 import { enrichCalls, type EnrichDeps } from '../companion/enrich';
 import { endOf } from '../companion/day';
 import { loadDayRaw, type DaySource, type LiveGhl, type MirrorReader, type RawCall } from '../companion/source';
@@ -19,7 +19,7 @@ import { lookupMirrorContacts, readLiveContact, readMirrorDay } from '../compani
 import { onboardingLogsForEvents, type EventLogs } from './logs';
 import { attentionItems, onboardingNumbers, type AttentionItem, type OnboardingCall, type OnboardingNumbers } from './numbers';
 
-export type OnboardingRange = 'day' | 'week';
+export type OnboardingRange = 'day' | 'week' | 'month';
 
 export interface OnboardingUserSource {
   userId: string;
@@ -70,7 +70,9 @@ export async function companionUsers(): Promise<Array<{ id: string; name: string
 }
 
 export function rangeFor(range: OnboardingRange, date: string): { start: string; end: string } {
-  return range === 'week' ? { start: weekStart(date), end: weekEnd(date) } : { start: date, end: date };
+  if (range === 'week') return { start: weekStart(date), end: weekEnd(date) };
+  if (range === 'month') return { start: monthStart(date), end: monthEnd(date) };
+  return { start: date, end: date };
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,12 +99,12 @@ export async function getOnboardingView(params: { range?: string | null; date?: 
   const now = params.now ?? new Date();
   const timezone = params.timezone ?? (await getTimezone());
   const today = todayInTimezone(timezone, now);
-  const range: OnboardingRange = params.range === 'week' ? 'week' : 'day';
+  const range: OnboardingRange = params.range === 'week' ? 'week' : params.range === 'month' ? 'month' : 'day';
   const date = params.date ?? today;
   if (!isValidDay(date)) return { error: 'Bad date', detail: 'Use YYYY-MM-DD.' };
   const { start, end } = rangeFor(range, date);
   const users = await (deps.users ?? companionUsers)();
-  const label = range === 'week' ? formatRangeLabel(start, end) : formatLongDate(start);
+  const label = range === 'day' ? formatLongDate(start) : formatRangeLabel(start, end);
   const head = { range, date, start, end, label, timezone, today, generatedAt: now.toISOString() };
   if (users.length === 0) {
     return { ...head, users: [], reason: 'No onboarding login with a GoHighLevel user — add one in Setup → Users.', calls: [], numbers: onboardingNumbers([]), attention: [] };

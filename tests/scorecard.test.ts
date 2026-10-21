@@ -7,7 +7,8 @@ import { computeSpendGates } from '@/lib/metrics/spendGate';
 import { scorecardBaselines } from '@/lib/metrics/baseline';
 import { describe, it, expect } from 'vitest';
 import { assembleScorecard, scorecardKindOf, SCORECARD_DEFAULT_PRESET } from '@/lib/scorecard/assemble';
-import { renderScorecardDigest } from '@/lib/email/digests';
+import { weeklyModel } from '@/lib/reports/weekly';
+import { renderReport } from '@/lib/reports/model';
 import { computeScorecard, computeTrend, computeAdsKpis, computeCampaignTable, computeRevenueSummary, type MetricsInput } from '@/lib/metrics';
 import { resolveComparison, rangeFromParams } from '@/lib/dates';
 import type { ScorecardResult } from '@/lib/metrics/service';
@@ -181,10 +182,11 @@ describe('assembleScorecard (pure, shared by /scorecard and the email)', () => {
   });
 });
 
-describe('renderScorecardDigest renders the assembled model verbatim', () => {
+describe('the weekly report renders the assembled model verbatim', () => {
   const result = build({ range: 'last_week' });
   const view = assembleScorecard(result, 'A solid week.');
-  const digest = renderScorecardDigest('weekly', view, result.range);
+  const model = weeklyModel({ result, narrative: 'A solid week.', onboarding: null, health: null });
+  const digest = { ...renderReport(model), subject: model.subject, empty: model.empty, periodStart: model.period.start, periodEnd: model.period.end };
 
   it('HTML carries every section value and the narrative', () => {
     for (const st of [...view.sections.money, ...view.sections.pipeline, ...view.sections.ads]) {
@@ -194,7 +196,8 @@ describe('renderScorecardDigest renders the assembled model verbatim', () => {
     expect(digest.html).toContain('A solid week.');
     expect(digest.html).toContain('Best cost per client: Retarget');
     expect(digest.html).toContain('Worst: Broad');
-    expect(digest.subject).toBe(view.subject);
+    // Stage 3: the subject is "<Report> · <period> · <headline from the numbers>", the period label the view's.
+    expect(digest.subject).toMatch(/^Weekly · Aug 16–22 · .+new clients?, \$5,000 CAD$/);
     expect(digest.empty).toBe(false);
     expect(digest.periodStart).toBe('2026-08-16');
   });

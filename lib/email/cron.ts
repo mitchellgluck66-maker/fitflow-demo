@@ -13,9 +13,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTimezone } from '../settings';
-import { runDigest, includeWeekends } from './send';
-import { reportDecision, type ScheduleDecision } from './schedule';
-import type { DigestKind } from './digests';
+import { runReport, decideReport as decide } from '../reports/run';
+import type { ScheduleDecision } from './schedule';
+import type { ReportKind } from '../reports/kinds';
 
 export function localHour(now: Date, timezone: string): number {
   const h = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hour12: false }).format(now);
@@ -23,12 +23,11 @@ export function localHour(now: Date, timezone: string): number {
 }
 
 /** The schedule decision for `kind` at `now`, with the timezone and the weekend setting resolved. */
-export async function decideReport(kind: DigestKind, now: Date, timezone?: string): Promise<ScheduleDecision> {
-  const [tz, weekends] = await Promise.all([timezone ? Promise.resolve(timezone) : getTimezone(), includeWeekends()]);
-  return reportDecision(kind, now, tz, { includeWeekends: weekends });
+export function decideReport(kind: ReportKind, now: Date, timezone?: string): Promise<ScheduleDecision> {
+  return decide(kind, now, timezone);
 }
 
-export async function handleDigestCron(request: NextRequest, kind: DigestKind): Promise<NextResponse> {
+export async function handleDigestCron(request: NextRequest, kind: ReportKind): Promise<NextResponse> {
   const secret = process.env.CRON_SECRET?.trim();
   if (secret) {
     if ((request.headers.get('authorization') ?? '') !== `Bearer ${secret}`) {
@@ -46,6 +45,6 @@ export async function handleDigestCron(request: NextRequest, kind: DigestKind): 
     return NextResponse.json({ kind, skipped: decision.reason, localDate: decision.localDate, period: decision.period, timezone });
   }
 
-  const result = await runDigest(kind, { force });
+  const result = await runReport(kind, { force });
   return NextResponse.json(result, { status: result.status === 'failed' ? 500 : 200 });
 }

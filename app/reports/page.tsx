@@ -20,12 +20,12 @@ import {
 } from '@/components';
 import { scheduleText, SENDS_AT_TEXT } from '@/lib/email/schedule';
 
-type Kind = 'daily_todo' | 'weekly' | 'monthly';
+type Kind = 'daily' | 'weekly' | 'monthly';
 
 // 2026-10-21 schedules: every report sends on the first run after midnight business time for the
 // period that just ended (lib/email/schedule.ts). No send-time field — the cards say when.
 const KINDS: Array<{ kind: Kind; label: string }> = [
-  { kind: 'daily_todo', label: 'Daily report' },
+  { kind: 'daily', label: 'Daily report' },
   { kind: 'weekly', label: 'Weekly scorecard' },
   { kind: 'monthly', label: 'Monthly scorecard' },
 ];
