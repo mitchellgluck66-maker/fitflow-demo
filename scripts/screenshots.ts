@@ -4,6 +4,8 @@
  *   npm run screenshots            # against http://localhost:3000 (start `next dev` first)
  *   BASE_URL=http://localhost:3111 npm run screenshots
  *   npm run screenshots -- --explain-audit   # only the audit: every glossary key must appear as [data-explain] on the pages
+ *   npm run screenshots -- --onboarding      # only stage 3: Jake's Onboarding page (a day with problems, the week, an empty
+ *                                            # day, phone), the /reports cards, the three email previews (680 px)
  *   npm run screenshots -- --companion       # only the Onboarding Companion: My day, the pop-out, settings (desktop + 360 px),
  *                                            # + stage 2's log states (confirm, success, partial failure, dry run) from canned
  *                                            # data served only with COMPANION_PREVIEW=1, and Setup → Companion
@@ -57,6 +59,7 @@ const AUDIT_PAGES = ['/?range=last_30_days&compare=previous_period', '/scorecard
 async function main() {
   const auditOnly = process.argv.includes('--explain-audit');
   const companionOnly = process.argv.includes('--companion');
+  const onboardingOnly = process.argv.includes('--onboarding');
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
@@ -67,6 +70,11 @@ async function main() {
   }
   if (companionOnly) {
     await captureCompanion(browser);
+    await browser.close();
+    return;
+  }
+  if (onboardingOnly) {
+    await captureOnboarding(browser);
     await browser.close();
     return;
   }
@@ -85,6 +93,7 @@ async function main() {
     await capture(page, context, clientId, setCurrency, original);
     await captureAnalyst(browser);
     await captureCompanion(browser);
+    await captureOnboarding(browser);
   } finally {
     await setCurrency(original);
   }
@@ -149,6 +158,67 @@ async function captureAnalyst(browser: import('playwright').Browser) {
         await page.screenshot({ path: path.join(OUT, theme, `analyst-${state}${suffix}.png`), fullPage: false });
         console.log(`✓ ${theme}/analyst-${state}${suffix}.png`);
       }
+      await context.close();
+    }
+  }
+}
+
+/**
+ * Stage 3: Jake's Onboarding page — the latest day with something needing attention (the demo seed plants
+ * ok / partial / dry-run / unlogged / undone logs on Miranda's latest full day), its week, an empty day, the phone
+ * width; the /reports cards; the three email previews rendered by /api/email/preview at 680 px (never sent).
+ */
+async function captureOnboarding(browser: import('playwright').Browser) {
+  const probePage = await browser.newPage();
+  const probe = await probePage.request.get(`${BASE}/api/onboarding?range=day`);
+  if (!probe.ok()) {
+    console.log(`– onboarding-* skipped: /api/onboarding answered ${probe.status()}`);
+    await probePage.close();
+    return;
+  }
+  const first = (await probe.json()) as { today: string; calls: unknown[]; attention: unknown[] };
+  let day = first.today;
+  let found = first.attention.length > 0;
+  for (let back = 1; back <= 60 && !found; back += 1) {
+    const d = new Date(Date.UTC(Number(first.today.slice(0, 4)), Number(first.today.slice(5, 7)) - 1, Number(first.today.slice(8, 10)) - back)).toISOString().slice(0, 10);
+    const r = (await (await probePage.request.get(`${BASE}/api/onboarding?range=day&date=${d}`)).json()) as { calls: unknown[]; attention: unknown[] };
+    if (r.attention.length > 0 || (r.calls.length > 0 && back > 30)) {
+      day = d;
+      found = true;
+    }
+  }
+  await probePage.close();
+  const empty = '2026-01-04';
+  const shots: Array<{ name: string; path: string; viewport: { width: number; height: number }; mobile: boolean; fullPage: boolean }> = [
+    { name: 'onboarding-day', path: `/onboarding?range=day&date=${day}`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'onboarding-week', path: `/onboarding?range=week&date=${day}`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'onboarding-empty', path: `/onboarding?range=day&date=${empty}`, viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'onboarding-day-mobile', path: `/onboarding?range=day&date=${day}`, viewport: MOBILE, mobile: true, fullPage: true },
+    { name: 'reports', path: '/reports', viewport: { width: 1440, height: 900 }, mobile: false, fullPage: true },
+    { name: 'report-daily', path: `/api/email/preview?kind=daily&date=${day}`, viewport: { width: 680, height: 900 }, mobile: false, fullPage: true },
+    { name: 'report-weekly', path: `/api/email/preview?kind=weekly&date=${day}`, viewport: { width: 680, height: 900 }, mobile: false, fullPage: true },
+    { name: 'report-monthly', path: `/api/email/preview?kind=monthly&date=${day}`, viewport: { width: 680, height: 900 }, mobile: false, fullPage: true },
+  ];
+  for (const theme of ['light', 'dark'] as const) {
+    fs.mkdirSync(path.join(OUT, theme), { recursive: true });
+    for (const shot of shots) {
+      // The emails are one fixed light rendering — captured once, under light.
+      if (shot.name.startsWith('report-') && theme === 'dark') continue;
+      const context = await browser.newContext({ viewport: shot.viewport, deviceScaleFactor: 1, isMobile: shot.mobile, hasTouch: shot.mobile });
+      await context.addInitScript((t) => {
+        try {
+          localStorage.setItem('fitflow-theme', t);
+        } catch {
+          /* ignore */
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      }, theme);
+      const page = await context.newPage();
+      await page.goto(`${BASE}${shot.path}`, { waitUntil: 'networkidle' });
+      if (!shot.name.startsWith('report-')) await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: path.join(OUT, theme, `${shot.name}.png`), fullPage: shot.fullPage });
+      console.log(`✓ ${theme}/${shot.name}.png`);
       await context.close();
     }
   }

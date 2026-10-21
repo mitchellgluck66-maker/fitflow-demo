@@ -27,8 +27,16 @@ const card = (st: ScorecardStat): ReportCard => ({ label: st.maturing ? `${st.la
 
 /** The three stats that moved most (by |relative delta|), as "Enrollments 4 → 7 (+75%)". */
 export function topChanges(stats: ScorecardStat[], n = 3): string[] {
+  const seen = new Set<string>();
   return stats
     .filter((s) => s.delta.pct !== null && s.delta.abs !== null && s.delta.abs !== 0 && !s.empty)
+    // The same figure under two labels (Blended CAC = Cost per client) counts once.
+    .filter((s) => {
+      const key = `${s.value}|${s.sub}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .sort((a, b) => Math.abs(b.delta.pct!) - Math.abs(a.delta.pct!))
     .slice(0, n)
     .map((s) => `${s.label}: ${s.value} (${s.sub})${s.tone === 'bad' ? ' — worse' : s.tone === 'good' ? ' — better' : ''}`);
@@ -60,8 +68,9 @@ export function weeklyModel({ result, narrative, onboarding, health }: WeeklyMod
       (view.campaigns.note ? ` ${view.campaigns.note}` : '')
     : view.campaigns.note;
 
-  const attention = onboarding ? attentionLines(onboarding.attention) : [];
-  if (n.unlogged) attention.unshift(`${n.unlogged} ended call${n.unlogged === 1 ? '' : 's'} with no outcome logged this week.`);
+  // A week lists its unlogged calls as ONE count (the Onboarding page has them one by one) and every failed log.
+  const attention = onboarding ? attentionLines(onboarding.attention.filter((a) => a.kind === 'failed_log')) : [];
+  if (n.unlogged) attention.unshift(`${n.unlogged} ended call${n.unlogged === 1 ? '' : 's'} with no outcome logged this week — see the Onboarding page.`);
   for (const note of view.notes) if (note.tone === 'warn') attention.push(note.text);
 
   const sections: ReportSection[] = [

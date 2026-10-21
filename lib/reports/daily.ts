@@ -108,14 +108,15 @@ export async function buildDailyReport(p: { date: string; now?: Date; timezone?:
   }
 
   const n = onboarding.numbers;
-  const parts = [`${applied} applied`, `${consults} consult${consults === 1 ? '' : 's'} booked`, firstPayments === null ? `${enrolled} enrolled` : `${firstPayments} new client${firstPayments === 1 ? '' : 's'} paid`, ...(n.needsAttention ? [`${n.needsAttention} call${n.needsAttention === 1 ? '' : 's'} need${n.needsAttention === 1 ? 's' : ''} attention`] : [])];
+  const parts = [`${applied} applied`, `${consults} consult${consults === 1 ? '' : 's'} booked`, firstPayments === null ? `${enrolled} enrolled` : `${firstPayments} new client${firstPayments === 1 ? '' : 's'} paid`];
+  const subjectText = [...parts, ...(n.needsAttention ? [`${n.needsAttention} call${n.needsAttention === 1 ? '' : 's'} need${n.needsAttention === 1 ? 's' : ''} attention`] : [])].join(', ');
   const headlineText = parts.join(', ');
   const label = formatLongDate(p.date);
   const empty = sc.empty && rev.paymentCount === 0 && ads.spendCents === 0 && n.calls === 0;
   return {
     kind: 'daily',
     period: { ...day, label },
-    subject: reportSubject('daily', label, headlineText),
+    subject: reportSubject('daily', label, subjectText),
     headline: `${headlineText}. ${onboardingHeadline(n, 'on the day')}`,
     totals: [countCard('Applied', applied, count(sc.previousFunnel, 'applied'), against), countCard('Enrolled (GHL)', enrolled, count(sc.previousFunnel, 'enrolled'), against), moneyCards[0], { label: 'Calls', value: String(n.calls), sub: `${n.logged} logged · ${n.needsAttention} need attention`, tone: n.needsAttention ? 'bad' : 'neutral' }],
     attention,

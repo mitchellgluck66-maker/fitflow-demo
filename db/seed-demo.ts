@@ -37,6 +37,7 @@ import {
   syncRuns,
   ghlOpportunities,
   appUsers,
+  companionActions,
 } from './index';
 import { runMigrations } from './migrate';
 import { hashPassword } from '../lib/auth/password';
@@ -500,6 +501,75 @@ async function chunkInsert<T>(rows: T[], insert: (chunk: T[]) => Promise<unknown
   for (let i = 0; i < rows.length; i += size) await insert(rows.slice(i, i + size));
 }
 
+/** Stage 3: the latest local day before today with at least four of Miranda's calls (else three, else the latest with any). */
+export function demoOnboardingDay(rows: Array<{ assignedUserId: string | null; startTime: Date }>, today: string, timezone: string = TZ): string | null {
+  const byDay = new Map<string, number>();
+  for (const r of rows) {
+    if (r.assignedUserId !== DEMO_COMPANION_USER.ghlUserId) continue;
+    const d = localDate(r.startTime, timezone);
+    if (d >= today) continue;
+    byDay.set(d, (byDay.get(d) ?? 0) + 1);
+  }
+  const days = Array.from(byDay.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  return days.find(([, n]) => n >= 4)?.[0] ?? days.find(([, n]) => n >= 3)?.[0] ?? days[0]?.[0] ?? null;
+}
+
+type SeedAppointment = { ghlEventId: string; ghlContactId: string; contactId: string; type: string; startTime: Date; assignedUserId: string | null };
+
+function seedCompanionLogs(rows: SeedAppointment[], leadRows: Lead[], userId: string, today: string): { rows: Array<typeof companionActions.$inferInsert>; statuses: Array<[string, string]> } {
+  const day = demoOnboardingDay(rows, today);
+  if (!day) return { rows: [], statuses: [] };
+  const calls = rows.filter((r) => r.assignedUserId === DEMO_COMPANION_USER.ghlUserId && localDate(r.startTime, TZ) === day).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  const nameOf = (contactId: string) => {
+    const l = leadRows.find((x) => `demo-contact-${x.i}` === contactId);
+    return l ? `${l.firstName} ${l.lastName}` : contactId;
+  };
+  const pos = (stageId: string | null, status: string, appointmentStatus: string | null) => ({ stageId, stageName: stageId ? STAGE_NAMES[stageId] : null, status, appointmentStatus });
+  const ok = { status: 'ok', request: null, httpStatus: 200, body: '{"succeeded":true}', error: null, reason: null, at: null } as const;
+  const failed = (error: string) => ({ status: 'failed', request: null, httpStatus: 500, body: `{"message":"${error}"}`, error, reason: null, at: null }) as const;
+  const base = (c: SeedAppointment, n: number) => ({
+    requestId: `demo:${c.ghlEventId}:${n}`,
+    userId,
+    userName: DEMO_COMPANION_USER.name,
+    ghlUserId: DEMO_COMPANION_USER.ghlUserId,
+    ghlEventId: c.ghlEventId,
+    ghlContactId: c.ghlContactId,
+    contactId: c.contactId,
+    clientName: nameOf(c.contactId),
+    ghlOpportunityId: c.contactId.replace('demo-contact-', 'demo-opp-'),
+    pipelineId: PIPELINE.id,
+    callType: c.type,
+    callStartAt: c.startTime,
+    dryRun: false,
+  });
+  const after = (c: SeedAppointment, minutes: number) => new Date(c.startTime.getTime() + minutes * 60_000);
+  const out: Array<typeof companionActions.$inferInsert> = [];
+  const statuses: Array<[string, string]> = [];
+  const outcomeFor = (c: SeedAppointment) =>
+    c.type === 'Consult'
+      ? { outcomeKey: 'consult_showed_booked', label: 'Showed, roadmap booked', note: 'Keen to start next month; worried about travel weeks. Roadmap booked for Tuesday.', before: pos(STAGE.consultBooked, 'open', 'confirmed'), after: pos(STAGE.roadmapBooked, 'open', 'showed') }
+      : { outcomeKey: 'roadmap_enrolled', label: 'Enrolled', note: 'Signed the 6-month program, paid in full on the call.', before: pos(STAGE.roadmapBooked, 'open', 'confirmed'), after: pos(STAGE.enrolled, 'won', 'showed') };
+  calls.forEach((c, i) => {
+    if (i === 0) {
+      out.push({ ...base(c, 1), ...outcomeFor(c), steps: { stage: ok, appointment: ok, note: ok }, state: 'ok', createdAt: after(c, 34), updatedAt: after(c, 34) });
+      statuses.push([c.ghlEventId, 'showed']);
+    } else if (i === 1) {
+      const o = c.type === 'Consult' ? { outcomeKey: 'consult_noshow', label: 'No-show', note: 'No answer after two calls; sent the rebook link by text.', before: pos(STAGE.consultBooked, 'open', 'confirmed'), after: pos(STAGE.consultNoShow, 'open', 'noshow') } : { outcomeKey: 'roadmap_showed_objection', label: 'Showed, objection', note: 'Price is the concern. Following up Monday with the payment plan.', before: pos(STAGE.roadmapBooked, 'open', 'confirmed'), after: pos(STAGE.roadmapObjection, 'open', 'showed') };
+      out.push({ ...base(c, 1), ...o, steps: { stage: ok, appointment: ok, note: failed('internal server error') }, state: 'partial', error: 'GHL 500: internal server error', createdAt: after(c, 52), updatedAt: after(c, 52) });
+      statuses.push([c.ghlEventId, o.after.appointmentStatus ?? 'confirmed']);
+    } else if (i === 2) {
+      out.push({ ...base(c, 1), ...outcomeFor(c), dryRun: true, steps: { stage: ok, appointment: ok, note: ok }, state: 'dry_run', createdAt: after(c, 40), updatedAt: after(c, 40) });
+      statuses.push([c.ghlEventId, 'confirmed']);
+    } else if (i === 3) {
+      statuses.push([c.ghlEventId, 'confirmed']); // ended, nothing logged → needs an outcome
+    } else if (i === 4) {
+      out.push({ ...base(c, 1), ...outcomeFor(c), steps: { stage: ok, appointment: ok, note: ok }, state: 'undone', undoneAt: after(c, 48), undoneBy: DEMO_COMPANION_USER.name, undoSteps: { stage: ok, appointment: ok, note: ok }, createdAt: after(c, 45), updatedAt: after(c, 48) });
+      statuses.push([c.ghlEventId, 'confirmed']);
+    }
+  });
+  return { rows: out, statuses };
+}
+
 export interface DemoSeedSummary {
   contacts: number;
   enrolled: number;
@@ -951,7 +1021,18 @@ export async function seedDemo(options: { log?: (line: string) => void } = {}): 
 
   // ---- Companion login (stage 1): one onboarding user whose day is the demo appointments ------------
   await db.delete(appUsers).where(sql`lower(${appUsers.email}) = ${DEMO_COMPANION_USER.email}`);
-  await db.insert(appUsers).values({ name: DEMO_COMPANION_USER.name, email: DEMO_COMPANION_USER.email, role: 'onboarding', passwordHash: hashPassword(DEMO_COMPANION_USER.password), ghlUserId: DEMO_COMPANION_USER.ghlUserId });
+  const [mirandaUser] = await db.insert(appUsers).values({ name: DEMO_COMPANION_USER.name, email: DEMO_COMPANION_USER.email, role: 'onboarding', passwordHash: hashPassword(DEMO_COMPANION_USER.password), ghlUserId: DEMO_COMPANION_USER.ghlUserId }).returning({ id: appUsers.id });
+
+  // ---- Companion logs (stage 3): Miranda's latest full day carries every log state the Onboarding page shows ----
+  // ok · partial (the note failed) · dry run · an ended call with no log (needs an outcome) · an undone log.
+  await db.delete(companionActions).where(sql`${companionActions.requestId} like 'demo:%'`);
+  const companionLogs = seedCompanionLogs(appointmentRows, leads, mirandaUser.id, today);
+  if (companionLogs.rows.length) {
+    await db.insert(companionActions).values(companionLogs.rows);
+    for (const [eventId, ghlStatus] of companionLogs.statuses) {
+      await db.update(appointments).set({ ghlStatus, outcome: ghlStatus === 'showed' ? 'showed' : ghlStatus === 'noshow' ? 'no_show' : null }).where(sql`${appointments.ghlEventId} = ${eventId}`);
+    }
+  }
 
   // ---- Sync runs (history for the Sync health panel) -------------------------
   const runRows: Array<typeof syncRuns.$inferInsert> = [];

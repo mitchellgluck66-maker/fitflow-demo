@@ -120,8 +120,9 @@ export async function buildMonthlyReport(p: { start: string; now?: Date; timezon
   const weekLine = (w: (typeof weeks)[number]) => `${w.label}: ${formatCents(w.initialCents, w.currency)} new-client cash · ${w.enrolled} enrolled · ${w.applied} applied · ${formatCents(w.spendCents, w.currency)} spend`;
   const bestWorst = ranked.length ? [`Best week — ${weekLine(ranked[0])}`, ...(ranked.length > 1 ? [`Worst week — ${weekLine(ranked[ranked.length - 1])}`] : [])] : [];
 
-  const attention = attentionLines(onboarding.attention, 15);
-  if (n.unlogged) attention.unshift(`${n.unlogged} ended call${n.unlogged === 1 ? '' : 's'} with no outcome logged this month.`);
+  // A month lists its unlogged calls as ONE count (the Onboarding page has them one by one) and every failed log.
+  const attention = attentionLines(onboarding.attention.filter((a) => a.kind === 'failed_log'), 15);
+  if (n.unlogged) attention.unshift(`${n.unlogged} ended call${n.unlogged === 1 ? '' : 's'} with no outcome logged this month — see the Onboarding page.`);
   for (const note of view.notes) if (note.tone === 'warn') attention.push(note.text);
 
   const sections: ReportSection[] = [
@@ -149,7 +150,7 @@ export async function buildMonthlyReport(p: { start: string; now?: Date; timezon
     kind: 'monthly',
     period: { start: r.start, end: r.end, label },
     subject: reportSubject('monthly', label, headlineText),
-    headline: `${headlineText}. ${n.calls} onboarding call${n.calls === 1 ? '' : 's'}, ${n.enrolled} enrolled on a call, ${pct(n.showedPct)} showed of logged.`,
+    headline: `${headlineText}. ${n.calls} onboarding call${n.calls === 1 ? '' : 's'}, ${n.enrolled} enrolled on a call, ${n.logged ? `${pct(n.showedPct)} showed of ${n.logged} logged` : 'none logged'}.`,
     totals: [view.sections.money[0], view.sections.money[1], view.sections.pipeline[0], view.sections.ads[0]].map(card),
     attention,
     sections,

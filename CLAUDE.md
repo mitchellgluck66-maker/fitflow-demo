@@ -1345,7 +1345,8 @@ app). Supersedes the 6 am send window (M1) and the Monday weekly. No migration; 
   `tests/email.test.ts` (daily period = yesterday, the settling mark, idempotency on the new period);
   `tests/fetch-errors.test.ts` forbids "6am" / "7am" in the UI. **Deploy note:** the daily's period key
   changed (yesterday, not today), so the first post-deploy run sends one extra daily for that day.
-- **Not changed:** the Companion stage 3 "Jake's review" 6 pm email (not built; the plan doc still says 6 pm).
+- **Superseded the same day by Stage 3 (below):** the digests became the three reports (`lib/reports/`); the schedule rule,
+  the setting and the settling mark are unchanged.
 
 ## Onboarding Companion — Stage 1 (2026-10-16, `docs/plan-companion-stage1.md`, read-only)
 
@@ -1464,6 +1465,44 @@ write key is on Setup.
   appointment failure → partial → retry → ok → undo, prints PASS/FAIL per check and the number of writes; the contact
   ends where it started. Not run by Claude. Deploy: `npm run db:migrate` (0022) THEN push, then Setup → Companion
   (write key, Verify; dry run stays ON until the live test passes).
+
+## Onboarding Companion — Stage 3 (2026-10-21, `docs/plan-companion-stage3.md`, read-only)
+
+Jake's Onboarding page + three switchable emailed reports. Built in five commits on `d7076e4`, `npm run check` green,
+NOT pushed. Report: `docs/companion-stage3-report.md`. No new GHL write (`verify-readonly.sh` unchanged).
+
+- **Onboarding page** `/onboarding` (owner only; onboarding logins → `/companion`, APIs 403 — in the role tests): Day /
+  Week, ◀ ▶, `?date=&range=`. `lib/onboarding/numbers.ts` is the ONE pure numbers function the page, the CSV and the
+  emails share — logged = a live (not undone) log of any state (dry runs included); showed / no-show = the log's
+  after-appointment, or GHL's own outcome when there is no log; roadmaps booked = CONSULT calls whose log lands on the
+  `roadmap_booked` role; enrolled = after role `enrolled` or deal won; not a fit = deal lost; needs attention = stage 1
+  `needs_outcome` + partial / failed logs; unlogged = ended, no live log, not GHL-cancelled. `lib/onboarding/service.ts`
+  is the one call path (companion users = onboarding role + active + a GHL user; today's Day view live per user with
+  stage 1's cache + mirror fallback, everything else the mirror; the newest non-undone log per event with its after-stage
+  role resolved through `stages`). `GET /api/onboarding?date&range[&format=csv]`; Retry = stage 2's retry route.
+- **Reports** (`lib/reports/`, kinds `daily | weekly | monthly`; the archive keeps old `daily_todo` rows): `model.ts` is
+  the ONE renderer (headline → totals → Needs attention FIRST → details → button); builders format what the engine
+  returns and never compute. Daily = yesterday (funnel entries, first payments + cash, spend with Meta "still
+  settling", cost per applicant / enrollment vs the same weekday last week, the whole onboarding section, the data-health
+  line, the follow-ups the retired to-do carried). Weekly = `getScorecard({range:'week'})` → the assembly, the verdict
+  (`result.verdict`), cost per stage, the spend gates, the onboarding week, top 3 changes = the assembled stats with the
+  largest |pct| (deduped by value). Monthly = the assembly vs last month + the 3-month average from ONE loader window
+  through `computeScorecard` / `computeAdsKpis` / `computeShowRates` per month (`monthFigures`, `averageFigures`), best /
+  worst week by new-client cash from `trendWeekly`. A missing source says so, never 0. `run.ts#runReport` keeps the
+  2026-09-29 archive rules; off switch → `disabled`; a test send (`is_test`, migration 0023) never satisfies the period;
+  the 3rd failure for a period opens ONE `report_failed` warning incident, resolved by the next sent.
+  `npm run reports:preview -- --report <kind> --date <day> [--out <dir>]` renders without sending (a real-tenant run
+  carries client names — send it to a scratch folder). `lib/email/digests.ts` and `send.ts` are gone.
+- **Settings** (`lib/reports/settings.ts`, `/api/reports/settings`, `/api/reports/test`, the `/reports` cards):
+  `report_<kind>_enabled` (only `'true'`; **default OFF** — migration 0023 copies a digest switch only when it was stored
+  `'true'`) + `report_<kind>_recipients`; `digest_include_weekends` stays. The card shows the reason while on but unable
+  to send; next send = `schedule#nextSend` (the first :37 run after midnight on the next due day).
+- **Users card**: the one-time password stays with Copy until Done (the card no longer collapses on the first user).
+- **Proof**: `tests/onboarding-{numbers,service}`, `tests/reports-{send,build,settings}`; `npm run screenshots --
+  --onboarding` (demo tenant — the seed plants ok / partial / dry-run / unlogged / undone logs on Miranda's latest full
+  day; `lib/provenance#clearDemoData` removes them by `request_id like 'demo:%'`, the only companion_actions delete
+  the append-only guard allows). Deploy: `npm run db:migrate` (0023) THEN push, then /reports → recipients → Preview →
+  Send test → On.
 
 ## Working agreements
 

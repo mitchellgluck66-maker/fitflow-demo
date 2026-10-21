@@ -362,8 +362,11 @@ describe('execute', () => {
 });
 
 describe('append-only', () => {
-  it('no code path deletes a companion_actions row', () => {
-    const hits = execSync("grep -rn 'delete(companionActions)' lib app scripts db || true", { encoding: 'utf8' }).trim();
-    expect(hits).toBe('');
+  it('no code path deletes a REAL companion_actions row — the only deletes are the demo seed\'s own rows (request_id demo:…)', () => {
+    const hits = execSync("grep -rn 'delete(companionActions)' lib app scripts db || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    // Stage 3: the demo tenant plants Companion logs (db/seed-demo) and the wipe removes them (lib/provenance) — both
+    // scoped to request ids that start with `demo:`, which no real log can carry (they are UUIDs minted by the client).
+    expect(hits.map((h) => h.split(':')[0]).sort()).toEqual(['db/seed-demo.ts', 'lib/provenance.ts']);
+    for (const h of hits) expect(h).toContain("'demo:%'");
   });
 });

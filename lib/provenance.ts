@@ -3,7 +3,7 @@
  * The sample-data banner reads this; the Setup page's reset button uses it.
  */
 
-import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents, ghlOpportunities, appUsers } from '@/db';
+import { db, contacts, appointments, stageTransitions, adSpend, pipelines, stages, syncRuns, payments, aiReports, emailDigests, stageSnapshots, syncIncidents, ghlOpportunities, appUsers, companionActions } from '@/db';
 import { desc, eq, like, sql } from 'drizzle-orm';
 
 export interface Provenance {
@@ -95,6 +95,8 @@ export async function clearDemoData(): Promise<{
   const r = await db.delete(syncRuns).where(eq(syncRuns.trigger, 'demo')).returning({ id: syncRuns.id });
   // Companion stage 1: the demo onboarding login (db/seed-demo#DEMO_COMPANION_USER) — real logins are never touched.
   await db.delete(appUsers).where(like(appUsers.email, '%@fitflow.demo'));
+  // Companion stage 3: the demo Companion logs (request ids `demo:…`) — the append-only rule covers real logs, never these.
+  await db.delete(companionActions).where(like(companionActions.requestId, 'demo:%'));
   await db.delete(syncIncidents).where(sql`${syncIncidents.details} ->> 'demo' = 'true'`);
   return {
     contactsRemoved: c.length,

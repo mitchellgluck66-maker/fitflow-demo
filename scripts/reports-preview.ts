@@ -4,9 +4,10 @@
  *   npm run reports:preview -- --report daily   --date 2026-10-20     # the day itself
  *   npm run reports:preview -- --report weekly  --date 2026-10-21     # the Sun–Sat week containing the date
  *   npm run reports:preview -- --report monthly --date 2026-09-15     # that month
- *   (no --date: the period the next scheduled run would send)
+ *   (no --date: the period the next scheduled run would send; --out <dir> to write elsewhere than docs/screens)
  *
- * Output: docs/screens/report-<kind>-<period start>.html (+ .txt). Uses the database .env.local points at.
+ * Output: docs/screens/report-<kind>-<period start>.html (+ .txt). Uses the database .env.local points at — a run
+ * against the real tenant carries real client names and notes, so send its output to a scratch folder (--out).
  */
 import fs from 'fs';
 import path from 'path';
@@ -29,7 +30,7 @@ async function main() {
   const period = date ? periodContaining(kind, date) : (await decideReport(kind, now)).period;
   const built = await buildReport(kind, period, { now });
   const m = built.model;
-  const dir = path.join(process.cwd(), 'docs', 'screens');
+  const dir = arg('out') ?? path.join(process.cwd(), 'docs', 'screens');
   fs.mkdirSync(dir, { recursive: true });
   const base = path.join(dir, `report-${kind}-${period.start}`);
   fs.writeFileSync(`${base}.html`, built.html);
