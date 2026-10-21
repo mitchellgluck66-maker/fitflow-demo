@@ -6,7 +6,9 @@ import { PictureInPicture2 } from 'lucide-react';
 import { Button } from '@/components';
 import { pipDocumentHtml, popOutMode, popOutUrl, requestedPipSize, type DocumentPipHost } from '@/lib/companion/popout';
 import { readCollapsed } from '@/lib/companion/popoutState';
+import { startThemeSync, type ThemeSync } from '@/lib/companion/popoutTheme';
 import { FloatingPanel } from './FloatingPanel';
+import { POPOUT_PROBLEM_MESSAGE } from './PopOutView';
 
 /**
  * "Pop out": a Document Picture-in-Picture window (Chrome 116+) holding /companion/popout, always on top — opened
@@ -19,6 +21,10 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
   const [note, setNote] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const winRef = useRef<Window | null>(null);
+  const syncRef = useRef<ThemeSync | null>(null);
+
+  // The window outlives this component only until the page unloads; stop following the theme when either goes.
+  useEffect(() => () => syncRef.current?.stop(), []);
 
   const openPanel = useCallback(() => setPanelOpen(true), []);
   const closePanel = useCallback(() => setPanelOpen(false), []);
@@ -47,6 +53,31 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
         pip.document.close();
         winRef.current = pip;
         setNote(null);
+        // Item 4: the pop-out follows this page's theme, live — the wrapper document and the iframe's document are the
+        // targets; the wrapper's canvas is painted from the --bg-canvas token; a failure lands on the pop-out's chip.
+        const iframe = pip.document.querySelector('iframe');
+        const sync = startThemeSync({
+          source: root,
+          targets: () => [pip.document.documentElement, ...(iframe?.contentDocument?.documentElement ? [iframe.contentDocument.documentElement] : [])],
+          paint: () => {
+            pip.document.body.style.background = getComputedStyle(root).getPropertyValue('--bg-canvas');
+          },
+          onError: (detail) => {
+            console.error(`[companion pop-out] ${detail}`);
+            try {
+              iframe?.contentWindow?.postMessage({ type: POPOUT_PROBLEM_MESSAGE, detail }, window.location.origin);
+            } catch {
+              /* the window is gone — the console line above is the record */
+            }
+          },
+        });
+        syncRef.current?.stop();
+        syncRef.current = sync;
+        iframe?.addEventListener('load', () => sync.apply());
+        pip.addEventListener('pagehide', () => {
+          sync.stop();
+          if (syncRef.current === sync) syncRef.current = null;
+        });
         return;
       } catch (err) {
         // A user gesture is required; a refused request is named and the panel takes over.
