@@ -111,3 +111,19 @@ export function scheduleText(kind: ReportKind, opts: { includeWeekends: boolean 
   if (kind === 'weekly') return `Sundays · ${SENDS_AT_TEXT} · the Sun–Sat week just ended`;
   return `1st of the month · ${SENDS_AT_TEXT} · the month just ended`;
 }
+
+/** The :37 dispatch after midnight — the first eligible run of a local day, as an instant. */
+export function firstRunOfDay(localDay: string, timezone: string): Date {
+  return new Date(getDayBounds(localDay, timezone).startMs + 37 * 60_000);
+}
+
+/** Pure: the next local day on which `kind` is due after `now` (≤ 62 days ahead), and the period it will cover. */
+export function nextSend(kind: ReportKind, now: Date, timezone: string, opts: { includeWeekends: boolean }): { date: string; at: Date; period: ReportPeriod } | null {
+  let day = localDate(now, timezone);
+  for (let i = 0; i < 62; i += 1) {
+    day = addDays(day, 1);
+    const d = reportDecision(kind, firstRunOfDay(day, timezone), timezone, opts);
+    if (d.due) return { date: day, at: firstRunOfDay(day, timezone), period: d.period };
+  }
+  return null;
+}

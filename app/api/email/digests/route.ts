@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
         status: emailDigests.status,
         error: emailDigests.error,
         sentAt: emailDigests.sentAt,
+        isTest: emailDigests.isTest,
         createdAt: emailDigests.createdAt,
       })
       .from(emailDigests)

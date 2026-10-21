@@ -4,7 +4,7 @@
  * per period, three failures → one incident resolved by the next success, migration 0023's settings copy, the
  * recipients parser. The daily report builds on an almost empty tenant (every section says what is missing).
  */
-import { describe, it, expect, beforeAll, vi, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';
