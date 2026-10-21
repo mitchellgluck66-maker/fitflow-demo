@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { UserCog, Plus, KeyRound, UserX, UserCheck } from 'lucide-react';
+import { UserCog, Plus, KeyRound, UserX, UserCheck, Copy, Check } from 'lucide-react';
 import { AccordionCard, Badge, Button, Input, Select, Toast } from '@/components';
 import { fetchJson } from '@/lib/clientFetch';
 import { FetchError } from '@/components/FetchError';
@@ -45,8 +45,23 @@ export const UsersCard: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; detail?: string; type: 'success' | 'error' } | null>(null);
   const [form, setForm] = useState({ name: '', email: '', role: 'onboarding' as 'owner' | 'onboarding', ghlUserId: '', password: '' });
   const [showForm, setShowForm] = useState(false);
-  /** The password just set for a user, shown once so the owner can pass it on; cleared on the next action. */
+  /**
+   * The password just set for a user, shown until the owner presses Done (stage 3 item 4: it used to vanish —
+   * adding the first onboarding user flipped the card's default-open state and collapsed the banner).
+   */
   const [handed, setHanded] = useState<{ email: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyPassword = async () => {
+    if (!handed) return;
+    try {
+      await navigator.clipboard.writeText(handed.password);
+      setCopied(true);
+      setToast({ message: 'Password copied', type: 'success' });
+    } catch {
+      setToast({ message: 'Copy failed — select the password and copy it by hand', type: 'error' });
+    }
+  };
 
   const load = useCallback(() => {
     fetchJson<UsersState>('/api/users')
@@ -79,6 +94,7 @@ export const UsersCard: React.FC = () => {
     const password = form.password || generatePassword();
     const ok = await call('add', '/api/users', 'POST', { ...form, ghlUserId: form.ghlUserId || null, password }, `${form.name} added`);
     if (ok) {
+      setCopied(false);
       setHanded({ email: form.email, password });
       setForm({ name: '', email: '', role: 'onboarding', ghlUserId: '', password: '' });
       setShowForm(false);
@@ -88,7 +104,10 @@ export const UsersCard: React.FC = () => {
   const resetPassword = async (u: PublicUser) => {
     const password = generatePassword();
     const ok = await call(`pw:${u.id}`, `/api/users/${u.id}`, 'PATCH', { password }, `Password reset for ${u.name}`);
-    if (ok) setHanded({ email: u.email, password });
+    if (ok) {
+      setCopied(false);
+      setHanded({ email: u.email, password });
+    }
   };
 
   const onboarding = state?.users.filter((u) => u.role === 'onboarding').length ?? 0;
@@ -100,7 +119,8 @@ export const UsersCard: React.FC = () => {
       summary={summary}
       subtitle="Per-person logins. Owners reach everything; an onboarding login opens only the Companion (My day + the pop-out brief). The team password still signs an owner in."
       icon={UserCog}
-      defaultOpen={Boolean(loadError) || (state !== null && onboarding === 0)}
+      // Stays open while a one-time password is on screen — a collapse would hide it.
+      defaultOpen={Boolean(loadError) || (state !== null && onboarding === 0) || handed !== null}
       action={state ? <Badge variant={onboarding > 0 ? 'success' : 'warning'} dot>{onboarding > 0 ? `${onboarding} onboarding` : 'No onboarding login yet'}</Badge> : undefined}
     >
       {loadError && !state && (
@@ -110,14 +130,19 @@ export const UsersCard: React.FC = () => {
       )}
 
       {handed && (
-        <div role="status" className="mb-3 px-3 py-2.5 rounded-[10px] text-[12.5px]" style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)', color: 'var(--text-primary)' }}>
+        <div role="status" data-testid="handed-password" className="mb-3 px-3 py-2.5 rounded-[10px] text-[12.5px]" style={{ background: 'var(--warning-muted)', border: '1px solid var(--warning-border)', color: 'var(--text-primary)' }}>
           Password for <strong>{handed.email}</strong>: <code className="font-mono select-all">{handed.password}</code>
           <span className="block mt-1" style={{ color: 'var(--text-tertiary)' }}>
-            Copy it now — it is not stored anywhere readable and will not be shown again.
+            It stays here until you press Done — it is not stored anywhere readable and will not be shown again.
           </span>
-          <Button size="xs" variant="ghost" className="mt-1.5" onClick={() => setHanded(null)}>
-            Done
-          </Button>
+          <div className="flex gap-2 mt-1.5">
+            <Button size="xs" variant="secondary" icon={copied ? Check : Copy} onClick={copyPassword}>
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => setHanded(null)}>
+              Done
+            </Button>
+          </div>
         </div>
       )}
 
