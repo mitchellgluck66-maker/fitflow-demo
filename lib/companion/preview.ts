@@ -7,7 +7,7 @@
 import type { ActionView, LogPlan } from './log';
 import type { OutcomesForCall } from './outcomeService';
 
-export const COMPANION_PREVIEW_STATES = ['confirm', 'success', 'partial', 'dryrun'] as const;
+export const COMPANION_PREVIEW_STATES = ['confirm', 'success', 'partial', 'dryrun', 'ghl_error'] as const;
 export type CompanionPreviewState = (typeof COMPANION_PREVIEW_STATES)[number];
 
 const STAGES = [
@@ -86,16 +86,37 @@ function action(state: 'ok' | 'partial' | 'dry_run', now: Date): ActionView {
   };
 }
 
-export function companionPreview(state: string, now: Date = new Date()): { phase: unknown; outcomes: OutcomesForCall; note?: string } | null {
+export interface CompanionPreview {
+  phase: unknown;
+  outcomes: OutcomesForCall;
+  note?: string;
+  choice?: { key: string };
+  /** Stage 4: problems the status chip shows, and whether its popover opens on load (the GHL-error screenshot). */
+  problems?: Array<{ kind: 'ghl' | 'app' | 'window' | 'dry_run'; detail: string }>;
+  chipOpen?: boolean;
+}
+
+export function companionPreview(state: string, now: Date = new Date()): CompanionPreview | null {
   switch (state) {
     case 'confirm':
-      return { phase: { kind: 'confirm', plan: plan(false), requestId: 'preview-request-id-0001', stale: null }, outcomes: outcomes(false), note: NOTE };
+      return { phase: { kind: 'confirm', plan: plan(false), requestId: 'preview-request-id-0001', stale: null }, outcomes: outcomes(false), note: NOTE, choice: { key: 'consult_showed_booked' } };
     case 'success':
       return { phase: { kind: 'result', action: action('ok', now) }, outcomes: outcomes(false) };
     case 'partial':
       return { phase: { kind: 'result', action: action('partial', now) }, outcomes: outcomes(false) };
     case 'dryrun':
       return { phase: { kind: 'result', action: action('dry_run', now) }, outcomes: outcomes(true) };
+    case 'ghl_error':
+      return {
+        phase: { kind: 'pick' },
+        outcomes: outcomes(false),
+        note: NOTE,
+        chipOpen: true,
+        problems: [
+          { kind: 'ghl', detail: 'GoHighLevel could not be reached: GHL 503 GET /calendars/events — upstream unavailable — showing synced data from 9:40 AM' },
+          { kind: 'ghl', detail: 'Notes unavailable: GHL 503 GET /contacts/demo-contact-1/notes — upstream unavailable' },
+        ],
+      };
     default:
       return null;
   }

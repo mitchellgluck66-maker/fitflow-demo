@@ -9,7 +9,7 @@ import { db, appointments, contacts, ghlOpportunities, pipelines, stages } from 
 import { daysInPipelineOf, shapeNotes, mergeSearch, assembleBrief, liveContactName } from '@/lib/companion/brief';
 import { getBrief, searchPeople } from '@/lib/companion/briefService';
 import { readBriefContact, searchMirrorContacts } from '@/lib/companion/mirror';
-import { supportsDocumentPip, popOutMode, popOutUrl, pipDocumentHtml, popupFeatures } from '@/lib/companion/popout';
+import { supportsDocumentPip, popOutMode, popOutUrl, pipDocumentHtml, requestedPipSize, COLLAPSED_INNER_MIN } from '@/lib/companion/popout';
 import { GhlNotesResponseSchema, GhlNoteSchema, GhlContactsSearchResponseSchema, GhlContactSummarySchema, parseMany } from '@/lib/ghl/schemas';
 
 const now = new Date('2026-10-16T16:00:00Z');
@@ -47,7 +47,7 @@ describe('brief (pure)', () => {
 
   it('assembleBrief: mirror beats live; outside the mirror the live name and no stage / days', () => {
     const notes = { status: 'ok' as const, total: 0, items: [] };
-    const b = assembleBrief({ ghlContactId: 'c1', mirror: { ghlContactId: 'c1', contactId: 'ff', name: 'Jane Doe', email: 'j@x.com', phone: null, stage: { name: 'Consult booked', role: 'consult_booked', pipeline: 'App' }, opportunityCreatedAt: '2026-10-12T00:00:00Z', contactOpportunityCreatedAt: null, contactCreatedAt: null }, live: { name: 'Jane Live', email: 'live@x.com', phone: '+1' }, call: null, notes, now });
+    const b = assembleBrief({ ghlContactId: 'c1', mirror: { ghlContactId: 'c1', contactId: 'ff', name: 'Jane Doe', email: 'j@x.com', phone: null, stage: { name: 'Consult booked', role: 'consult_booked', pipeline: 'App' }, origin: 'ghl', opportunityCreatedAt: '2026-10-12T00:00:00Z', contactOpportunityCreatedAt: null, contactCreatedAt: null }, live: { name: 'Jane Live', email: 'live@x.com', phone: '+1' }, call: null, notes, now });
     expect(b.contact).toEqual({ ghlContactId: 'c1', contactId: 'ff', name: 'Jane Doe', email: 'j@x.com', phone: '+1', inMirror: true }); // the mirror wins; live fills a gap
     expect(b.daysInPipeline?.days).toBe(4);
     const o = assembleBrief({ ghlContactId: 'c2abcdef', mirror: null, live: { name: 'Only Live', email: null, phone: null }, call: null, notes, now });
@@ -61,11 +61,17 @@ describe('brief (pure)', () => {
     expect(supportsDocumentPip({ documentPictureInPicture: { requestWindow: async () => ({}) as Window } })).toBe(true);
     expect(supportsDocumentPip({})).toBe(false);
     expect(supportsDocumentPip(null)).toBe(false);
-    expect(popOutMode({})).toBe('window');
-    expect(popOutUrl({ date: '2026-10-16', user: null, event: 'e1', mode: 'document_pip' })).toBe('/companion/popout?date=2026-10-16&event=e1');
-    expect(popOutUrl({ mode: 'window' })).toBe('/companion/popout?float=0');
-    expect(pipDocumentHtml('/companion/popout?a=1')).toContain('<iframe src="/companion/popout?a=1"');
-    expect(popupFeatures()).toContain('width=360');
+    expect(popOutMode({})).toBe('panel');
+    expect(popOutUrl({ date: '2026-10-16', user: null, event: 'e1', host: 'pip' })).toBe('/companion/popout?date=2026-10-16&event=e1&host=pip');
+    expect(popOutUrl({ host: 'tab' })).toBe('/companion/popout?float=0');
+    expect(popOutUrl({ host: 'panel' })).toBe('/companion/popout');
+    const html = pipDocumentHtml('/companion/popout?a=1', { theme: 'dark', background: '#0d0e10' });
+    expect(html).toContain('<iframe src="/companion/popout?a=1"');
+    expect(html).toContain('data-theme="dark"');
+    expect(html).toContain('background:#0d0e10');
+    expect(pipDocumentHtml('/x', { theme: 'light', background: 'url(javascript:alert(1))' })).toContain('background:transparent'); // only a colour value is ever written
+    expect(requestedPipSize(false)).toEqual({ width: 360, height: 560 });
+    expect(requestedPipSize(true)).toEqual({ width: 360, height: COLLAPSED_INNER_MIN });
   });
 
   it('schemas: notes and the contact search accept GHL shapes and reject rows without an id', () => {

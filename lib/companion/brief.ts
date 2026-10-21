@@ -18,6 +18,8 @@ export interface BriefContact {
   email: string | null;
   phone: string | null;
   stage: { name: string; role: string | null; pipeline: string | null } | null;
+  /** The mirror row's origin — a demo contact has no GoHighLevel page to open. */
+  origin: string;
   /** The dates that can anchor "days in pipeline", most authoritative first. */
   opportunityCreatedAt: string | null;
   contactOpportunityCreatedAt: string | null;
@@ -53,6 +55,8 @@ export interface ClientBrief {
   stage: BriefContact['stage'];
   daysInPipeline: DaysInPipeline | null;
   notes: BriefNotes;
+  /** The contact's page in GoHighLevel (stage 4's "Open in GHL" chip); null without a location id or for a demo row. */
+  ghlUrl: string | null;
 }
 
 export function daysInPipelineOf(c: Pick<BriefContact, 'opportunityCreatedAt' | 'contactOpportunityCreatedAt' | 'contactCreatedAt'>, now: Date): DaysInPipeline | null {
@@ -74,7 +78,13 @@ export function shapeNotes(r: { notes: Array<{ id: string; body: string; dateAdd
   };
 }
 
-export function assembleBrief(p: { ghlContactId: string; mirror: BriefContact | null; live: { name: string; email: string | null; phone: string | null } | null; call: BriefCall | null; notes: BriefNotes; now: Date }): ClientBrief {
+/** `https://app.gohighlevel.com/v2/location/<location>/contacts/detail/<contact>`; null without a location or for a demo row. */
+export function briefGhlUrl(locationId: string | null | undefined, ghlContactId: string, origin: string | null | undefined): string | null {
+  if (!locationId || origin === 'demo') return null;
+  return `https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${ghlContactId}`;
+}
+
+export function assembleBrief(p: { ghlContactId: string; mirror: BriefContact | null; live: { name: string; email: string | null; phone: string | null } | null; call: BriefCall | null; notes: BriefNotes; now: Date; locationId?: string | null }): ClientBrief {
   const m = p.mirror;
   const name = m?.name || p.live?.name || `Unknown contact ${p.ghlContactId.slice(0, 6)}…`;
   return {
@@ -83,6 +93,7 @@ export function assembleBrief(p: { ghlContactId: string; mirror: BriefContact | 
     stage: m?.stage ?? null,
     daysInPipeline: m ? daysInPipelineOf(m, p.now) : null,
     notes: p.notes,
+    ghlUrl: briefGhlUrl(p.locationId ?? null, p.ghlContactId, m?.origin ?? (p.live ? 'ghl' : null)),
   };
 }
 

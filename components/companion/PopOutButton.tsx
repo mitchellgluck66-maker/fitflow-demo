@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { PictureInPicture2 } from 'lucide-react';
 import { Button } from '@/components';
-import { POPOUT_HEIGHT, POPOUT_WIDTH, pipDocumentHtml, popOutMode, popOutUrl, popupFeatures, type DocumentPipHost } from '@/lib/companion/popout';
+import { POPOUT_HEIGHT, POPOUT_WIDTH, pipDocumentHtml, popOutMode, popOutUrl, type DocumentPipHost } from '@/lib/companion/popout';
 
 /**
  * "Pop out": a Document Picture-in-Picture window (Chrome 116+) holding /companion/popout, always on top; elsewhere
@@ -16,7 +16,7 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
   const open = async () => {
     const host = window as unknown as DocumentPipHost;
     const mode = popOutMode(host);
-    const url = popOutUrl({ date, user, event, mode });
+    const url = popOutUrl({ date, user, event, host: 'pip' });
     if (winRef.current && !winRef.current.closed) {
       winRef.current.focus();
       return;
@@ -25,7 +25,7 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
       try {
         const pip = await host.documentPictureInPicture!.requestWindow({ width: POPOUT_WIDTH, height: POPOUT_HEIGHT });
         pip.document.open();
-        pip.document.write(pipDocumentHtml(url));
+        pip.document.write(pipDocumentHtml(url, { theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light', background: getComputedStyle(document.documentElement).getPropertyValue('--bg-canvas') }));
         pip.document.close();
         winRef.current = pip;
         setNote(null);
@@ -35,7 +35,7 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
         setNote(err instanceof Error ? err.message : String(err));
       }
     }
-    const w = window.open(popOutUrl({ date, user, event, mode: 'window' }), 'fitflow-companion-popout', popupFeatures());
+    const w = window.open(popOutUrl({ date, user, event, host: 'tab' }), 'fitflow-companion-popout', `popup=yes,width=${POPOUT_WIDTH},height=${POPOUT_HEIGHT}`);
     if (!w) setNote('The browser blocked the pop-out window — allow pop-ups for this site.');
     else winRef.current = w;
   };

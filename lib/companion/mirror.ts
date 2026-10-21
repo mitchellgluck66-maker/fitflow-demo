@@ -116,6 +116,7 @@ export async function readBriefContact(ghlContactId: string): Promise<BriefConta
       pipelineName: pipelines.name,
       opportunityCreatedAt: contacts.opportunityCreatedAt,
       ghlCreatedAt: contacts.ghlCreatedAt,
+      origin: contacts.origin,
     })
     .from(contacts)
     .leftJoin(stages, eq(contacts.stageId, stages.id))
@@ -140,6 +141,7 @@ export async function readBriefContact(ghlContactId: string): Promise<BriefConta
     email: r.email,
     phone: r.phone,
     stage: r.stageName ? { name: r.stageName, role: r.stageRole ?? null, pipeline: r.pipelineName ?? null } : null,
+    origin: r.origin,
     opportunityCreatedAt: opp[0]?.createdAt?.toISOString() ?? null,
     contactOpportunityCreatedAt: r.opportunityCreatedAt?.toISOString() ?? null,
     contactCreatedAt: r.ghlCreatedAt?.toISOString() ?? null,

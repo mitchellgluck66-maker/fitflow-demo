@@ -24,7 +24,7 @@ export const Popover: React.FC<{
   children: React.ReactNode;
 }> = ({ open, anchorRef, onClose, width, align = 'left', role = 'dialog', className, children, ...aria }) => {
   const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number; right: number; minWidth: number; anchorTop: number; vh: number; panelH: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; right: number; minWidth: number; anchorTop: number; vh: number; vw: number; panelH: number; panelW: number } | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -34,7 +34,7 @@ export const Popover: React.FC<{
     const place = () => {
       const a = anchorRef.current?.getBoundingClientRect();
       if (!a) return;
-      setPos({ top: a.bottom + 6, left: a.left, right: window.innerWidth - a.right, minWidth: a.width, anchorTop: a.top, vh: window.innerHeight, panelH: panelRef.current?.offsetHeight ?? 0 });
+      setPos({ top: a.bottom + 6, left: a.left, right: window.innerWidth - a.right, minWidth: a.width, anchorTop: a.top, vh: window.innerHeight, vw: window.innerWidth, panelH: panelRef.current?.offsetHeight ?? 0, panelW: panelRef.current?.offsetWidth ?? 0 });
     };
     place();
     window.addEventListener('scroll', place, true);
@@ -90,7 +90,8 @@ export const Popover: React.FC<{
     background: 'var(--surface-raised)',
     border: '1px solid var(--border-default)',
     boxShadow: 'var(--shadow-lg)',
-    ...(align === 'left' ? { left: Math.max(8, pos.left) } : { right: Math.max(8, pos.right) }),
+    // Never off the side of a narrow window (the 360 px Companion pop-out): slide the panel back inside the viewport.
+    ...(align === 'left' ? { left: Math.max(8, Math.min(pos.left, pos.vw - pos.panelW - 8)) } : { right: Math.max(8, Math.min(pos.right, pos.vw - pos.panelW - 8)) }),
   };
 
   return createPortal(

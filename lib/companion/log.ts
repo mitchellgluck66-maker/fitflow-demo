@@ -18,7 +18,9 @@ import { MOVE_TO_KEY, resolveMoveTo, resolveOutcome, type AppointmentEffect, typ
 import { applyMirror, readContactPosition, readMirrorAppointment, syncActionIncident, type ContactPosition } from './logDb';
 import { STEP_ORDER, UNDO_WINDOW_MS, effectiveState, failedStepOf, getAction, insertOrFindAction, pendingStep, recordStep, setActionState, skippedStep, undoUntil } from './actions';
 
-import { NOTE_MIN_CHARS } from './logText';
+import { APPOINTMENT_WORDS, NOTE_MIN_CHARS } from './logText';
+
+export { APPOINTMENT_WORDS };
 export { NOTE_MIN_CHARS };
 
 export type OutcomeChoice = { key: string } | { move: { stageId: string; appointment: AppointmentEffect } };
@@ -90,7 +92,6 @@ export function noteProblem(note: unknown): string | null {
   return null;
 }
 
-export const APPOINTMENT_WORDS: Record<AppointmentEffect, string> = { showed: 'showed', noshow: 'no-show', cancelled: 'cancelled', leave: 'left as is' };
 
 /** "Onboarding call · Consult · Oct 16, 10:00 AM · Miranda\nOutcome: Showed, roadmap booked (Consult Booked → Pre-Roadmap Booked)\nNote: …" */
 export function noteText(p: { callType: CallType | 'none'; startIso: string | null; timezone: string; userName: string; label: string; from: string | null; to: string | null; note: string }): string {
