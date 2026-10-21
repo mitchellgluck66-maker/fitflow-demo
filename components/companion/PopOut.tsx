@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { PopOutView, TAB_HOST } from './PopOutView';
+import { pipHost } from './popoutHosts';
 
 /**
  * The /companion/popout page: the pop-out view in the host the URL names — `host=pip` inside the floating
@@ -11,10 +12,12 @@ import { PopOutView, TAB_HOST } from './PopOutView';
  */
 export const PopOut: React.FC = () => {
   const params = useSearchParams();
+  const inPip = params.get('host') === 'pip';
+  const host = useMemo(() => (inPip ? pipHost() : TAB_HOST), [inPip]);
   return (
     <>
       <style>{'nextjs-portal{display:none !important}'}</style>
-      <PopOutView date={params.get('date')} user={params.get('user')} event={params.get('event')} host={TAB_HOST} previewState={params.get('preview')} />
+      <PopOutView date={params.get('date')} user={params.get('user')} event={params.get('event')} host={host} previewState={params.get('preview')} />
     </>
   );
 };

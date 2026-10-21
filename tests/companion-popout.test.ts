@@ -27,6 +27,8 @@ import {
   type StorageLike,
 } from '@/lib/companion/popoutState';
 import { PopOutHeader, CollapsedBar } from '@/components/companion/PopOutParts';
+import { resizeRefusal } from '@/components/companion/popoutHosts';
+import { startThemeSync, themeOf, type AttrSource, type ThemeTarget } from '@/lib/companion/popoutTheme';
 
 const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
@@ -159,11 +161,100 @@ describe('footer line, titles, geometry', () => {
     expect(dayTitle('2026-10-20', null)).toBe('Tue, Oct 20');
   });
 
+  it('resizeRefusal: a resize that did not take is named, never swallowed (Chrome clamps the bar to 66 px, so the check is a direction)', () => {
+    expect(resizeRefusal(true, { innerWidth: 360, innerHeight: 66 })).toBeNull();
+    expect(resizeRefusal(true, { innerWidth: 360, innerHeight: 100 })).toBeNull();
+    expect(resizeRefusal(true, { innerWidth: 360, innerHeight: 560 })).toBe('resize to the 66 px bar refused — the window stayed at 360×560');
+    expect(resizeRefusal(false, { innerWidth: 360, innerHeight: 560 })).toBeNull();
+    expect(resizeRefusal(false, { innerWidth: 360, innerHeight: 66 })).toBe('resize to 360×560 refused — the window stayed at 360×66');
+  });
+
   it('pipOuterHeight adds the measured title bar; moveDelta holds within 2 px', () => {
     expect(pipOuterHeight(false, 34)).toBe(594);
     expect(pipOuterHeight(true, 34)).toBe(82);
     expect(pipOuterHeight(true, -5)).toBe(48);
     expect(moveDelta({ x: 100, y: 200 }, { x: 101, y: 198 })).toEqual({ dx: 1, dy: -2, held: true });
     expect(moveDelta({ x: 100, y: 200 }, { x: 100, y: 203 })).toEqual({ dx: 0, dy: 3, held: false });
+  });
+});
+
+describe('theme sync: the pop-out follows the opener\'s data-theme, live', () => {
+  /** A fake <html>: an attribute bag whose observers fire when data-theme changes. */
+  const fakeRoot = () => {
+    const attrs = new Map<string, string>();
+    const listeners = new Set<() => void>();
+    const root: AttrSource & ThemeTarget & { set(theme: string): void; attrs: Map<string, string>; style: { colorScheme?: string } } = {
+      attrs,
+      style: {},
+      getAttribute: (n) => attrs.get(n) ?? null,
+      setAttribute: (n, v) => void attrs.set(n, v),
+      set(theme) {
+        attrs.set('data-theme', theme);
+        listeners.forEach((l) => l());
+      },
+    };
+    const observe = (_r: AttrSource, cb: () => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    };
+    return { root, observe, listeners };
+  };
+
+  it('copies the theme on start, on every change (incl. a system-mode OS flip written by the ThemeProvider), and stops', () => {
+    const opener = fakeRoot();
+    opener.root.set('dark');
+    const wrapper = fakeRoot().root;
+    const iframe = fakeRoot().root;
+    const painted: string[] = [];
+    const errors: string[] = [];
+    const sync = startThemeSync({ source: opener.root, targets: () => [wrapper, iframe], observe: opener.observe, paint: (t) => painted.push(t), onError: (d) => errors.push(d) });
+    expect(wrapper.attrs.get('data-theme')).toBe('dark');
+    expect(iframe.attrs.get('data-theme')).toBe('dark');
+    expect(iframe.style.colorScheme).toBe('dark');
+    expect(painted).toEqual(['dark']);
+    opener.root.set('light'); // the app's toggle, or the OS in "system" mode
+    expect(wrapper.attrs.get('data-theme')).toBe('light');
+    expect(iframe.attrs.get('data-theme')).toBe('light');
+    expect(painted).toEqual(['dark', 'light']);
+    sync.stop();
+    opener.root.set('dark');
+    expect(iframe.attrs.get('data-theme')).toBe('light'); // no longer following
+    expect(errors).toEqual([]);
+    expect(themeOf({ getAttribute: () => null })).toBe('light');
+  });
+
+  it('a target that throws (a closed window) is reported, never thrown; the other targets still update', () => {
+    const opener = fakeRoot();
+    opener.root.set('light');
+    const good = fakeRoot().root;
+    const closed: ThemeTarget = {
+      setAttribute: () => {
+        throw new Error('window closed');
+      },
+    };
+    const errors: string[] = [];
+    startThemeSync({ source: opener.root, targets: () => [closed, good], observe: opener.observe, onError: (d) => errors.push(d) });
+    expect(good.attrs.get('data-theme')).toBe('light');
+    expect(errors).toEqual(['Theme sync to the pop-out failed (light): window closed']);
+    opener.root.set('dark');
+    expect(good.attrs.get('data-theme')).toBe('dark');
+    expect(errors).toHaveLength(2);
+  });
+
+  it('a browser without MutationObserver still gets the one-time copy, and says it will not follow', () => {
+    const opener = fakeRoot();
+    opener.root.set('dark');
+    const t = fakeRoot().root;
+    const errors: string[] = [];
+    startThemeSync({
+      source: opener.root,
+      targets: () => [t],
+      observe: () => {
+        throw new Error('MutationObserver is unavailable in this browser');
+      },
+      onError: (d) => errors.push(d),
+    });
+    expect(t.attrs.get('data-theme')).toBe('dark');
+    expect(errors).toEqual(['Theme sync will not follow changes: MutationObserver is unavailable in this browser']);
   });
 });

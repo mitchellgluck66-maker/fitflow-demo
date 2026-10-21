@@ -1,43 +1,61 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { PictureInPicture2 } from 'lucide-react';
 import { Button } from '@/components';
-import { POPOUT_HEIGHT, POPOUT_WIDTH, pipDocumentHtml, popOutMode, popOutUrl, type DocumentPipHost } from '@/lib/companion/popout';
+import { pipDocumentHtml, popOutMode, popOutUrl, requestedPipSize, type DocumentPipHost } from '@/lib/companion/popout';
+import { readCollapsed } from '@/lib/companion/popoutState';
+import { FloatingPanel } from './FloatingPanel';
 
 /**
- * "Pop out": a Document Picture-in-Picture window (Chrome 116+) holding /companion/popout, always on top; elsewhere
- * a plain popup of the same page, which then says it cannot float. One window at a time — a second click focuses it.
+ * "Pop out": a Document Picture-in-Picture window (Chrome 116+) holding /companion/popout, always on top — opened
+ * with ONLY a size (the saved collapsed state's), never `preferInitialWindowPlacement`, so Chrome reopens it where it
+ * was. Elsewhere the in-page floating panel (stage 4). One window at a time — a second click focuses it. A refused
+ * PiP request is shown under the button and falls back to the panel; nothing is swallowed.
  */
 export const PopOutButton: React.FC<{ date: string | null; user: string | null; event?: string | null; size?: 'sm' | 'md' }> = ({ date, user, event, size = 'sm' }) => {
+  const params = useSearchParams();
   const [note, setNote] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const winRef = useRef<Window | null>(null);
+
+  const openPanel = useCallback(() => setPanelOpen(true), []);
+  const closePanel = useCallback(() => setPanelOpen(false), []);
+
+  // `?popout=panel` opens the in-page panel on load (a bookmark; the screenshots) — the floating window needs a click.
+  const autoOpen = params.get('popout') === 'panel';
+  useEffect(() => {
+    if (!autoOpen) return;
+    const t = setTimeout(() => setPanelOpen(true), 0);
+    return () => clearTimeout(t);
+  }, [autoOpen]);
 
   const open = async () => {
     const host = window as unknown as DocumentPipHost;
-    const mode = popOutMode(host);
-    const url = popOutUrl({ date, user, event, host: 'pip' });
     if (winRef.current && !winRef.current.closed) {
       winRef.current.focus();
       return;
     }
-    if (mode === 'document_pip') {
+    if (popOutMode(host) === 'document_pip') {
       try {
-        const pip = await host.documentPictureInPicture!.requestWindow({ width: POPOUT_WIDTH, height: POPOUT_HEIGHT });
+        const root = document.documentElement;
+        const theme = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        const pip = await host.documentPictureInPicture!.requestWindow(requestedPipSize(readCollapsed(window.localStorage)));
         pip.document.open();
-        pip.document.write(pipDocumentHtml(url, { theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light', background: getComputedStyle(document.documentElement).getPropertyValue('--bg-canvas') }));
+        pip.document.write(pipDocumentHtml(popOutUrl({ date, user, event, host: 'pip' }), { theme, background: getComputedStyle(root).getPropertyValue('--bg-canvas') }));
         pip.document.close();
         winRef.current = pip;
         setNote(null);
         return;
       } catch (err) {
-        // A user gesture is required; a denied request falls through to the plain window.
-        setNote(err instanceof Error ? err.message : String(err));
+        // A user gesture is required; a refused request is named and the panel takes over.
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[companion pop-out] floating window refused:', message);
+        setNote(`Floating window refused (${message}) — showing the brief in this tab instead.`);
       }
     }
-    const w = window.open(popOutUrl({ date, user, event, host: 'tab' }), 'fitflow-companion-popout', `popup=yes,width=${POPOUT_WIDTH},height=${POPOUT_HEIGHT}`);
-    if (!w) setNote('The browser blocked the pop-out window — allow pop-ups for this site.');
-    else winRef.current = w;
+    openPanel();
   };
 
   return (
@@ -50,6 +68,7 @@ export const PopOutButton: React.FC<{ date: string | null; user: string | null; 
           {note}
         </span>
       )}
+      {panelOpen && <FloatingPanel date={date} user={user} event={event} onClose={closePanel} />}
     </span>
   );
 };

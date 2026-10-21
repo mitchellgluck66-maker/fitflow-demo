@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { fetchJson } from '@/lib/clientFetch';
 import { formatTime } from '@/lib/day';
 import { selectCurrent, endOf, type CompanionCall } from '@/lib/companion/day';
 import type { MyDay } from '@/lib/companion/service';
 import type { ClientBrief, SearchRow } from '@/lib/companion/brief';
 import type { PopOutHostKind } from '@/lib/companion/popout';
-import { collapseReducer, dayTitle, moveDelta, nextCallLabel, readCollapsed, statusChip, writeCollapsed, type PopOutProblem, type ScreenPos } from '@/lib/companion/popoutState';
+import { collapseReducer, COLLAPSED_EVENT, dayTitle, moveDelta, nextCallLabel, readCollapsed, statusChip, writeCollapsed, type PopOutProblem, type ScreenPos } from '@/lib/companion/popoutState';
 import { BriefBlock, CollapsedBar, LastNote, LogFooter, NoteField, OutcomeGrid, PopOutHeader, ResultSteps, SettingsPopover } from './PopOutParts';
 import { useOutcomeLog, type PopOutPreview } from './useOutcomeLog';
 
@@ -35,6 +35,17 @@ export interface PopOutHost {
 
 export const TAB_HOST: PopOutHost = { kind: 'tab' };
 
+const subscribeCollapsed = (cb: () => void) => {
+  window.addEventListener(COLLAPSED_EVENT, cb);
+  window.addEventListener('storage', cb);
+  return () => {
+    window.removeEventListener(COLLAPSED_EVENT, cb);
+    window.removeEventListener('storage', cb);
+  };
+};
+/** The saved collapsed state as an external store: the server renders expanded, the client re-reads storage after hydration (no mismatch). */
+const useCollapsedState = () => useSyncExternalStore(subscribeCollapsed, () => readCollapsed(window.localStorage), () => false);
+
 /** A message the opener posts into the pop-out (theme sync failures): `{ type: 'companion-popout:problem', detail }`. */
 export const POPOUT_PROBLEM_MESSAGE = 'companion-popout:problem';
 
@@ -59,7 +70,7 @@ export const PopOutView: React.FC<{ date: string | null; user: string | null; ev
   const [results, setResults] = useState<{ results: SearchRow[]; liveError: string | null } | null>(null);
   const [searching, setSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [collapsed, setCollapsed] = useState(() => readCollapsed(typeof window === 'undefined' ? null : window.localStorage));
+  const collapsed = useCollapsedState();
   const [windowProblems, setWindowProblems] = useState<PopOutProblem[]>([]);
   const [prefError, setPrefError] = useState<string | null>(null);
 
@@ -199,8 +210,8 @@ export const PopOutView: React.FC<{ date: string | null; user: string | null; ev
   // ONLY the button toggles (collapseReducer ignores every other event); the state is saved; the host resizes.
   const toggleCollapsed = async () => {
     const next = collapseReducer(collapsed, { type: 'toggle_button' });
-    setCollapsed(next);
     if (!writeCollapsed(window.localStorage, next)) addWindowProblem('The collapsed state could not be saved (browser storage unavailable) — it will not survive a reopen');
+    window.dispatchEvent(new Event(COLLAPSED_EVENT));
     if (!host.resize) return;
     try {
       const m = await host.resize(next);
@@ -235,7 +246,7 @@ export const PopOutView: React.FC<{ date: string | null; user: string | null; ev
   if (collapsed) {
     const name = shownBrief?.contact.name ?? current?.name ?? (day ? (calls.length ? 'No call selected' : 'No calls') : '…');
     return (
-      <div className="h-screen flex flex-col overflow-hidden" data-testid="popout-root" data-collapsed="true" style={{ background: 'var(--bg-canvas)', color: 'var(--text-primary)', fontSize: 13 }}>
+      <div className={`${host.kind === 'panel' ? 'h-full' : 'h-screen'} flex flex-col overflow-hidden`} data-testid="popout-root" data-collapsed="true" style={{ background: 'var(--bg-canvas)', color: 'var(--text-primary)', fontSize: 13 }}>
         <CollapsedBar name={name} time={current && !picked ? formatTime(current.startIso, tz) : ''} next={nextCallLabel(calls, index, tz)} chip={chip} onToggleCollapse={toggleCollapsed} dragHandle={host.dragHandle} />
       </div>
     );
@@ -243,7 +254,7 @@ export const PopOutView: React.FC<{ date: string | null; user: string | null; ev
 
   const phase = log.phase;
   return (
-    <div className="h-screen flex flex-col overflow-hidden" data-testid="popout-root" data-collapsed="false" style={{ background: 'var(--bg-canvas)', color: 'var(--text-primary)', fontSize: 13 }}>
+    <div className={`${host.kind === 'panel' ? 'h-full' : 'h-screen'} flex flex-col overflow-hidden`} data-testid="popout-root" data-collapsed="false" style={{ background: 'var(--bg-canvas)', color: 'var(--text-primary)', fontSize: 13 }}>
       <PopOutHeader title={title} chip={chip} chipOpen={preview?.chipOpen} canPrev={calls.length > 0 && index !== 0} canNext={calls.length > 0 && index !== calls.length - 1} onPrev={() => step(-1)} onNext={() => step(1)} settings={settings} collapsed={false} onToggleCollapse={toggleCollapsed} onClose={host.onClose} dragHandle={host.dragHandle} />
       <BriefBlock brief={shownBrief} call={current} fromSearch={Boolean(picked)} onBackToCall={() => setPicked(null)} timezone={tz} loading={briefLoading} />
       <div className="flex-1 min-h-0 flex flex-col gap-2 px-3 pt-1.5 pb-1" data-testid="popout-body">

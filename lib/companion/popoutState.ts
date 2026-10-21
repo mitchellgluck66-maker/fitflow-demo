@@ -95,6 +95,9 @@ export function writePanelPos(storage: StorageLike | null | undefined, pos: Pane
   }
 }
 
+/** Fired on `window` after a collapse write so every open view (and a second window) re-reads the storage. */
+export const COLLAPSED_EVENT = 'companion-popout:collapsed';
+
 export type CollapseEvent = { type: 'toggle_button' } | { type: 'header_click' | 'header_dblclick' | 'new_call' | 'hover' | 'focus' | 'logged' | 'resize' };
 
 /** ONLY the collapse button toggles. Every other event — header clicks, double-clicks, a new call, hover, focus, logging — is ignored. */
