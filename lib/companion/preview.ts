@@ -7,7 +7,7 @@
 import type { ActionView, LogPlan } from './log';
 import type { OutcomesForCall } from './outcomeService';
 
-export const COMPANION_PREVIEW_STATES = ['confirm', 'success', 'partial', 'dryrun', 'ghl_error'] as const;
+export const COMPANION_PREVIEW_STATES = ['confirm', 'confirm_reschedule', 'confirm_roadmap_booked', 'success', 'partial', 'dryrun', 'ghl_error'] as const;
 export type CompanionPreviewState = (typeof COMPANION_PREVIEW_STATES)[number];
 
 const STAGES = [
@@ -90,6 +90,42 @@ function action(state: 'ok' | 'partial' | 'dry_run', now: Date): ActionView {
   };
 }
 
+/** Stage 5: a Reschedule leaves the appointment alone — the footer says "appointment unchanged" and carries no automation note. */
+function reschedulePlan(): LogPlan {
+  const p = plan(false);
+  return {
+    ...p,
+    outcome: { key: 'consult_reschedule', label: 'Reschedule', toStage: { id: 'demo-stage-consult-resched', name: 'Consult Reschedule', role: 'consult_rescheduled', position: 4 }, stageRole: 'consult_rescheduled', appointment: 'leave', opportunityStatus: 'open' },
+    opportunity: { ...p.opportunity!, to: { id: 'demo-stage-consult-resched', name: 'Consult Reschedule' } },
+    appointment: { eventId: 'demo-event-1', from: 'confirmed', to: 'leave', startIso: START, callType: 'Consult' },
+    noteText: `Onboarding call · Consult · Oct 16, 10:00 AM · Miranda Demo\nOutcome: Reschedule (Consult Booked → Consult Reschedule)\nNote: ${NOTE}`,
+    confirmation: 'Move Jordan Rivers from Consult Booked to Consult Reschedule, add this note. This may send GoHighLevel messages to the client.',
+    steps: [
+      { name: 'stage', request: { method: 'PUT', path: '/opportunities/demo-opp-1', body: { pipelineId: 'demo-pipeline', pipelineStageId: 'demo-stage-consult-resched' } }, skipReason: null, summary: 'Stage Consult Booked → Consult Reschedule' },
+      { name: 'appointment', request: null, skipReason: 'left as is', summary: 'Appointment — left confirmed' },
+      p.steps[2],
+    ],
+    after: { stageId: 'demo-stage-consult-resched', stageName: 'Consult Reschedule', status: 'open', appointmentStatus: 'confirmed' },
+    effectLine: 'Moves to Consult Reschedule · appointment unchanged · adds note',
+    automationNote: null,
+  };
+}
+
+/** Stage 5: Bridget's case — GHL already moved her to Pre-Roadmap Booked; the stage step is skipped and the line promises only the appointment and the note. */
+function roadmapBookedAlreadyPlan(): LogPlan {
+  const p = plan(false);
+  return {
+    ...p,
+    opportunity: { ...p.opportunity!, from: { id: 'demo-stage-roadmap-booked', name: 'Pre-Roadmap Booked' } },
+    noteText: `Onboarding call · Consult · Oct 16, 10:00 AM · Miranda Demo\nOutcome: Showed, roadmap booked (Pre-Roadmap Booked, unchanged)\nNote: ${NOTE}`,
+    confirmation: 'Keep Jordan Rivers in Pre-Roadmap Booked, mark the 10:00 AM Consult showed, add this note. This may send GoHighLevel messages to the client.',
+    expectedStageId: 'demo-stage-roadmap-booked',
+    steps: [{ name: 'stage', request: null, skipReason: 'already in Pre-Roadmap Booked', summary: 'Stage — Pre-Roadmap Booked' }, p.steps[1], p.steps[2]],
+    before: { stageId: 'demo-stage-roadmap-booked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' },
+    effectLine: 'Marks showed · adds note',
+  };
+}
+
 export interface CompanionPreview {
   phase: unknown;
   outcomes: OutcomesForCall;
@@ -104,6 +140,10 @@ export function companionPreview(state: string, now: Date = new Date()): Compani
   switch (state) {
     case 'confirm':
       return { phase: { kind: 'confirm', plan: plan(false), requestId: 'preview-request-id-0001', stale: null }, outcomes: outcomes(false), note: NOTE, choice: { key: 'consult_showed_booked' } };
+    case 'confirm_reschedule':
+      return { phase: { kind: 'confirm', plan: reschedulePlan(), requestId: 'preview-request-id-0002', stale: null }, outcomes: outcomes(false), note: NOTE, choice: { key: 'consult_reschedule' } };
+    case 'confirm_roadmap_booked':
+      return { phase: { kind: 'confirm', plan: roadmapBookedAlreadyPlan(), requestId: 'preview-request-id-0003', stale: null }, outcomes: outcomes(false), note: NOTE, choice: { key: 'consult_showed_booked' } };
     case 'success':
       return { phase: { kind: 'result', action: action('ok', now) }, outcomes: outcomes(false) };
     case 'partial':

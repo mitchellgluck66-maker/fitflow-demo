@@ -9,7 +9,7 @@ import type { CompanionCall } from '@/lib/companion/day';
 import type { ClientBrief, SearchRow } from '@/lib/companion/brief';
 import type { ActionView } from '@/lib/companion/log';
 import type { PopOutHostKind } from '@/lib/companion/popout';
-import { effectLine, PICK_LINE, type StatusChipModel } from '@/lib/companion/popoutState';
+import { automationNote, effectLine, PICK_LINE, type StatusChipModel } from '@/lib/companion/popoutState';
 import { NOTE_MIN_CHARS } from '@/lib/companion/logText';
 import type { OutcomeLog } from './useOutcomeLog';
 
@@ -427,6 +427,8 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
   let controls: React.ReactNode;
   let line: string;
   let lineColor = 'var(--text-secondary)';
+  /** Stage 5: "GHL automations on appointment status may message the client." whenever an appointment status would change. */
+  let note: string | null = null;
   if (phase.kind === 'pick') {
     controls = (
       <button type="button" onClick={log.plan} disabled={!log.canLog || !hasTarget} data-testid="log-button" className={`${primary} w-full`} style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}>
@@ -435,6 +437,7 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
     );
     line = log.error ?? (hasTarget ? effectLine(log.selected, { hasCall, dryRun: log.dryRun }) : PICK_LINE);
     if (log.error) lineColor = 'var(--danger)';
+    else if (hasTarget && log.selected) note = automationNote(log.selected.appointment, hasCall);
   } else if (phase.kind === 'confirm' || phase.kind === 'running') {
     const p = phase.plan;
     const running = phase.kind === 'running';
@@ -462,7 +465,9 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
       line = `Stage changed to ${stale.stageName ?? 'another stage'} since you opened this — Continue anyway logs on top of it`;
       lineColor = 'var(--warning)';
     } else {
-      line = running ? 'Writing to GoHighLevel…' : effectLine({ toStage: p.outcome.toStage, appointment: p.outcome.appointment, opportunityStatus: p.outcome.opportunityStatus }, { hasCall: p.appointment !== null, dryRun: p.dryRun });
+      // The plan's line is built from its STEPS (the live read): a skipped step promises nothing.
+      line = running ? 'Writing to GoHighLevel…' : p.effectLine;
+      note = p.automationNote;
     }
   } else {
     const a = phase.action;
@@ -487,6 +492,11 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
       <p className="mt-1.5 text-[11.5px] leading-snug truncate" data-testid="log-line" title={line} style={{ color: lineColor }}>
         {line}
       </p>
+      {note && (
+        <p className="mt-0.5 text-[11px] leading-snug truncate" data-testid="log-automation-note" title={note} style={{ color: 'var(--text-secondary)' }}>
+          {note}
+        </p>
+      )}
     </footer>
   );
 };

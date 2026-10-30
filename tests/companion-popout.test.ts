@@ -13,6 +13,9 @@ import {
   collapseReducer,
   dayTitle,
   effectLine,
+  planEffectLine,
+  automationNote,
+  APPOINTMENT_AUTOMATION_NOTE,
   moveDelta,
   nextCallLabel,
   pipOuterHeight,
@@ -143,6 +146,33 @@ describe('footer line, titles, geometry', () => {
     expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'leave', opportunityStatus: null }, { hasCall: true, dryRun: false })).toBe('Moves to Enrolled · appointment unchanged · adds note');
     expect(effectLine({ toStage: { name: 'Consult Reschedule' }, appointment: 'leave', opportunityStatus: 'open' }, { hasCall: true, dryRun: false })).toBe('Moves to Consult Reschedule · appointment unchanged · adds note'); // stage 5: a Reschedule visibly does NOT cancel
     expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'showed', opportunityStatus: null }, { hasCall: false, dryRun: false })).toBe('Moves to Enrolled · adds note'); // no call → no appointment to mark
+  });
+
+  it('stage 5 — planEffectLine lists only the real changes; automationNote only for a changing appointment status', () => {
+    const stage = (request: boolean, skipReason: string | null = null) => ({ name: 'stage' as const, request: request ? { method: 'PUT' } : null, skipReason });
+    const appt = (request: boolean, skipReason: string | null = null) => ({ name: 'appointment' as const, request: request ? { method: 'PUT' } : null, skipReason });
+    const note = { name: 'note' as const, request: { method: 'POST' }, skipReason: null };
+    const before = { stageId: 's_cbooked', status: 'open' };
+    // The full move.
+    expect(planEffectLine({ steps: [stage(true), appt(true), note], before, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, backward: false, hasCall: true, dryRun: false })).toBe('Moves to Pre-Roadmap Booked · marks showed · adds note');
+    // Reschedule: the appointment is left alone and the line says so.
+    expect(planEffectLine({ steps: [stage(true), appt(false, 'left as is'), note], before, after: { stageId: 's_cresched', stageName: 'Consult Reschedule', status: 'open', appointmentStatus: 'confirmed' }, backward: false, hasCall: true, dryRun: false })).toBe('Moves to Consult Reschedule · appointment unchanged · adds note');
+    // Bridget: the stage step is skipped (already there) → nothing about the stage is promised.
+    expect(planEffectLine({ steps: [stage(false, 'already in Pre-Roadmap Booked'), appt(true), note], before: { stageId: 's_rbooked', status: 'open' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, backward: false, hasCall: true, dryRun: false })).toBe('Marks showed · adds note');
+    // Everything already there → only the note; a skipped appointment (already showed) is omitted, not "unchanged".
+    expect(planEffectLine({ steps: [stage(false, 'already in Pre-Roadmap Booked'), appt(false, 'already showed'), note], before: { stageId: 's_rbooked', status: 'open' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, backward: false, hasCall: true, dryRun: false })).toBe('Adds note');
+    // Enrolled: stage + deal; a backward Move to; dry run; no call.
+    expect(planEffectLine({ steps: [stage(true), appt(true), note], before, after: { stageId: 's_enrolled', stageName: 'Enrolled', status: 'won', appointmentStatus: 'showed' }, backward: false, hasCall: true, dryRun: false })).toBe('Moves to Enrolled · marks the deal won · marks showed · adds note');
+    expect(planEffectLine({ steps: [stage(true), appt(false, 'left as is'), note], before: { stageId: 's_enrolled', status: 'won' }, after: { stageId: 's_cbooked', stageName: 'Consult Booked', status: 'won', appointmentStatus: 'confirmed' }, backward: true, hasCall: true, dryRun: true })).toBe('Moves back to Consult Booked · appointment unchanged · adds note · dry run — nothing sent');
+    expect(planEffectLine({ steps: [stage(true), appt(false, 'no appointment'), note], before, after: { stageId: 's_alumni', stageName: 'Alumni', status: 'open', appointmentStatus: null }, backward: false, hasCall: false, dryRun: false })).toBe('Moves to Alumni · adds note');
+    // Not a fit: the deal only.
+    expect(planEffectLine({ steps: [stage(true), appt(true), note], before, after: { stageId: 's_cbooked', stageName: 'Consult Booked', status: 'lost', appointmentStatus: 'showed' }, backward: false, hasCall: true, dryRun: false })).toBe('Marks the deal lost · marks showed · adds note');
+    expect(automationNote('showed', true)).toBe(APPOINTMENT_AUTOMATION_NOTE);
+    expect(automationNote('noshow', true)).toBe(APPOINTMENT_AUTOMATION_NOTE);
+    expect(automationNote('cancelled', true)).toBe(APPOINTMENT_AUTOMATION_NOTE);
+    expect(automationNote('leave', true)).toBeNull();
+    expect(automationNote('showed', false)).toBeNull(); // no call → no appointment
+    expect(automationNote(null, true)).toBeNull();
   });
 
   it('nextCallLabel: "next: Jo 3:00" (first name, no meridiem), "last call" at the end', () => {

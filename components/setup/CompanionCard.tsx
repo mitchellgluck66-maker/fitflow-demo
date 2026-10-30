@@ -8,6 +8,7 @@ import { FetchError } from '@/components/FetchError';
 import type { CompanionAdminState } from '@/lib/companion/admin';
 import { APPOINTMENT_ACTION_LABELS, OPPORTUNITY_STATUS_LABELS, type AppointmentAction, type OutcomeOpportunityStatus } from '@/lib/companion/outcomes';
 import { ROLE_LABELS, SEMANTIC_ROLES } from '@/lib/ghl/roles';
+import { APPOINTMENT_AUTOMATION_NOTE, automationNote } from '@/lib/companion/popoutState';
 
 type ToastState = { message: string; detail?: string; type: 'success' | 'error' | 'info' } | null;
 
@@ -226,7 +227,7 @@ export const CompanionCard: React.FC = () => {
               </p>
             ))}
             <p className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
-              Stages are named by ROLE and resolved from the followed pipeline&apos;s stage map at log time (Setup → Pipelines). “Move to…” in the pop-out offers every stage of that pipeline.
+              Stages are named by ROLE and resolved from the followed pipeline&apos;s stage map at log time (Setup → Pipelines). “Move to…” in the pop-out offers every stage of that pipeline. A stage or appointment status GoHighLevel already has is never re-sent, and a mapped outcome never moves a client backward. {APPOINTMENT_AUTOMATION_NOTE}
             </p>
             <div className="overflow-x-auto rounded-[8px]" style={{ border: '1px solid var(--border-subtle)' }}>
               <table className="w-full text-[12px]">
@@ -274,6 +275,11 @@ export const CompanionCard: React.FC = () => {
                               </option>
                             ))}
                           </Select>
+                          {automationNote(o.appointment === 'reschedule_setting' ? state.rescheduleAppointment : o.appointment, true) && (
+                            <div className="mt-0.5 text-[10.5px] leading-snug" style={{ color: 'var(--warning)' }} title={APPOINTMENT_AUTOMATION_NOTE} data-testid={`automation-note-${o.key}`}>
+                              GHL may message the client
+                            </div>
+                          )}
                         </td>
                         <td className="px-2.5 py-1">
                           <Select aria-label={`${o.label} opportunity`} value={o.opportunityStatus ?? ''} onChange={(e) => send('opportunityStatus', e.target.value)}>

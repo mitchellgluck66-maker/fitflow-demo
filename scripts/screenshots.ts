@@ -261,6 +261,9 @@ async function captureCompanion(browser: import('playwright').Browser) {
     popout('companion-popout', ''),
     popout('companion-popout-collapsed', '', { viewport: { width: 360, height: 66 }, collapsed: true }),
     popout('companion-popout-confirm', '&preview=confirm'),
+    // Stage 5: the Reschedule footer ("appointment unchanged", no automation note) and Bridget's case (stage already there).
+    popout('companion-popout-confirm-reschedule', '&preview=confirm_reschedule'),
+    popout('companion-popout-confirm-roadmap-booked', '&preview=confirm_roadmap_booked'),
     popout('companion-popout-ghl-error', '&preview=ghl_error'),
     popout('companion-popout-success', '&preview=success'),
     popout('companion-popout-partial', '&preview=partial'),
