@@ -489,7 +489,7 @@ export const LogFooter: React.FC<{ log: OutcomeLog; hasCall: boolean; hasTarget:
   return (
     <footer className="shrink-0 px-3 pt-2 pb-2.5" style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>
       {controls}
-      <p className="mt-1.5 text-[11.5px] leading-snug truncate" data-testid="log-line" title={line} style={{ color: lineColor }}>
+      <p className="mt-1.5 text-[11.5px] leading-snug line-clamp-2 break-words" data-testid="log-line" title={line} style={{ color: lineColor }}>
         {line}
       </p>
       {note && (

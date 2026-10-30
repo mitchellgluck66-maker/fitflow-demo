@@ -88,6 +88,23 @@ Pre-Roadmap Booked and `planLog` skipped the step.
   360×560 with the extra line; preview states `confirm_reschedule`, `confirm_roadmap_booked` (Bridget-type) in both
   themes.
 
+## 5. Appointment status switch (added by Mitchell mid-build, 2026-10-30)
+
+Evidence: Bridget Voigt, Oct 30 — the PUT `appointmentStatus=showed` at 12:27 MDT re-fired GHL's consult-confirmation
+workflow at 12:28 ("(Watch This) Before Your Consult!" email + confirm SMS + video), because that workflow triggers on
+ANY appointment status change.
+
+- (a) Setup → Companion "Update appointment status in GoHighLevel": On / Off, **default OFF** until Mitchell turns it
+  on (`settings.companion_appointment_updates`, only the literal `'true'` is on). Off → every outcome leaves the
+  appointment untouched (step skipped `appointment updates are off in Setup`); the stage + note still go. Warning beside
+  it: "Turn on only after GHL workflows that trigger on appointment status filter to Confirmed/Booked." The footer
+  reads "appointment unchanged".
+- (b) works: `GET /api/setup/companion` → `appointmentUpdates: false`; a row's `steps.appointment = { skipped,
+  reason: 'appointment updates are off in Setup' }`.
+- (c) fails: a malformed stored value reads OFF (fail safe); the PATCH refuses a non-boolean (400).
+- (d) `tests/companion-log.test.ts`: Off → no appointment PUT for any outcome; On → the current behaviour;
+  `tests/companion-stage5.test.ts` for the parser and the decision; `tests/companion-outcomes.test.ts` for the PATCH.
+
 ## 4. Audit script
 
 - (a) `npm run companion:audit -- --days 7` (`scripts/companion-audit.ts`, read-only, database only): every action in

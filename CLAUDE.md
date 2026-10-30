@@ -53,6 +53,8 @@ large changes. This file is the standing contract.
    parsed 0 opportunities because of it. Every numeric field in
    `lib/ghl/schemas.ts` is therefore coercive (`ghlNumber`: number or numeric
    string); put any new numeric field on that helper.
+   `GET /calendars/events/appointments/{eventId}` answers `{ appointment: {…, appointmentStatus} }` — the
+   docs say `event` (2026-10-30 probe; `GhlAppointmentByIdResponseSchema`).
    `GET /calendars/events` applies `startTime` / `endTime` at DAY granularity in the
    calendar's timezone (2026-10-16, Companion check: a window of Oct 13 00:00–23:59
    Edmonton returned Oct 12's calls from 06:00 Pacific) — every per-day reader
@@ -1556,6 +1558,41 @@ Report: `docs/companion-stage4-report.md` (the quadrant table, the contrast tabl
   -ghl-error,-success,-partial,-dryrun,-panel}`); `scripts/popout-measure.ts` (headed; Chrome windows appear).
   Not verified: a real OS appearance flip in system mode (Playwright's emulateMedia does not reach the PiP window),
   the real tenant, Edge / Windows.
+
+## Onboarding Companion — Stage 5 (2026-10-30, `docs/plan-companion-stage5.md`, stop side-effect emails to clients)
+
+Two live logs (Oct 29–30) made GHL message clients: Sindhu's Reschedule CANCELLED her event (stage 2's default), and
+Bridget's "Showed, roadmap booked" SENT a PUT to the stage she was already in — `executeLog` rewrote `before` from the
+live read but kept the steps `planLog` had built from the hourly MIRROR; after the 409 → "Continue anyway" the stale
+request went out (root cause with lines in `docs/companion-stage5-report.md`). Principle: a stage move Miranda chose is
+intended; anything else FitFlow touches must not re-trigger client messages. Six commits on `96f4f71`, `npm run check`
+green, NOT pushed. No new GHL write; one new READ (`client#getAppointment`). Migration 0024 (settings row only).
+
+- **Every decision from the LIVE state** (`lib/companion/decide.ts`, pure): `planLog` reads the opportunity and the
+  appointment live before deciding (and `executeLog` plans again, so the read immediately precedes the write); the
+  mirror only names the person, the opportunity id and the pipeline. Stage AND status already equal → skipped `already
+  in X`; a mapped outcome whose target is EARLIER in the pipeline order → skipped `already past X (in Y)`; only "Move
+  to…" goes backward (`plan.backward`, "Moves back to …"); an appointment already at the target status → skipped
+  `already showed`. GHL unreadable → 502 at plan and at confirm, nothing written. The 409 stale-stage prompt stays.
+- **Reschedule never cancels**: `companion_reschedule_appointment` defaults to `leave`; only the literal `cancelled`
+  cancels; 0024 inserts the explicit `leave` row when none exists and keeps (NOTICE) an owner's `cancelled`; Setup
+  labels that option "GHL may email the client".
+- **Appointment status switch** (`companion_appointment_updates`, only `'true'` is on, **default OFF**; Setup →
+  Companion "Update appointment status in GoHighLevel" + "Turn on only after GHL workflows that trigger on appointment
+  status filter to Confirmed/Booked."): off → every outcome's appointment step is skipped `appointment updates are off
+  in Setup`, the stage + note still go, an unreadable appointment does not block. A status PUT re-fired the consult
+  confirmation workflow (Bridget, 12:28) because it triggers on ANY status change.
+- **The footer says what GHL will do**: the confirm line is `plan.effectLine` (`popoutState#planEffectLine` from the
+  plan's steps — skipped steps omitted, "appointment unchanged" for a left-alone event, "Moves back to" for a backward
+  Move to; wraps to two lines); `plan.automationNote` = "GHL automations on appointment status may message the client."
+  whenever an appointment status would change, also per outcome on Setup's map. Preview states `confirm_reschedule`,
+  `confirm_roadmap_booked`.
+- **Audit**: `npm run companion:audit -- --days 7` (read-only, DB only) lists every log with each step's request and
+  flags SAME-STAGE PUT / APPOINTMENT CANCELLED / BACKWARD MOVE (unsent ones marked). Run on production 2026-10-30: 7
+  actions, 4 flagged (Bridget, Sindhu, two more cancels from the old default).
+- Tests: `tests/companion-stage5.test.ts`, the stage 5 cases in `tests/companion-log.test.ts` (Bridget's exact case
+  through 409 → accepted: no stage PUT) and `tests/companion-popout.test.ts`. Deploy: `npm run db:migrate` (0024) THEN
+  push; the switch stays OFF until the GHL workflows filter on Confirmed/Booked.
 
 ## Working agreements
 
