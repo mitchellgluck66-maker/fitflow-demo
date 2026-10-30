@@ -1396,7 +1396,8 @@ write key is on Setup.
   introspection, so the write scopes are proven only by the live test). `WRITE_ALLOW_LIST` = exactly three calls;
   `assertAllowed(method, path)` throws `CompanionWriteRefused` BEFORE any I/O for anything else (query string, `..`,
   another path or method). Typed builders `updateOpportunity` (GHL requires `pipelineId` in the body),
-  `updateAppointmentStatus`, `addContactNote` validate with Zod. `verify-readonly.sh` 6–8: `GHL_BASE_URL` imported only
+  `updateAppointmentStatus`, `addContactNote` validate with Zod (stage 5 item 6: the opportunity body is MINIMAL —
+  `pipelineId` only when the opportunity's pipeline differs; see Stage 5). `verify-readonly.sh` 6–8: `GHL_BASE_URL` imported only
   by client.ts + ghlWrite.ts; no non-GET literal in any GHL-touching file outside ghlWrite.ts + the dormant modules;
   ghlWrite.ts has 3 allow-list entries, builds only the 3 paths, calls `assertAllowed` before the transport, reads its
   own key. Owner API: `GET/PATCH /api/setup/companion`, `POST/DELETE …/write-key` (under `/api/setup/*`, which the
@@ -1590,6 +1591,15 @@ green, NOT pushed. No new GHL write; one new READ (`client#getAppointment`). Mig
 - **Audit**: `npm run companion:audit -- --days 7` (read-only, DB only) lists every log with each step's request and
   flags SAME-STAGE PUT / APPOINTMENT CANCELLED / BACKWARD MOVE (unsent ones marked). Run on production 2026-10-30: 7
   actions, 4 flagged (Bridget, Sindhu, two more cancels from the old default).
+- **Match a manual drag** (item 6): the stage PUT body is MINIMAL (`lib/companion/patch.ts`): ONLY `pipelineStageId`;
+  `status` only when it differs; `pipelineId` only when the opportunity's pipeline differs from the followed one (the
+  stage 2 note "GHL requires pipelineId" came from the docs — the parity run is the live proof). `ghlWrite` refuses a
+  body equal to the live state BEFORE any I/O (`skipped` / "no change"); undo uses the same rule. `npm run
+  companion:parity -- --contact <id> --i-understand-this-writes` (test-named contact only; dry run forced OFF for the
+  process; per outcome: log → wait 90 s → GHL's outbound messages via the read-only conversations endpoints
+  (`GHL_API_VERSION.conversations = 2021-04-15`; the read key needs `conversations.readonly` +
+  `conversations/message.readonly` — missing on 2026-10-30) → minimal restore; exit 1 on any no-op body). Report table
+  to be filled by Mitchell after the run on Jake's test contact.
 - Tests: `tests/companion-stage5.test.ts`, the stage 5 cases in `tests/companion-log.test.ts` (Bridget's exact case
   through 409 → accepted: no stage PUT) and `tests/companion-popout.test.ts`. Deploy: `npm run db:migrate` (0024) THEN
   push; the switch stays OFF until the GHL workflows filter on Confirmed/Booked.

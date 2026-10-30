@@ -105,6 +105,34 @@ ANY appointment status change.
 - (d) `tests/companion-log.test.ts`: Off → no appointment PUT for any outcome; On → the current behaviour;
   `tests/companion-stage5.test.ts` for the parser and the decision; `tests/companion-outcomes.test.ts` for the PATCH.
 
+## 6. Match a manual drag (added by Mitchell mid-build, 2026-10-30)
+
+Evidence: Bridget Voigt, Oct 30 — the PUT `{ pipelineId, pipelineStageId }` to the stage she was ALREADY in was followed
+one minute later (12:28 MDT) by GHL re-sending her Oct 24 consult-confirmation set. Lara Kujtan, marked showed the same
+way but with the stage step skipped, got NO re-send. A person dragging a card never re-saves the current stage.
+
+- (a) The stage PUT body is minimal (`lib/companion/patch.ts#minimalOpportunityPatch`, pure): ONLY `pipelineStageId`;
+  `status` only when it differs; `pipelineId` only when the opportunity's pipeline differs from the followed one.
+  `ghlWrite#updateOpportunity` / `updateAppointmentStatus` take the live state and refuse a body equal to it BEFORE
+  any I/O (`status: 'skipped'`, reason "no change"); the log records the step as skipped. Undo uses the same rule
+  against `after`. `npm run companion:parity -- --contact <id> --i-understand-this-writes [--outcomes …]`
+  (`scripts/companion-parity.ts`): refuses without the flag or for a contact whose name lacks "test"; per outcome
+  reads the live state → logs through the real path with dry run forced OFF for the process (the setting untouched)
+  → waits 90 s → lists GHL's outbound messages for the contact (read path `/conversations/search` +
+  `/conversations/{id}/messages`: time, channel, subject / first line, workflow id when GHL carries one) → restores
+  the start stage with a minimal PUT (a move; its window is listed too) → prints outcome → requests → messages;
+  exit 1 on any no-op body.
+- (b) works: a Showed-roadmap-booked log from Consult Booked sends `PUT /opportunities/{id} { "pipelineStageId":
+  "<roadmap_booked>" }` and nothing else on the opportunity; Bridget's shape never reaches the transport.
+- (c) fails: the read key without `conversations.readonly` + `conversations/message.readonly` → the messages
+  column reads "unavailable: GHL 401 … — the read key needs …" (probed 2026-10-30: 401); a 4xx from GHL on a
+  body without `pipelineId` would show as a failed step with GHL's message (the docs mark it required — the parity
+  run is the live proof either way).
+- (d) `tests/companion-write.test.ts` (minimal body passes; equal-to-live refused "no change"),
+  `tests/companion-stage5.test.ts` (`minimalOpportunityPatch`, the parity script's pure guards),
+  `tests/companion-log.test.ts` (every body expectation is the minimal shape). Live: the parity run on Jake's test
+  contact (Mitchell).
+
 ## 4. Audit script
 
 - (a) `npm run companion:audit -- --days 7` (`scripts/companion-audit.ts`, read-only, database only): every action in

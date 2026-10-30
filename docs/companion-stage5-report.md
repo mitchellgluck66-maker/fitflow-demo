@@ -1,10 +1,11 @@
 # Onboarding Companion — Stage 5 report (2026-10-30): stop side-effect emails to clients
 
-Plan: `docs/plan-companion-stage5.md`. Six commits on `main` after stage 4's `96f4f71`, NOT pushed; `npm run check`
+Plan: `docs/plan-companion-stage5.md`. Nine commits on `main` after stage 4's `96f4f71`, NOT pushed; `npm run check`
 green on the committed tree (see "Numbers"). The write path keeps its allow-list and its three calls — nothing here adds
-a GoHighLevel write; the one new GHL call is a read (`getAppointment`, GET, through the read-only client), and
-`scripts/verify-readonly.sh` passes unchanged on a clean checkout of HEAD. Item 5 (the appointment status switch) was
-added by Mitchell mid-build and is included.
+a GoHighLevel write; the new GHL calls are reads (`getAppointment`, `listContactConversations`,
+`listConversationMessages` — GET, through the read-only client), and `scripts/verify-readonly.sh` passes unchanged on a
+clean checkout of HEAD. Items 5 (the appointment status switch) and 6 (match a manual drag) were added by Mitchell
+mid-build and are included.
 
 ## Commits (oldest first)
 
@@ -16,7 +17,9 @@ added by Mitchell mid-build and is included.
 | `68c0120` | 3 — say what GHL will do: the plan's own footer line, the automation note, Setup's per-outcome note |
 | `728bd38` | 5 — the appointment status switch (default OFF) |
 | `e746fa8` | 4 — `npm run companion:audit` |
-| (item 6) | 6 — footer line wraps instead of truncating, screenshots, this report, CLAUDE.md |
+| `540686f` | report — footer line wraps instead of truncating, screenshots, the first version of this report, CLAUDE.md |
+| `cd880e7` | 6 — match a manual drag: minimal PUT body, the "no change" guard, `npm run companion:parity` |
+| (item 7) | 7 — this report updated for item 6, the plan, CLAUDE.md |
 
 ## 1. Root cause of the same-stage PUT (Bridget Voigt, 2026-10-30 12:27:39 MDT)
 
@@ -98,6 +101,76 @@ appointment no longer blocks the log (`before.appointmentStatus` is recorded nul
 every row of the window with each step's request; flags (a) SAME-STAGE PUT (`pipelineStageId` = `before.stageId`),
 (b) APPOINTMENT CANCELLED, (c) BACKWARD MOVE (by `stages.position`); an unsent request is "(planned, not sent)".
 `auditFlags` is pure and tested on Bridget's / Sindhu's shapes. Exit 0 always.
+
+**Item 6 — match a manual drag.** Evidence: Bridget's same-stage PUT at 12:27 MDT was followed at 12:28 by GHL re-sending
+her Oct 24 consult-confirmation set; Lara, whose stage step was skipped, got nothing. A person dragging a card never
+re-saves the current stage, so FitFlow must not either:
+
+- `lib/companion/patch.ts#minimalOpportunityPatch` (pure): the body carries ONLY what changes — `pipelineStageId` when
+  the stage changes, `status` when the status changes, `pipelineId` only when the opportunity's pipeline differs from
+  the followed one. `decideStage` builds every stage request through it.
+- `ghlWrite#updateOpportunity(id, patch, { dryRun, live })` drops fields equal to `live` and refuses a body left empty
+  BEFORE any I/O: `{ status: 'skipped', reason: 'no change' }` — the log records the step as skipped, the row is still
+  `ok`. `updateAppointmentStatus` the same against the live appointment status. The log passes the row's `before` (the
+  live read the plan was made from) as `live`; undo passes `after` and restores with the same minimal rule.
+- `tests/companion-write.test.ts`: the minimal body `{ pipelineStageId }` passes to the transport as is; the pipeline
+  id of the pipeline it is already in and the status it already has are dropped; another pipeline → `pipelineId`
+  travels with the stage; Bridget's body never reaches the transport (`skipped` / `no change`, `fetch` not called); the
+  same for an appointment already at the status.
+
+**The exact request bodies FitFlow sends now, per outcome** (the followed pipeline's stage ids resolved by ROLE at
+log time; the appointment PUT only while the Setup switch is ON and the live status differs; the note POST always;
+nothing at all for a field GHL already holds):
+
+| outcome | PUT /opportunities/{id} body | PUT /calendars/events/appointments/{eventId} body (switch ON) |
+|---|---|---|
+| Consult · Showed, roadmap booked | `{"pipelineStageId":"<roadmap_booked>"}` — skipped when already there / past it | `{"appointmentStatus":"showed"}` |
+| Consult · No-show | `{"pipelineStageId":"<consult_noshow>"}` | `{"appointmentStatus":"noshow"}` |
+| Consult · Reschedule | `{"pipelineStageId":"<consult_rescheduled>"}` | none (rule `leave`) |
+| Consult · Cancelled | none (stage unchanged, status already open) | `{"appointmentStatus":"cancelled"}` |
+| Consult · Not a fit | `{"status":"lost"}` | `{"appointmentStatus":"showed"}` |
+| Roadmap · Enrolled | `{"pipelineStageId":"<enrolled>","status":"won"}` | `{"appointmentStatus":"showed"}` |
+| Roadmap · Showed, objection | `{"pipelineStageId":"<roadmap_showed>"}` | `{"appointmentStatus":"showed"}` |
+| Roadmap · No-show | `{"pipelineStageId":"<roadmap_noshow>"}` | `{"appointmentStatus":"noshow"}` |
+| Roadmap · Reschedule | `{"pipelineStageId":"<roadmap_rescheduled>"}` | none (rule `leave`) |
+| Roadmap · Not a fit | `{"status":"lost"}` | `{"appointmentStatus":"showed"}` |
+| Move to… X (+ appointment choice) | `{"pipelineStageId":"<X>"}` (may go backward) | the chosen status, or none |
+| undo | `{"pipelineStageId":"<before>"}` (+ `"status"` only when the log changed it) | `before.appointmentStatus` only when the log changed it |
+
+`pipelineId` is added only when GHL reports the opportunity in a pipeline other than the followed one. Stage 2's note
+said "GHL requires pipelineId in the body"; that came from the docs (which mark it required on the update body), not from
+a live response. If GHL rejects a body without it, the parity run shows the 4xx on the stage step with GHL's message and
+the one-line fix is to keep `pipelineId` in `minimalOpportunityPatch` — the guard against a no-op body stands either way.
+
+**`npm run companion:parity`** (`scripts/companion-parity.ts`): refuses without `--i-understand-this-writes`, without a
+write key, for a contact whose name lacks "test" (case-insensitive — `isTestContactName`, tested), or without an
+opportunity in the followed pipeline. Dry run is forced OFF through `executeLog`'s `deps.dryRun` for this process only;
+the saved setting is printed and never changed. Per outcome: live read → `executeLog` (the real path) → wait `--wait`
+(90 s) → every OUTBOUND message GHL logged for the contact in the window, via the read-only `/conversations/search` and
+`/conversations/{id}/messages` (time · channel · subject / first line · `source` · any `workflow*` key GHL carries) →
+restore with a minimal PUT (printed as a move that may trigger the start stage's automations; its own window listed)
+→ the table outcome → requests → messages; exit 1 on any no-op body. **Not run by Claude** (it writes to GHL, and the
+production read key answered 401 on `/conversations/search` on 2026-10-30 — it lacks `conversations.readonly` +
+`conversations/message.readonly`; the script names that in the messages column; the conversation schemas are lenient
+and documented-shape only until the scopes exist).
+
+**Parity table — for Mitchell to fill after running the script against Jake's test contact:**
+
+| outcome | requests sent (method path body → status) | messages GHL sent in 90 s | after the restore |
+|---|---|---|---|
+| consult_showed_booked | | | |
+| consult_noshow | | | |
+| consult_reschedule | | | |
+| consult_cancelled | | | |
+| consult_not_fit | | | |
+| roadmap_enrolled | | | |
+| roadmap_showed_objection | | | |
+| roadmap_noshow | | | |
+| roadmap_reschedule | | | |
+| roadmap_not_fit | | | |
+
+Expected: no row carries a NO-OP body (the script exits 1 otherwise); a mapped move's messages are that stage's own
+automations (intended); nothing re-sends a consult confirmation for a stage the contact already had.
 
 ## 3. Audit output (production database, read-only, 2026-10-30)
 
@@ -183,12 +256,13 @@ Every pop-out shot printed "no scroll (560/560)" (collapsed 66/66).
 
 ## 6. Numbers
 
-`npm run typecheck` clean · `vitest run`: **110 files, 1094 tests passed** (45 s) · `next build` ok — on the committed tree
-after item 5's footer change (2026-10-30 14:11 MDT). Stage 5 tests: `tests/companion-stage5.test.ts` (7: the decisions, the
-switch, the audit flags, migration 0024's three cases), `tests/companion-log.test.ts` (+4: the live plan, Bridget's exact
-case, already past / Move to back, the switch OFF for every outcome), `tests/companion-popout.test.ts` (+1:
-`planEffectLine` / `automationNote`), `tests/companion-outcomes.test.ts` and `tests/companion-write.test.ts` updated for
-the new defaults.
+`npm run typecheck` clean · `vitest run`: **110 files, 1097 tests passed** · `next build` ok — on the committed tree at `cd880e7`
+(item 6 included; 2026-10-30). Stage 5 tests: `tests/companion-stage5.test.ts` (9: the decisions, the switch, the minimal
+patch, the audit flags, the parity script's pure guards, migration 0024's three cases), `tests/companion-log.test.ts` (+4:
+the live plan, Bridget's exact case, already past / Move to back, the switch OFF for every outcome; every body
+expectation is the minimal shape), `tests/companion-write.test.ts` (+1: minimal body passes, equal-to-live refused
+"no change"), `tests/companion-popout.test.ts` (+1: `planEffectLine` / `automationNote`), `tests/companion-outcomes.test.ts`
+updated for the new defaults.
 
 `npm run verify:readonly` passes on a clean checkout of HEAD (8/8). In the working tree it trips step 6 on
 `scripts/companion-key-probe.ts`, an UNTRACKED read-only probe of Mitchell's that imports `GHL_BASE_URL` — it predates
@@ -204,3 +278,6 @@ this stage and is not part of it; nothing in the committed tree is affected.
   the opportunity ID comes from the mirror); the live search for a contact's opportunities is not in scope.
 - Deploy: `npm run db:migrate` (0024, additive) THEN push; then Setup → Companion to review the Reschedule rule and the
   appointment switch.
+- Item 6's live proof is `npm run companion:parity -- --contact <Jake's test contact> --i-understand-this-writes`
+  after the push; add `conversations.readonly` + `conversations/message.readonly` to the read key first or the messages
+  column reads "unavailable". The parity table above is empty until then.
