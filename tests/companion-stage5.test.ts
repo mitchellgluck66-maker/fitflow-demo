@@ -15,6 +15,7 @@ import { getSetting } from '@/lib/settings';
 import { COMPANION_SETTING_KEYS, appointmentUpdatesOf, readAppointmentUpdates, readRescheduleAppointment } from '@/lib/companion/config';
 import { APPOINTMENT_UPDATES_OFF_REASON } from '@/lib/companion/logText';
 import { planEffectLine } from '@/lib/companion/popoutState';
+import { auditFlags } from '../scripts/companion-audit';
 import { decideAppointment, decideStage } from '@/lib/companion/decide';
 import { MOVE_TO_KEY, type ResolvedOutcome, type StageRef } from '@/lib/companion/outcomes';
 
@@ -83,6 +84,26 @@ describe('item 2 — decisions from the live state (pure)', () => {
     expect(decideAppointment({ call: null, effect: 'showed', enabled: false })).toMatchObject({ reason: 'no appointment' });
     // The footer treats the off reason like a left-alone appointment.
     expect(planEffectLine({ steps: [{ name: 'stage', request: { method: 'PUT' }, skipReason: null }, { name: 'appointment', request: null, skipReason: APPOINTMENT_UPDATES_OFF_REASON }, { name: 'note', request: { method: 'POST' }, skipReason: null }], before: { stageId: 's_cbooked', status: 'open' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, backward: false, hasCall: true, dryRun: false })).toBe('Moves to Pre-Roadmap Booked · appointment unchanged · adds note');
+  });
+});
+
+describe('item 4 — the audit flags (pure)', () => {
+  const positions = new Map([['s_applied', 0], ['s_cbooked', 2], ['s_cresched', 4], ['s_rbooked', 6], ['s_enrolled', 10]]);
+  const ok = (request: { method: 'PUT' | 'POST'; path: string; body: Record<string, unknown> }) => ({ status: 'ok' as const, request, httpStatus: 200, body: null, error: null, reason: null, at: null });
+  it("flags Bridget's same-stage PUT, Sindhu's cancelled appointment, a backward move; a clean row has none; an unsent request is marked", () => {
+    const bridget = auditFlags({ outcomeKey: 'consult_showed_booked', state: 'ok', before: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, steps: { stage: ok({ method: 'PUT', path: '/opportunities/o1', body: { pipelineId: 'p', pipelineStageId: 's_rbooked' } }), appointment: ok({ method: 'PUT', path: '/calendars/events/appointments/e1', body: { appointmentStatus: 'showed' } }), note: ok({ method: 'POST', path: '/contacts/c/notes', body: {} }) } }, positions);
+    expect(bridget.map((f) => [f.kind, f.sent])).toEqual([['same_stage_put', true]]);
+    const sindhu = auditFlags({ outcomeKey: 'consult_reschedule', state: 'ok', before: { stageId: 's_applied', stageName: 'Applied', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_cresched', stageName: 'Consult Reschedule', status: 'open', appointmentStatus: 'cancelled' }, steps: { stage: ok({ method: 'PUT', path: '/opportunities/o2', body: { pipelineId: 'p', pipelineStageId: 's_cresched' } }), appointment: ok({ method: 'PUT', path: '/calendars/events/appointments/e2', body: { appointmentStatus: 'cancelled' } }) } }, positions);
+    expect(sindhu.map((f) => f.kind)).toEqual(['appointment_cancelled']);
+    const back = auditFlags({ outcomeKey: 'move_to', state: 'ok', before: { stageId: 's_enrolled', stageName: 'Enrolled', status: 'won', appointmentStatus: null }, after: { stageId: 's_cbooked', stageName: 'Consult Booked', status: 'won', appointmentStatus: null }, steps: { stage: ok({ method: 'PUT', path: '/opportunities/o3', body: { pipelineId: 'p', pipelineStageId: 's_cbooked' } }) } }, positions);
+    expect(back.map((f) => f.kind)).toEqual(['backward_move']);
+    expect(back[0].detail).toContain('via Move to…');
+    const clean = auditFlags({ outcomeKey: 'consult_showed_booked', state: 'ok', before: { stageId: 's_cbooked', stageName: 'Consult Booked', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, steps: { stage: ok({ method: 'PUT', path: '/opportunities/o4', body: { pipelineId: 'p', pipelineStageId: 's_rbooked' } }), appointment: ok({ method: 'PUT', path: '/calendars/events/appointments/e4', body: { appointmentStatus: 'showed' } }) } }, positions);
+    expect(clean).toEqual([]);
+    const skipped = auditFlags({ outcomeKey: 'consult_showed_booked', state: 'ok', before: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' }, steps: { stage: { status: 'skipped', request: null, httpStatus: null, body: null, error: null, reason: 'already in Pre-Roadmap Booked', at: null } } }, positions);
+    expect(skipped).toEqual([]); // what stage 5 now writes for Bridget's situation
+    const pending = auditFlags({ outcomeKey: 'roadmap_reschedule', state: 'failed', before: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'cancelled' }, steps: { appointment: { status: 'pending', request: { method: 'PUT', path: '/calendars/events/appointments/e5', body: { appointmentStatus: 'cancelled' } }, httpStatus: null, body: null, error: null, reason: null, at: null } } }, positions);
+    expect(pending.map((f) => [f.kind, f.sent])).toEqual([['appointment_cancelled', false]]);
   });
 });
 

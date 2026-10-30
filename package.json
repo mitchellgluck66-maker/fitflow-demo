@@ -39,6 +39,7 @@
     "credentials:encrypt": "tsx scripts/encrypt-credentials.ts",
     "companion:check": "tsx scripts/companion-check.ts",
     "companion:live-test": "tsx scripts/companion-live-test.ts",
+    "companion:audit": "tsx scripts/companion-audit.ts",
     "reports:preview": "tsx scripts/reports-preview.ts"
   },
   "dependencies": {
