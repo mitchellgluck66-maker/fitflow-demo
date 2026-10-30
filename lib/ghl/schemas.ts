@@ -267,3 +267,20 @@ export const GhlContactsSearchResponseSchema = z.object({ contacts: z.array(z.un
 
 /** GET /opportunities/{id} — the opportunity is validated separately with GhlOpportunitySchema. */
 export const GhlOpportunityByIdResponseSchema = z.object({ opportunity: z.unknown() });
+
+/**
+ * GET /calendars/events/appointments/{eventId}. The docs call the key `event`; the live response (2026-10-30, Companion
+ * stage 5 probe) carries `appointment` with `appointmentStatus` (and a misspelt `appoinmentStatus` twin). Runtime
+ * evidence wins; the status is read from `appointmentStatus`.
+ */
+export const GhlAppointmentByIdResponseSchema = z.object({ appointment: z.unknown() });
+export const GhlLiveAppointmentSchema = z.object({
+  id: z.string().min(1),
+  calendarId: optionalString,
+  contactId: optionalString,
+  appointmentStatus: z.string().nullish(),
+  startTime: optionalString,
+  endTime: optionalString,
+  deleted: z.boolean().nullish(),
+});
+export type GhlLiveAppointment = z.infer<typeof GhlLiveAppointmentSchema>;

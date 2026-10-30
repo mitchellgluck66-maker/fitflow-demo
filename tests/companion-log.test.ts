@@ -43,18 +43,21 @@ const STAGES = [
 const ghl = {
   liveStage: 's_cbooked',
   liveStatus: 'open',
+  /** The event's live appointmentStatus (stage 5: read before every decision). */
+  liveAppointment: 'confirmed' as string | null,
   appointmentResponse: () => new Response('{"succeeded":true}', { status: 200 }),
   calls: [] as Array<{ method: string; url: string; body: unknown; auth: string }>,
   reset() {
     this.liveStage = 's_cbooked';
     this.liveStatus = 'open';
+    this.liveAppointment = 'confirmed';
     this.appointmentResponse = () => new Response('{"succeeded":true}', { status: 200 });
     this.calls = [];
   },
 };
 const writes = () => ghl.calls.filter((c) => c.method !== 'GET');
 
-const fetchFake = vi.fn(async (url: string, init: RequestInit) => {
+const fetchImpl = async (url: string, init: RequestInit) => {
   const method = init.method ?? 'GET';
   const headers = init.headers as Record<string, string>;
   ghl.calls.push({ method, url, body: init.body ? JSON.parse(String(init.body)) : null, auth: headers.Authorization });
@@ -62,11 +65,16 @@ const fetchFake = vi.fn(async (url: string, init: RequestInit) => {
   if (method === 'GET' && path.startsWith('/opportunities/')) {
     return new Response(JSON.stringify({ opportunity: { id: path.split('/')[2], name: 'Jane', pipelineId: PIPE, pipelineStageId: ghl.liveStage, status: ghl.liveStatus, contactId: 'c1' } }), { status: 200 });
   }
+  if (method === 'GET' && path.startsWith('/calendars/events/appointments/')) {
+    // The live shape (probe 2026-10-30): the key is `appointment`, not the documented `event`.
+    return new Response(JSON.stringify({ appointment: { id: path.split('/')[4], calendarId: 'cal-consult', contactId: 'c1', appointmentStatus: ghl.liveAppointment, startTime: '2026-10-16T10:00:00-06:00', deleted: false }, traceId: 't' }), { status: 200 });
+  }
   if (method === 'PUT' && path.startsWith('/opportunities/')) return new Response('{"succeeded":true}', { status: 200 });
   if (method === 'PUT' && path.startsWith('/calendars/events/appointments/')) return ghl.appointmentResponse();
   if (method === 'POST' && path.endsWith('/notes')) return new Response('{"id":"note-1"}', { status: 201 });
   return new Response('not found', { status: 404 });
-});
+};
+const fetchFake = vi.fn(fetchImpl);
 
 const prov = { source: 'ghl', origin: 'ghl', syncedAt: new Date('2026-10-16T13:00:00Z'), backfilled: false } as const;
 const call = { eventId: 'ev1', ghlStatus: 'confirmed', startIso: '2026-10-16T16:00:00.000Z', callType: 'Consult' as const, calendarName: '15-Minute Fit Physician Consult' };
@@ -156,6 +164,61 @@ describe('plan', () => {
     const cc = await planLog({ ...base, outcome: { key: 'consult_cancelled' } });
     expect(cc.ok && cc.plan.steps[0]).toMatchObject({ name: 'stage', skipReason: 'stage unchanged' });
     expect(writes()).toEqual([]); // planning never writes
+    // Stage 5: the plan's `before` and the footer line come from the LIVE read, not the mirror.
+    expect(r.plan.before).toEqual({ stageId: 's_cbooked', stageName: 'Consult Booked', status: 'open', appointmentStatus: 'confirmed' });
+    expect(r.plan.effectLine).toBe('Moves to Pre-Roadmap Booked · marks showed · adds note');
+    expect(r.plan.automationNote).toBe('GHL automations on appointment status may message the client.');
+    const rs = await planLog({ ...base, outcome: { key: 'consult_reschedule' } });
+    expect(rs.ok && rs.plan.steps[1]).toMatchObject({ name: 'appointment', skipReason: 'left as is' });
+    expect(rs.ok && rs.plan.effectLine).toBe('Moves to Consult Reschedule · appointment unchanged · adds note');
+    expect(rs.ok && rs.plan.automationNote).toBeNull();
+  });
+
+  it('stage 5 — the plan is built from GHL, not the mirror: a stale mirror stage never produces a stage request', async () => {
+    // Bridget Voigt (2026-10-30): GHL booked the roadmap (→ Pre-Roadmap Booked) two minutes before the log; the mirror
+    // still said Consult Booked. The plan must skip the stage step.
+    ghl.liveStage = 's_rbooked';
+    const r = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+    expect(r.ok && r.plan.steps[0]).toEqual({ name: 'stage', request: null, skipReason: 'already in Pre-Roadmap Booked', summary: 'Stage — Pre-Roadmap Booked' });
+    expect(r.ok && r.plan.before.stageId).toBe('s_rbooked');
+    expect(r.ok && r.plan.after.stageId).toBe('s_rbooked');
+    expect(r.ok && r.plan.expectedStageId).toBe('s_rbooked');
+    expect(r.ok && r.plan.effectLine).toBe('Marks showed · adds note');
+    expect(r.ok && r.plan.noteText).toContain('Outcome: Showed, roadmap booked (Pre-Roadmap Booked, unchanged)');
+    // The appointment the same way: already showed → no PUT.
+    ghl.liveAppointment = 'showed';
+    const r2 = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+    expect(r2.ok && r2.plan.steps.map((s) => [s.name, s.skipReason])).toEqual([
+      ['stage', 'already in Pre-Roadmap Booked'],
+      ['appointment', 'already showed'],
+      ['note', null],
+    ]);
+    expect(r2.ok && r2.plan.effectLine).toBe('Adds note');
+    expect(r2.ok && r2.plan.automationNote).toBeNull();
+    // Backward: a mapped outcome never moves a client back (Enrolled → Pre-Roadmap Booked is refused with the reason).
+    ghl.liveStage = 's_enrolled';
+    ghl.liveAppointment = 'confirmed';
+    const r3 = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+    expect(r3.ok && r3.plan.steps[0]).toMatchObject({ name: 'stage', request: null, skipReason: 'already past Pre-Roadmap Booked (in Enrolled)' });
+    expect(r3.ok && r3.plan.after.stageId).toBe('s_enrolled');
+    expect(r3.ok && r3.plan.steps[1]).toMatchObject({ name: 'appointment', request: { body: { appointmentStatus: 'showed' } } });
+    // Only Move to… goes backward, and the line says so.
+    const r4 = await planLog({ ...base, outcome: { move: { stageId: 's_cbooked', appointment: 'leave' } } });
+    expect(r4.ok && r4.plan.steps[0]).toMatchObject({ name: 'stage', request: { body: { pipelineId: PIPE, pipelineStageId: 's_cbooked' } } });
+    expect(r4.ok && r4.plan.backward).toBe(true);
+    expect(r4.ok && r4.plan.effectLine).toBe('Moves back to Consult Booked · appointment unchanged · adds note');
+    // The appointment unreadable → 502, nothing planned.
+    ghl.liveStage = 's_cbooked';
+    fetchFake.mockImplementation(async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if ((init.method ?? 'GET') === 'GET' && path.startsWith('/calendars/events/appointments/')) return new Response('{"message":"not found"}', { status: 404 });
+      return new Response(JSON.stringify({ opportunity: { id: path.split('/')[2], name: 'Jane', pipelineId: PIPE, pipelineStageId: ghl.liveStage, status: ghl.liveStatus, contactId: 'c1' } }), { status: 200 });
+    });
+    try {
+      expect(await planLog({ ...base, outcome: { key: 'consult_showed_booked' } })).toEqual({ ok: false, status: 502, error: 'GoHighLevel no longer has appointment ev1 — nothing was changed.' });
+    } finally {
+      fetchFake.mockImplementation(fetchImpl);
+    }
   });
 
   it('no write key with dry run off → 412; with dry run on the plan still works', async () => {
@@ -179,7 +242,7 @@ describe('execute', () => {
     expect([a.steps.stage?.status, a.steps.appointment?.status, a.steps.note?.status]).toEqual(['ok', 'ok', 'ok']);
     expect(a.steps.stage).toMatchObject({ httpStatus: 200, body: '{"succeeded":true}', request: { method: 'PUT', path: '/opportunities/opp1', body: { pipelineId: PIPE, pipelineStageId: 's_rbooked' } } });
     // The order on the wire: the re-read (read key), then stage → appointment → note (write key).
-    expect(ghl.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual(['GET /opportunities/opp1', 'PUT /opportunities/opp1', 'PUT /calendars/events/appointments/ev1', 'POST /contacts/c1/notes']);
+    expect(ghl.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual(['GET /opportunities/opp1', 'GET /calendars/events/appointments/ev1', 'PUT /opportunities/opp1', 'PUT /calendars/events/appointments/ev1', 'POST /contacts/c1/notes']);
     expect(ghl.calls[0].auth).toBe(`Bearer ${READ_TOKEN}`);
     expect(writes().every((c) => c.auth === `Bearer ${WRITE_TOKEN}`)).toBe(true);
     expect(writes()[2].body).toEqual({ body: 'Onboarding call · Consult · Oct 16, 10:00 AM · Miranda\nOutcome: Showed, roadmap booked (Consult Booked → Pre-Roadmap Booked)\nNote: Great energy, booked the roadmap for Thursday.', userId: 'ghl-user-m' });
@@ -227,6 +290,45 @@ describe('execute', () => {
     expect(ok.ok && ok.action.before.stageName).toBe('Consult No Show');
     const t = await db.select().from(stageTransitions);
     expect(t[0]).toMatchObject({ fromStageId: 's_cnoshow', toStageId: 's_rbooked' });
+  });
+
+  it("stage 5 — Bridget's exact case: the mirror says Consult Booked, GHL already says Pre-Roadmap Booked; after the 409 → Continue anyway NO stage PUT is sent", async () => {
+    ghl.liveStage = 's_rbooked'; // the roadmap booking moved her in GHL ~2 min before the log; the mirror (s_cbooked) lags
+    const stale = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: 's_cbooked' });
+    expect(stale).toEqual({ ok: false, status: 409, error: 'Stage changed to Pre-Roadmap Booked since you opened this — continue?', staleStage: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked' } });
+    expect(writes()).toEqual([]);
+    const r = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: 's_cbooked', acceptedStageId: 's_rbooked' });
+    expect(r.ok && r.action.state).toBe('ok');
+    if (!r.ok) return;
+    expect(r.action.before).toEqual({ stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' });
+    expect(r.action.after).toEqual({ stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' });
+    expect(r.action.steps.stage).toMatchObject({ status: 'skipped', reason: 'already in Pre-Roadmap Booked', request: null });
+    expect(writes().map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual(['PUT /calendars/events/appointments/ev1', 'POST /contacts/c1/notes']);
+    expect(writes()[1].body).toMatchObject({ body: expect.stringContaining('Outcome: Showed, roadmap booked (Pre-Roadmap Booked, unchanged)') });
+    expect(await db.select().from(stageTransitions)).toEqual([]); // no move → no transition
+    // Lara / Jacob's timing (the mirror had caught up) ends the same way: a fresh plan's expected stage IS the live one.
+    await resetData();
+    ghl.calls = [];
+    const plan = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+    const r2 = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: plan.ok ? plan.plan.expectedStageId : null });
+    expect(r2.ok && r2.action.steps.stage?.status).toBe('skipped');
+    expect(writes().some((c) => c.method === 'PUT' && new URL(c.url).pathname.startsWith('/opportunities/'))).toBe(false);
+  });
+
+  it('stage 5 — already past the target: the stage step is skipped with the reason, the appointment still lands; Move to… may go back', async () => {
+    ghl.liveStage = 's_enrolled';
+    const r = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: 's_enrolled' });
+    expect(r.ok && r.action.state).toBe('ok');
+    if (!r.ok) return;
+    expect(r.action.steps.stage).toMatchObject({ status: 'skipped', reason: 'already past Pre-Roadmap Booked (in Enrolled)' });
+    expect(r.action.after.stageId).toBe('s_enrolled');
+    expect(writes().map((c) => c.method)).toEqual(['PUT', 'POST']);
+    expect(writes()[0].url).toContain('/calendars/events/appointments/ev1');
+    await resetData();
+    ghl.calls = [];
+    const back = await executeLog({ ...base, outcome: { move: { stageId: 's_cbooked', appointment: 'leave' } }, requestId: rid(), expectedStageId: 's_enrolled' });
+    expect(back.ok && back.action.steps.stage).toMatchObject({ status: 'ok', request: { body: { pipelineId: PIPE, pipelineStageId: 's_cbooked' } } });
+    expect(back.ok && back.action.steps.appointment).toMatchObject({ status: 'skipped', reason: 'left as is' });
   });
 
   it('GHL cannot be re-read → 502, nothing written, no row', async () => {
@@ -334,7 +436,7 @@ describe('execute', () => {
     expect([r.action.steps.stage?.status, r.action.steps.appointment?.status, r.action.steps.note?.status]).toEqual(['dry_run', 'dry_run', 'dry_run']);
     expect(r.action.steps.stage?.request).toEqual({ method: 'PUT', path: '/opportunities/opp1', body: { pipelineId: PIPE, pipelineStageId: 's_enrolled', status: 'won' } });
     expect(writes()).toEqual([]);
-    expect(ghl.calls.map((c) => c.method)).toEqual(['GET']); // the re-read only
+    expect(ghl.calls.map((c) => c.method)).toEqual(['GET', 'GET']); // the live reads only (opportunity, appointment)
     expect((await db.select().from(contacts).where(eq(contacts.ghlContactId, 'c1')))[0].stageId).toBe('s_cbooked');
     expect(await db.select().from(stageTransitions)).toEqual([]);
     expect(await db.select().from(syncIncidents)).toEqual([]);

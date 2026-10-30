@@ -164,6 +164,46 @@ export function effectLine(outcome: EffectInput | null, ctx: { hasCall: boolean;
   return parts.join(' · ');
 }
 
+/** Stage 5, item 3: shown whenever an outcome would change an appointment status — GHL may act on it. */
+export const APPOINTMENT_AUTOMATION_NOTE = 'GHL automations on appointment status may message the client.';
+
+/** The note for an appointment effect: showed / noshow / cancelled carry it; leave (or no call) does not. */
+export function automationNote(effect: string | null | undefined, hasCall: boolean): string | null {
+  return hasCall && (effect === 'showed' || effect === 'noshow' || effect === 'cancelled') ? APPOINTMENT_AUTOMATION_NOTE : null;
+}
+
+export interface PlanLineInput {
+  steps: ReadonlyArray<{ name: 'stage' | 'appointment' | 'note'; request: unknown; skipReason: string | null }>;
+  before: { stageId: string | null; status: string | null };
+  after: { stageId: string | null; stageName: string | null; status: string | null; appointmentStatus: string | null };
+  /** The stage step goes against the pipeline order (only "Move to…" may). */
+  backward: boolean;
+  hasCall: boolean;
+  dryRun: boolean;
+}
+
+/**
+ * The confirm-phase line, from the PLAN's steps — only real changes: a skipped step is omitted ("already in X" says
+ * nothing), a call whose event is left alone reads "appointment unchanged", a backward Move to reads "Moves back to".
+ * "Marks showed · adds note" is Bridget's case: the stage was already there, so nothing about it is promised.
+ */
+export function planEffectLine(p: PlanLineInput): string {
+  const parts: string[] = [];
+  const stage = p.steps.find((s) => s.name === 'stage');
+  if (stage?.request) {
+    if (p.after.stageId !== p.before.stageId && p.after.stageName) parts.push(`${p.backward ? 'moves back to' : 'moves to'} ${p.after.stageName}`);
+    if (p.after.status !== p.before.status && p.after.status) parts.push(`marks the deal ${p.after.status}`);
+  }
+  const appt = p.steps.find((s) => s.name === 'appointment');
+  const word = p.after.appointmentStatus && p.after.appointmentStatus in APPOINTMENT_WORDS ? APPOINTMENT_WORDS[p.after.appointmentStatus as keyof typeof APPOINTMENT_WORDS] : p.after.appointmentStatus;
+  if (appt?.request) parts.push(`marks ${word}`);
+  else if (p.hasCall && appt?.skipReason === 'left as is') parts.push('appointment unchanged');
+  parts.push('adds note');
+  if (p.dryRun) parts.push('dry run — nothing sent');
+  const line = parts.join(' · ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
 /** The collapsed bar's "next: Jo 3:00" (first name, no meridiem); "last call" when nothing follows. */
 export function nextCallLabel(calls: ReadonlyArray<{ name: string; startIso: string }>, index: number | null, timezone: string): string {
   if (index === null || index < 0) return calls.length ? `next: ${shortCall(calls[0], timezone)}` : '';

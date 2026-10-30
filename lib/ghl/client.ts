@@ -29,6 +29,9 @@ import {
   GhlNotesResponseSchema,
   GhlOpportunitySchema,
   GhlOpportunityByIdResponseSchema,
+  GhlAppointmentByIdResponseSchema,
+  GhlLiveAppointmentSchema,
+  type GhlLiveAppointment,
   GhlOpportunitySearchResponseSchema,
   GhlPipelinesResponseSchema,
   GhlUsersResponseSchema,
@@ -360,6 +363,17 @@ export async function getOpportunity(id: string): Promise<{ opportunity: GhlOppo
   if (!result.ok || !result.data) return { opportunity: null, notFound: result.status === 404, error: result.error };
   const parsed = GhlOpportunitySchema.safeParse(result.data.opportunity);
   return parsed.success ? { opportunity: parsed.data } : { opportunity: null, error: `opportunity ${id} failed validation` };
+}
+
+/**
+ * One appointment by event id (read-only; Companion stage 5 — the live status is read immediately before any write so
+ * a PUT to the status it already has is never sent). `appointment` null with `notFound` / `error` when GHL cannot say.
+ */
+export async function getAppointment(eventId: string): Promise<{ appointment: GhlLiveAppointment | null; notFound?: boolean; error?: string }> {
+  const result = await ghlRequest({ method: 'GET', endpoint: `/calendars/events/appointments/${eventId}`, family: 'calendars' }, GhlAppointmentByIdResponseSchema);
+  if (!result.ok || !result.data) return { appointment: null, notFound: result.status === 404, error: result.error };
+  const parsed = GhlLiveAppointmentSchema.safeParse(result.data.appointment);
+  return parsed.success ? { appointment: parsed.data } : { appointment: null, error: `appointment ${eventId} failed validation: ${parsed.error.issues[0]?.path.join('.') ?? ''} ${parsed.error.issues[0]?.message ?? ''}`.trim() };
 }
 
 export async function listAllOpportunities(params: {

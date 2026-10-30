@@ -2,6 +2,8 @@
  * Companion stage 5 — stop side-effect emails to clients (docs/plan-companion-stage5.md).
  *   item 1: the Reschedule default is 'leave'; migration 0024 writes the row only when none exists and keeps an
  *           owner's 'cancelled'.
+ *   item 2: the pure write decisions from the LIVE state (`lib/companion/decide.ts`) — the integration (Bridget's
+ *           exact case through the 409 path) is in tests/companion-log.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
@@ -11,6 +13,19 @@ import { runMigrations } from '@/db/migrate';
 import { db, settings } from '@/db';
 import { getSetting } from '@/lib/settings';
 import { COMPANION_SETTING_KEYS, readRescheduleAppointment } from '@/lib/companion/config';
+import { decideAppointment, decideStage } from '@/lib/companion/decide';
+import { MOVE_TO_KEY, type ResolvedOutcome, type StageRef } from '@/lib/companion/outcomes';
+
+const STAGES: StageRef[] = [
+  { id: 's_applied', name: 'Applied', role: 'applied', position: 0 },
+  { id: 's_cbooked', name: 'Consult Booked', role: 'consult_booked', position: 2 },
+  { id: 's_rbooked', name: 'Pre-Roadmap Booked', role: 'roadmap_booked', position: 6 },
+  { id: 's_enrolled', name: 'Enrolled', role: 'enrolled', position: 10 },
+  { id: 's_nopos', name: 'Parked', role: null, position: null },
+];
+const PIPE = { id: 'p1', name: '[new] Application Pipeline' };
+const by = (id: string) => STAGES.find((s) => s.id === id)!;
+const outcome = (o: Partial<ResolvedOutcome>): ResolvedOutcome => ({ key: 'consult_showed_booked', label: 'Showed, roadmap booked', toStage: by('s_rbooked'), stageRole: 'roadmap_booked', appointment: 'showed', opportunityStatus: 'open', ...o });
 
 const KEY = COMPANION_SETTING_KEYS.rescheduleAppointment;
 
@@ -21,6 +36,38 @@ async function replay0024() {
 
 beforeAll(async () => {
   await runMigrations();
+});
+
+describe('item 2 — decisions from the live state (pure)', () => {
+  it('decideStage: a real move sends; the same stage AND status skips "already in"; a status-only change sends only the status', () => {
+    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: true, body: { pipelineId: 'p1', pipelineStageId: 's_rbooked' }, stageChange: true, statusChange: false, backward: false, summary: 'Stage Consult Booked → Pre-Roadmap Booked' });
+    // Bridget: the live stage is already the target → nothing to send, whatever the mirror believed.
+    expect(decideStage({ live: { id: 'o1', stageId: 's_rbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already in Pre-Roadmap Booked', backward: false, summary: 'Stage — Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ key: 'consult_not_fit', toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: true, body: { pipelineId: 'p1', status: 'lost' }, stageChange: false, statusChange: true, summary: 'Opportunity open → lost' });
+    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'lost' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already lost' });
+    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'open' }), stages: STAGES })).toMatchObject({ send: false, reason: 'stage unchanged' });
+    expect(decideStage({ live: null, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'no opportunity in [new] Application Pipeline', backward: false, summary: 'Stage — skipped' });
+    expect(decideStage({ live: null, pipeline: null, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: false, reason: 'no followed pipeline' });
+  });
+
+  it('decideStage: a mapped outcome never moves backward; Move to… may, and is marked; unknown positions are not judged', () => {
+    expect(decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already past Pre-Roadmap Booked (in Enrolled)', backward: false, summary: 'Stage — Enrolled' });
+    // Enrolled → Enrolled + won with the deal already won: nothing to send either.
+    expect(decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: 'roadmap_enrolled', toStage: by('s_enrolled'), stageRole: 'enrolled', opportunityStatus: 'won' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already in Enrolled' });
+    const back = decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: MOVE_TO_KEY, label: 'Move to Consult Booked', toStage: by('s_cbooked'), stageRole: 'consult_booked', opportunityStatus: null }), stages: STAGES });
+    expect(back).toMatchObject({ send: true, body: { pipelineId: 'p1', pipelineStageId: 's_cbooked' }, backward: true });
+    // A live stage with no known position (or outside the map) cannot be "past" anything: the move is sent.
+    expect(decideStage({ live: { id: 'o1', stageId: 's_nopos', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, backward: false, summary: 'Stage Parked → Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', stageId: 'gone', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, summary: 'Stage no stage → Pre-Roadmap Booked' });
+  });
+
+  it('decideAppointment: sends only when the live status differs; leave / no call / already-there skip with the reason', () => {
+    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'showed' })).toEqual({ send: true, status: 'showed', summary: 'Appointment confirmed → showed' });
+    expect(decideAppointment({ call: { liveStatus: 'showed' }, effect: 'showed' })).toEqual({ send: false, reason: 'already showed', summary: 'Appointment — already showed' });
+    expect(decideAppointment({ call: { liveStatus: 'cancelled' }, effect: 'cancelled' })).toMatchObject({ send: false, reason: 'already cancelled' });
+    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'leave' })).toEqual({ send: false, reason: 'left as is', summary: 'Appointment — left confirmed' });
+    expect(decideAppointment({ call: null, effect: 'showed' })).toEqual({ send: false, reason: 'no appointment', summary: 'Appointment — none' });
+  });
 });
 
 describe('item 1 — reschedule never cancels', () => {

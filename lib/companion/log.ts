@@ -3,9 +3,13 @@
  * stage → appointment → note, each result written to the row as it completes → mirror update → retry of the missing
  * steps only → undo for 5 minutes. Every write goes through `ghlWrite`; every read of GHL through the read-only
  * client; the request id makes a resent request harmless. Injectable readers for tests; the real ones by default.
+ *
+ * Stage 5 (2026-10-30): every decision is made from GoHighLevel's LIVE opportunity and appointment, read immediately
+ * before planning and again before writing (`lib/companion/decide.ts`); the mirror only names the person and the
+ * opportunity. A stage or appointment status GHL already has is never re-sent; a mapped outcome never moves backward.
  */
 
-import { getOpportunity } from '../ghl/client';
+import { getAppointment, getOpportunity } from '../ghl/client';
 import { GhlAppointmentStatusSchema } from '../ghl/schemas';
 import { formatTime } from '../day';
 import type { CurrentUser } from '../auth/currentUser';
@@ -15,6 +19,8 @@ import { readDryRun } from './config';
 import { addContactNote, hasWriteKey, methodOf, updateAppointmentStatus, updateOpportunity, type WriteResult } from './ghlWrite';
 import { readOutcomeCatalogue, type OutcomeCatalogue } from './outcomeService';
 import { MOVE_TO_KEY, resolveMoveTo, resolveOutcome, type AppointmentEffect, type ResolvedOutcome } from './outcomes';
+import { decideAppointment, decideStage, stageNameOf, type LiveOpportunityState } from './decide';
+import { automationNote, planEffectLine } from './popoutState';
 import { applyMirror, readContactPosition, readMirrorAppointment, syncActionIncident, type ContactPosition } from './logDb';
 import { STEP_ORDER, UNDO_WINDOW_MS, effectiveState, failedStepOf, getAction, insertOrFindAction, pendingStep, recordStep, setActionState, skippedStep, undoUntil } from './actions';
 
@@ -51,6 +57,7 @@ export interface LogDeps {
   dryRun?: () => Promise<{ on: boolean }>;
   writeKey?: () => Promise<boolean>;
   liveOpportunity?: typeof getOpportunity;
+  liveAppointment?: typeof getAppointment;
 }
 
 export interface StepPlan {
@@ -69,18 +76,25 @@ export interface LogPlan {
   appointment: { eventId: string; from: string | null; to: AppointmentEffect; startIso: string | null; callType: CallType } | null;
   noteText: string;
   confirmation: string;
-  /** The stage the sheet shows — what the server re-checks against GHL on confirm. */
+  /** The LIVE stage at plan time — what the server re-checks against GHL on confirm. */
   expectedStageId: string | null;
   dryRun: boolean;
   steps: StepPlan[];
+  /** GoHighLevel's live state at plan time (stage 5) — never the mirror. */
   before: CompanionPosition;
   after: CompanionPosition;
+  /** The stage step goes against the pipeline order (only "Move to…" may). */
+  backward: boolean;
+  /** The footer's one line, from the steps: only real changes (`popoutState#planEffectLine`). */
+  effectLine: string;
+  /** "GHL automations on appointment status may message the client." when an appointment status will change. */
+  automationNote: string | null;
   contactId: string | null;
   pipelineId: string | null;
   callStartAt: string | null;
 }
 
-export type PlanResult = { ok: true; plan: LogPlan } | { ok: false; status: 412 | 422; error: string };
+export type PlanResult = { ok: true; plan: LogPlan } | { ok: false; status: 412 | 422 | 502; error: string };
 
 // ---- pure text ------------------------------------------------------------------------------------------------
 
@@ -114,17 +128,24 @@ export function confirmationText(p: { clientName: string; from: string | null; t
 
 // ---- plan -----------------------------------------------------------------------------------------------------
 
+/**
+ * The plan is built from GoHighLevel's LIVE state (stage 5): the opportunity and the appointment are read before any
+ * decision, so `before`, the stage step, the appointment step and the note text all describe what GHL holds right
+ * now — never the mirror (hourly) or the brief the pop-out cached. `executeLog` calls this again at confirm time, so
+ * the read immediately precedes the write. The mirror contributes the person's name, the opportunity id and the
+ * followed pipeline; GHL unreadable → 502 and nothing is written.
+ */
 export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<PlanResult> {
   const problem = noteProblem(input.note);
   if (problem) return { ok: false, status: 422, error: problem };
   const [position, cat, dry] = await Promise.all([(deps.position ?? readContactPosition)(input.ghlContactId), (deps.catalogue ?? readOutcomeCatalogue)(), (deps.dryRun ?? readDryRun)()]);
   if (!dry.on && !(await (deps.writeKey ?? hasWriteKey)())) return { ok: false, status: 412, error: 'No Companion write key — the owner adds it in Setup → Companion.' };
 
-  // The call: the client's context, completed from the mirror.
+  // The call's type, time and calendar: the client's context, completed from the mirror. Its STATUS is read live below.
   let call: CallContext | null = input.call;
-  if (call && (!call.startIso || !call.callType || call.ghlStatus === null)) {
+  if (call && (!call.startIso || !call.callType)) {
     const m = await (deps.mirrorAppointment ?? readMirrorAppointment)(call.eventId);
-    if (m) call = { eventId: call.eventId, ghlStatus: call.ghlStatus ?? m.ghlStatus, startIso: call.startIso ?? m.startIso, callType: call.callType ?? callTypeOf(m.calendarName, m.title), calendarName: call.calendarName ?? m.calendarName };
+    if (m) call = { ...call, startIso: call.startIso ?? m.startIso, callType: call.callType ?? callTypeOf(m.calendarName, m.title), calendarName: call.calendarName ?? m.calendarName };
   }
   const callType: CallType | 'none' = call ? (call.callType ?? 'Other') : 'none';
 
@@ -144,53 +165,66 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
     resolved = r.outcome;
   }
 
+  // LIVE reads — GHL is the truth at the moment of planning and, through executeLog, at the moment of writing.
   const opp = position.opportunity;
-  const toStageId = resolved.toStage?.id ?? opp?.stageId ?? null;
-  const toStageName = resolved.toStage?.name ?? opp?.stageName ?? null;
-  const statusTo = resolved.opportunityStatus ?? opp?.status ?? null;
-  const before: CompanionPosition = { stageId: opp?.stageId ?? null, stageName: opp?.stageName ?? null, status: opp?.status ?? null, appointmentStatus: call?.ghlStatus ?? null };
-  const after: CompanionPosition = { stageId: toStageId, stageName: toStageName, status: statusTo, appointmentStatus: call && resolved.appointment !== 'leave' ? resolved.appointment : (call?.ghlStatus ?? null) };
+  // Sequential on purpose: the wire order (opportunity, then appointment, then the writes) is part of the contract.
+  const liveOpp = opp ? await (deps.liveOpportunity ?? getOpportunity)(opp.id) : null;
+  const liveAppt = call ? await (deps.liveAppointment ?? getAppointment)(call.eventId) : null;
+  if (opp && liveOpp && !liveOpp.opportunity) {
+    return { ok: false, status: 502, error: liveOpp.notFound ? `GoHighLevel no longer has opportunity ${opp.id} — nothing was changed.` : `GoHighLevel could not be re-read before writing: ${liveOpp.error ?? 'unknown error'} — nothing was changed.` };
+  }
+  if (call && liveAppt && !liveAppt.appointment) {
+    return { ok: false, status: 502, error: liveAppt.notFound ? `GoHighLevel no longer has appointment ${call.eventId} — nothing was changed.` : `GoHighLevel could not re-read the appointment before writing: ${liveAppt.error ?? 'unknown error'} — nothing was changed.` };
+  }
+  const live: LiveOpportunityState | null = opp && liveOpp?.opportunity ? { id: opp.id, stageId: liveOpp.opportunity.pipelineStageId, status: liveOpp.opportunity.status } : null;
+  const liveApptStatus = call && liveAppt?.appointment ? (liveAppt.appointment.appointmentStatus ?? null) : null;
+  if (call) call = { ...call, ghlStatus: liveApptStatus };
+
+  const stages = cat.ctx.stages;
+  const pipeline = position.pipeline ? { id: position.pipeline.id, name: position.pipeline.name } : null;
+  const stage = decideStage({ live, pipeline, resolved, stages });
+  const appt = decideAppointment({ call: call ? { liveStatus: liveApptStatus } : null, effect: resolved.appointment });
+
+  const before: CompanionPosition = { stageId: live?.stageId ?? null, stageName: stageNameOf(stages, live?.stageId ?? null), status: live?.status ?? null, appointmentStatus: liveApptStatus };
+  const after: CompanionPosition = {
+    stageId: stage.send && stage.stageChange ? resolved.toStage!.id : before.stageId,
+    stageName: stage.send && stage.stageChange ? resolved.toStage!.name : before.stageName,
+    status: stage.send && stage.statusChange ? resolved.opportunityStatus! : before.status,
+    appointmentStatus: appt.send ? appt.status : before.appointmentStatus,
+  };
 
   const steps: StepPlan[] = [];
-  // 1. stage (+ status) — one PUT /opportunities/{id}
-  if (!opp) {
-    steps.push({ name: 'stage', request: null, skipReason: position.pipeline ? `no opportunity in ${position.pipeline.name}` : 'no followed pipeline', summary: 'Stage — skipped' });
-  } else {
-    const stageChange = resolved.toStage && resolved.toStage.id !== opp.stageId;
-    const statusChange = resolved.opportunityStatus && resolved.opportunityStatus !== opp.status;
-    if (!stageChange && !statusChange) steps.push({ name: 'stage', request: null, skipReason: resolved.toStage ? `already in ${opp.stageName ?? resolved.toStage.name}` : 'stage unchanged', summary: `Stage — ${opp.stageName ?? 'unchanged'}` });
-    else
-      steps.push({
-        name: 'stage',
-        request: { method: methodOf('update_opportunity'), path: `/opportunities/${opp.id}`, body: { pipelineId: position.pipeline!.id, ...(stageChange ? { pipelineStageId: resolved.toStage!.id } : {}), ...(statusChange ? { status: resolved.opportunityStatus } : {}) } },
-        skipReason: null,
-        summary: stageChange ? `Stage ${opp.stageName ?? 'no stage'} → ${resolved.toStage!.name}${statusChange ? ` · ${resolved.opportunityStatus}` : ''}` : `Opportunity ${opp.status} → ${resolved.opportunityStatus}`,
-      });
-  }
-  // 2. appointment — PUT /calendars/events/appointments/{eventId}
-  if (!call) steps.push({ name: 'appointment', request: null, skipReason: 'no appointment', summary: 'Appointment — none' });
-  else if (resolved.appointment === 'leave') steps.push({ name: 'appointment', request: null, skipReason: 'left as is', summary: `Appointment — left ${call.ghlStatus ?? 'as is'}` });
-  else steps.push({ name: 'appointment', request: { method: methodOf('update_appointment_status'), path: `/calendars/events/appointments/${call.eventId}`, body: { appointmentStatus: resolved.appointment } }, skipReason: null, summary: `Appointment ${call.ghlStatus ?? '?'} → ${resolved.appointment}` });
+  // 1. stage (+ status) — one PUT /opportunities/{id}, only for a real change in the pipeline's direction
+  if (stage.send && live) steps.push({ name: 'stage', request: { method: methodOf('update_opportunity'), path: `/opportunities/${live.id}`, body: stage.body }, skipReason: null, summary: stage.summary });
+  else steps.push({ name: 'stage', request: null, skipReason: stage.send ? 'no opportunity' : stage.reason, summary: stage.summary });
+  // 2. appointment — PUT /calendars/events/appointments/{eventId}, only when the live status differs
+  if (appt.send && call) steps.push({ name: 'appointment', request: { method: methodOf('update_appointment_status'), path: `/calendars/events/appointments/${call.eventId}`, body: { appointmentStatus: appt.status } }, skipReason: null, summary: appt.summary });
+  else steps.push({ name: 'appointment', request: null, skipReason: appt.send ? 'no appointment' : appt.reason, summary: appt.summary });
   // 3. note — POST /contacts/{id}/notes
   const text = noteText({ callType, startIso: call?.startIso ?? null, timezone: input.timezone, userName: input.user.name, label: resolved.label, from: before.stageName, to: after.stageName, note: input.note });
   steps.push({ name: 'note', request: { method: methodOf('add_contact_note'), path: `/contacts/${input.ghlContactId}/notes`, body: { body: text, ...(input.user.ghlUserId ? { userId: input.user.ghlUserId } : {}) } }, skipReason: null, summary: 'Note added to the contact' });
 
-  const appointment = call ? { eventId: call.eventId, from: call.ghlStatus, to: resolved.appointment, startIso: call.startIso, callType: call.callType ?? 'Other' } : null;
+  const appointment = call ? { eventId: call.eventId, from: liveApptStatus, to: resolved.appointment, startIso: call.startIso, callType: call.callType ?? 'Other' } : null;
+  const backward = stage.send && stage.backward;
+  const hasCall = call !== null;
   return {
     ok: true,
     plan: {
       clientName: position.name,
       callType,
       outcome: resolved,
-      opportunity: opp && position.pipeline ? { id: opp.id, pipelineName: position.pipeline.name, from: { id: opp.stageId, name: opp.stageName }, to: { id: toStageId, name: toStageName }, status: { from: opp.status, to: statusTo ?? opp.status } } : null,
+      opportunity: live && pipeline ? { id: live.id, pipelineName: pipeline.name, from: { id: before.stageId, name: before.stageName }, to: { id: after.stageId, name: after.stageName }, status: { from: live.status, to: after.status ?? live.status } } : null,
       appointment,
       noteText: text,
-      confirmation: confirmationText({ clientName: position.name, from: before.stageName, to: after.stageName, statusFrom: before.status, statusTo: after.status, hasOpportunity: Boolean(opp), appointment: appointment ? { startIso: appointment.startIso, callType: appointment.callType, to: appointment.to } : null, timezone: input.timezone, dryRun: dry.on }),
-      expectedStageId: opp?.stageId ?? null,
+      confirmation: confirmationText({ clientName: position.name, from: before.stageName, to: after.stageName, statusFrom: before.status, statusTo: after.status, hasOpportunity: live !== null, appointment: appointment && appt.send ? { startIso: appointment.startIso, callType: appointment.callType, to: appt.status } : null, timezone: input.timezone, dryRun: dry.on }),
+      expectedStageId: before.stageId,
       dryRun: dry.on,
       steps,
       before,
       after,
+      backward,
+      effectLine: planEffectLine({ steps, before, after, backward, hasCall, dryRun: dry.on }),
+      automationNote: automationNote(appt.send ? appt.status : null, hasCall),
       contactId: position.contactId,
       pipelineId: position.pipeline?.id ?? null,
       callStartAt: call?.startIso ?? null,
@@ -263,7 +297,15 @@ async function afterRun(row: CompanionAction, now: Date): Promise<CompanionActio
   return row;
 }
 
-/** Confirm: re-read GHL, claim the request id, run the steps, mirror, incident. */
+/**
+ * Confirm: plan again from a fresh LIVE read (the read that immediately precedes the write), prompt when the stage
+ * moved since the sheet opened, claim the request id, run the steps, mirror, incident.
+ *
+ * Stage 5 root cause (Bridget Voigt, 2026-10-30): this function used to keep the steps `planLog` had built from the
+ * MIRROR and only rewrote `before` from the live read — after "Continue anyway" it sent a PUT to the stage the
+ * opportunity was already in. Every decision now comes from the same live read as `before`; a same-stage PUT cannot
+ * be built (`decideStage`).
+ */
 export async function executeLog(input: ExecuteInput, deps: LogDeps = {}): Promise<ExecuteResult> {
   const now = input.now ?? new Date();
   if (!REQUEST_ID_RE.test(input.requestId)) return { ok: false, status: 422, error: 'requestId must be 8–80 url-safe characters.' };
@@ -271,25 +313,12 @@ export async function executeLog(input: ExecuteInput, deps: LogDeps = {}): Promi
   if (!planned.ok) return planned;
   const plan = planned.plan;
 
-  // The stale-stage check: GHL is the truth at the moment of confirming.
+  // The stale-stage prompt: `plan.before` IS the live stage read a moment ago.
   if (plan.opportunity) {
-    const live = await (deps.liveOpportunity ?? getOpportunity)(plan.opportunity.id);
-    if (!live.opportunity) return { ok: false, status: 502, error: live.notFound ? `GoHighLevel no longer has opportunity ${plan.opportunity.id} — nothing was changed.` : `GoHighLevel could not be re-read before writing: ${live.error ?? 'unknown error'} — nothing was changed.` };
-    const liveStage = live.opportunity.pipelineStageId;
+    const liveStage = plan.before.stageId;
     if (liveStage !== input.expectedStageId && liveStage !== (input.acceptedStageId ?? null)) {
-      const cat = await (deps.catalogue ?? readOutcomeCatalogue)();
-      const name = cat.ctx.stages.find((s) => s.id === liveStage)?.name ?? null;
+      const name = plan.before.stageName;
       return { ok: false, status: 409, error: `Stage changed to ${name ?? `an unknown stage (${liveStage})`} since you opened this — continue?`, staleStage: { stageId: liveStage, stageName: name } };
-    }
-    // The live read is the `before` (the mirror may lag): a stage the user accepted replaces the planned "from".
-    if (liveStage !== plan.before.stageId) {
-      const cat = await (deps.catalogue ?? readOutcomeCatalogue)();
-      plan.before = { ...plan.before, stageId: liveStage, stageName: cat.ctx.stages.find((s) => s.id === liveStage)?.name ?? null };
-      if (!plan.outcome.toStage) plan.after = { ...plan.after, stageId: liveStage, stageName: plan.before.stageName };
-    }
-    if (live.opportunity.status !== plan.before.status) {
-      plan.before = { ...plan.before, status: live.opportunity.status };
-      if (!plan.outcome.opportunityStatus) plan.after = { ...plan.after, status: live.opportunity.status };
     }
   }
 
