@@ -5,7 +5,9 @@
  *                                    The read-only key (`ghl_api_token`) is never used for a write and this one is
  *                                    never used for a sync.
  *   companion_dry_run                'true' (default) | 'false'. Anything else reads as ON — fail safe.
- *   companion_reschedule_appointment 'cancelled' (default) | 'leave' — what a Reschedule outcome does to the event.
+ *   companion_reschedule_appointment 'leave' (default since stage 5, 2026-10-30) | 'cancelled' — what a Reschedule
+ *                                    outcome does to the event. Cancelling makes GHL email the client (Sindhu,
+ *                                    Oct 30); only the literal 'cancelled' cancels. Migration 0024 wrote the row.
  *   companion_outcome_map            JSON overrides per outcome key (lib/companion/outcomes#applyOverrides).
  */
 
@@ -19,7 +21,7 @@ export const COMPANION_SETTING_KEYS = {
 } as const;
 
 export type RescheduleAppointment = 'cancelled' | 'leave';
-export const RESCHEDULE_APPOINTMENT_DEFAULT: RescheduleAppointment = 'cancelled';
+export const RESCHEDULE_APPOINTMENT_DEFAULT: RescheduleAppointment = 'leave';
 
 export interface DryRunState {
   on: boolean;
@@ -35,8 +37,9 @@ export function dryRunOf(value: string | null | undefined): DryRunState {
   return { on: true, invalidValue: value };
 }
 
+/** Only the literal 'cancelled' cancels; a missing or malformed row leaves the appointment alone (fail safe). */
 export function rescheduleAppointmentOf(value: string | null | undefined): RescheduleAppointment {
-  return value === 'leave' ? 'leave' : RESCHEDULE_APPOINTMENT_DEFAULT;
+  return value === 'cancelled' ? 'cancelled' : RESCHEDULE_APPOINTMENT_DEFAULT;
 }
 
 export async function readDryRun(): Promise<DryRunState> {

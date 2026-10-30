@@ -212,8 +212,8 @@ export const CompanionCard: React.FC = () => {
               </h4>
               <div className="flex items-center gap-2">
                 <Select aria-label="Reschedule rule" value={state.rescheduleAppointment} onChange={(e) => patch({ rescheduleAppointment: e.target.value }, 'Reschedule rule')}>
-                  <option value="cancelled">Reschedule → appointment cancelled</option>
-                  <option value="leave">Reschedule → appointment left as is</option>
+                  <option value="leave">Reschedule → leave the appointment as is (default)</option>
+                  <option value="cancelled">Reschedule → cancel the appointment (GHL may email the client)</option>
                 </Select>
                 <Button variant="ghost" icon={RotateCcw} disabled={!state.outcomeMap.overridden.length || busy === 'Outcome map'} onClick={() => patch({ outcomeMap: {} }, 'Outcome map')}>
                   Reset to defaults

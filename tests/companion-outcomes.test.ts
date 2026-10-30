@@ -137,7 +137,7 @@ describe('the catalogue against the database', () => {
     expect(consult.outcomes.map((o) => [o.label, o.toStage?.name ?? null, o.appointment, o.unavailable])).toEqual([
       ['Showed, roadmap booked', 'Pre-Roadmap Booked', 'showed', null],
       ['No-show', 'Consult No Show', 'noshow', null],
-      ['Reschedule', 'Consult Reschedule', 'cancelled', null],
+      ['Reschedule', 'Consult Reschedule', 'leave', null],
       ['Cancelled', null, 'cancelled', null],
       ['Not a fit', null, 'showed', null],
     ]);

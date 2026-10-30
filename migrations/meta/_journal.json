@@ -169,6 +169,13 @@
       "when": 1792627200000,
       "tag": "0023_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793404800000,
+      "tag": "0024_companion_reschedule_leave",
+      "breakpoints": true
     }
   ]
 }

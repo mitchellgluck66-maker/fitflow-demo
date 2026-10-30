@@ -140,7 +140,8 @@ describe('footer line, titles, geometry', () => {
     expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'showed', opportunityStatus: 'won' }, { hasCall: true, dryRun: false })).toBe('Moves to Enrolled · marks showed · marks the deal won · adds note');
     expect(effectLine({ toStage: { name: 'Consult No Show' }, appointment: 'noshow', opportunityStatus: 'open' }, { hasCall: true, dryRun: false })).toBe('Moves to Consult No Show · marks no-show · adds note');
     expect(effectLine({ toStage: null, appointment: 'showed', opportunityStatus: 'lost' }, { hasCall: true, dryRun: true })).toBe('Stage unchanged · marks showed · marks the deal lost · adds note · dry run — nothing sent');
-    expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'leave', opportunityStatus: null }, { hasCall: true, dryRun: false })).toBe('Moves to Enrolled · adds note');
+    expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'leave', opportunityStatus: null }, { hasCall: true, dryRun: false })).toBe('Moves to Enrolled · appointment unchanged · adds note');
+    expect(effectLine({ toStage: { name: 'Consult Reschedule' }, appointment: 'leave', opportunityStatus: 'open' }, { hasCall: true, dryRun: false })).toBe('Moves to Consult Reschedule · appointment unchanged · adds note'); // stage 5: a Reschedule visibly does NOT cancel
     expect(effectLine({ toStage: { name: 'Enrolled' }, appointment: 'showed', opportunityStatus: null }, { hasCall: false, dryRun: false })).toBe('Moves to Enrolled · adds note'); // no call → no appointment to mark
   });
 

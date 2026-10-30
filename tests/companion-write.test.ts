@@ -66,9 +66,11 @@ describe('settings parsers (pure)', () => {
     expect(dryRunOf('true')).toEqual({ on: true, invalidValue: null });
     expect(dryRunOf('false')).toEqual({ on: false, invalidValue: null });
     expect(dryRunOf('off')).toEqual({ on: true, invalidValue: 'off' });
-    expect(rescheduleAppointmentOf(null)).toBe('cancelled');
+    // Stage 5: a Reschedule never cancels unless the owner stored the literal 'cancelled'.
+    expect(rescheduleAppointmentOf(null)).toBe('leave');
     expect(rescheduleAppointmentOf('leave')).toBe('leave');
-    expect(rescheduleAppointmentOf('garbage')).toBe('cancelled');
+    expect(rescheduleAppointmentOf('cancelled')).toBe('cancelled');
+    expect(rescheduleAppointmentOf('garbage')).toBe('leave');
   });
 });
 

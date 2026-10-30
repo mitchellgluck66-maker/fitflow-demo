@@ -13,6 +13,7 @@ export type CompanionPreviewState = (typeof COMPANION_PREVIEW_STATES)[number];
 const STAGES = [
   { id: 'demo-stage-consult-booked', name: 'Consult Booked', role: 'consult_booked' },
   { id: 'demo-stage-consult-noshow', name: 'Consult No Show', role: 'consult_noshow' },
+  { id: 'demo-stage-consult-resched', name: 'Consult Reschedule', role: 'consult_rescheduled' },
   { id: 'demo-stage-roadmap-booked', name: 'Pre-Roadmap Booked', role: 'roadmap_booked' },
   { id: 'demo-stage-enrolled', name: 'Enrolled', role: 'enrolled' },
 ];
@@ -24,7 +25,7 @@ function outcomes(dryRun: boolean): OutcomesForCall {
     outcomes: [
       { key: 'consult_showed_booked', label: 'Showed, roadmap booked', stageRole: 'roadmap_booked', toStage: { id: 'demo-stage-roadmap-booked', name: 'Pre-Roadmap Booked' }, appointment: 'showed', opportunityStatus: 'open', unavailable: null },
       { key: 'consult_noshow', label: 'No-show', stageRole: 'consult_noshow', toStage: { id: 'demo-stage-consult-noshow', name: 'Consult No Show' }, appointment: 'noshow', opportunityStatus: 'open', unavailable: null },
-      { key: 'consult_reschedule', label: 'Reschedule', stageRole: 'consult_rescheduled', toStage: null, appointment: 'cancelled', opportunityStatus: 'open', unavailable: 'No stage in [demo] Application Pipeline is mapped to the role consult_rescheduled — map it in Setup → Pipelines.' },
+      { key: 'consult_reschedule', label: 'Reschedule', stageRole: 'consult_rescheduled', toStage: { id: 'demo-stage-consult-resched', name: 'Consult Reschedule' }, appointment: 'leave', opportunityStatus: 'open', unavailable: null },
       { key: 'consult_cancelled', label: 'Cancelled', stageRole: null, toStage: null, appointment: 'cancelled', opportunityStatus: 'open', unavailable: null },
       { key: 'consult_not_fit', label: 'Not a fit', stageRole: null, toStage: null, appointment: 'showed', opportunityStatus: 'lost', unavailable: null },
     ],

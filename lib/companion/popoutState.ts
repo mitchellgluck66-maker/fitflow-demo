@@ -149,11 +149,15 @@ export interface EffectInput {
 
 export const PICK_LINE = 'Pick an outcome and write a note';
 
-/** "Moves to Enrolled · marks showed · adds note" — exactly what Log outcome will do, from the outcome's own map. */
+/**
+ * "Moves to Enrolled · marks showed · adds note" — what Log outcome will do, from the outcome's own map (the pick
+ * phase, before the plan). With a call, an outcome that leaves the event alone says so: "appointment unchanged"
+ * (stage 5 — a Reschedule must visibly NOT cancel).
+ */
 export function effectLine(outcome: EffectInput | null, ctx: { hasCall: boolean; dryRun: boolean }): string {
   if (!outcome) return PICK_LINE;
   const parts: string[] = [outcome.toStage ? `Moves to ${outcome.toStage.name}` : 'Stage unchanged'];
-  if (ctx.hasCall && outcome.appointment !== 'leave') parts.push(`marks ${APPOINTMENT_WORDS[outcome.appointment]}`);
+  if (ctx.hasCall) parts.push(outcome.appointment === 'leave' ? 'appointment unchanged' : `marks ${APPOINTMENT_WORDS[outcome.appointment]}`);
   if (outcome.opportunityStatus === 'won' || outcome.opportunityStatus === 'lost') parts.push(`marks the deal ${outcome.opportunityStatus}`);
   parts.push('adds note');
   if (ctx.dryRun) parts.push('dry run — nothing sent');
