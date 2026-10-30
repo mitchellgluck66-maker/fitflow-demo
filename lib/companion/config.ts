@@ -9,6 +9,10 @@
  *                                    outcome does to the event. Cancelling makes GHL email the client (Sindhu,
  *                                    Oct 30); only the literal 'cancelled' cancels. Migration 0024 wrote the row.
  *   companion_outcome_map            JSON overrides per outcome key (lib/companion/outcomes#applyOverrides).
+ *   companion_appointment_updates    'true' | anything else = OFF (default). Stage 5, item 5 (2026-10-30): a PUT of
+ *                                    appointmentStatus=showed re-fired GHL's consult-confirmation workflow (Bridget),
+ *                                    because it triggers on ANY status change. While OFF every outcome leaves the
+ *                                    appointment untouched; the stage and the note still go.
  */
 
 import { getSetting } from '../settings';
@@ -18,6 +22,7 @@ export const COMPANION_SETTING_KEYS = {
   dryRun: 'companion_dry_run',
   rescheduleAppointment: 'companion_reschedule_appointment',
   outcomeMap: 'companion_outcome_map',
+  appointmentUpdates: 'companion_appointment_updates',
 } as const;
 
 export type RescheduleAppointment = 'cancelled' | 'leave';
@@ -44,6 +49,15 @@ export function rescheduleAppointmentOf(value: string | null | undefined): Resch
 
 export async function readDryRun(): Promise<DryRunState> {
   return dryRunOf(await getSetting(COMPANION_SETTING_KEYS.dryRun));
+}
+
+/** Only the literal 'true' turns appointment updates on; missing or malformed reads OFF (fail safe). */
+export function appointmentUpdatesOf(value: string | null | undefined): boolean {
+  return value === 'true';
+}
+
+export async function readAppointmentUpdates(): Promise<boolean> {
+  return appointmentUpdatesOf(await getSetting(COMPANION_SETTING_KEYS.appointmentUpdates));
 }
 
 export async function readRescheduleAppointment(): Promise<RescheduleAppointment> {

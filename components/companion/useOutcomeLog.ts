@@ -165,16 +165,17 @@ export function useOutcomeLog(p: { targetKey: string | null; ghlContactId: strin
   const countdown = useCountdown(log.phase.kind === 'result' && log.phase.action.canUndo ? log.phase.action.undoUntil : null);
   const dryRun = outcomes?.dryRun.on ?? false;
 
-  /** The picked outcome's effect, for the footer line. */
+  /** The picked outcome's effect, for the footer line. With appointment updates off in Setup (stage 5), every outcome leaves the event alone. */
   const selected: EffectInput | null = useMemo(() => {
     const c = log.choice;
     if (!c || !outcomes) return null;
+    const appt = (a: EffectInput['appointment']): EffectInput['appointment'] => (outcomes.appointmentUpdates ? a : 'leave');
     if ('key' in c) {
       const o = outcomes.outcomes.find((x) => x.key === c.key);
-      return o ? { toStage: o.toStage, appointment: o.appointment, opportunityStatus: o.opportunityStatus } : null;
+      return o ? { toStage: o.toStage, appointment: appt(o.appointment), opportunityStatus: o.opportunityStatus } : null;
     }
     const stage = outcomes.moveTo.stages.find((s) => s.id === c.move.stageId);
-    return { toStage: stage ? { name: stage.name } : null, appointment: c.move.appointment, opportunityStatus: null };
+    return { toStage: stage ? { name: stage.name } : null, appointment: appt(c.move.appointment), opportunityStatus: null };
   }, [log.choice, outcomes]);
 
   /** What the chip must know: the outcomes could not load; a step failed in GHL; a FitFlow call failed. */

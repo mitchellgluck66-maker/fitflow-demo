@@ -14,6 +14,8 @@ export interface CompanionAdminState {
   writeKey: { configured: boolean; preview: string | null };
   dryRun: DryRunState;
   rescheduleAppointment: RescheduleAppointment;
+  /** Stage 5, item 5: "Update appointment status in GoHighLevel" — default OFF. */
+  appointmentUpdates: boolean;
   outcomeMap: {
     outcomes: Array<OutcomeDef & { resolvedStage: { id: string; name: string } | null }>;
     overridden: string[];
@@ -30,6 +32,7 @@ export async function getCompanionAdminState(): Promise<CompanionAdminState> {
     writeKey,
     dryRun,
     rescheduleAppointment: cat.reschedule,
+    appointmentUpdates: cat.appointmentUpdates,
     outcomeMap: {
       outcomes: catalogueRows(cat),
       overridden: Object.keys(cat.overrides),
@@ -44,7 +47,7 @@ export async function getCompanionAdminState(): Promise<CompanionAdminState> {
 export type AdminPatchResult = { ok: true; changed: string[] } | { ok: false; status: 400; error: string };
 
 /**
- * PATCH { dryRun?, confirm?, rescheduleAppointment?, outcomeMap? } — each key validated; dry run OFF needs
+ * PATCH { dryRun?, confirm?, rescheduleAppointment?, appointmentUpdates?, outcomeMap? } — each key validated; dry run OFF needs
  * `confirm: true` (the owner saw the sentence). Nothing is written unless everything validates.
  */
 export async function patchCompanionSettings(input: unknown): Promise<AdminPatchResult> {
@@ -63,13 +66,18 @@ export async function patchCompanionSettings(input: unknown): Promise<AdminPatch
     writes.push([COMPANION_SETTING_KEYS.rescheduleAppointment, body.rescheduleAppointment]);
     changed.push('rescheduleAppointment');
   }
+  if ('appointmentUpdates' in body) {
+    if (typeof body.appointmentUpdates !== 'boolean') return { ok: false, status: 400, error: 'appointmentUpdates must be true or false.' };
+    writes.push([COMPANION_SETTING_KEYS.appointmentUpdates, body.appointmentUpdates ? 'true' : 'false']);
+    changed.push('appointmentUpdates');
+  }
   if ('outcomeMap' in body) {
     const v = validateOverrides(body.outcomeMap);
     if (!v.ok) return { ok: false, status: 400, error: v.error };
     writes.push([COMPANION_SETTING_KEYS.outcomeMap, JSON.stringify(v.overrides)]);
     changed.push('outcomeMap');
   }
-  if (writes.length === 0) return { ok: false, status: 400, error: 'Nothing to change: send dryRun, rescheduleAppointment or outcomeMap.' };
+  if (writes.length === 0) return { ok: false, status: 400, error: 'Nothing to change: send dryRun, rescheduleAppointment, appointmentUpdates or outcomeMap.' };
   for (const [k, v] of writes) await setSetting(k, v);
   return { ok: true, changed };
 }

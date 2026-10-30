@@ -7,12 +7,15 @@
  *                 whose target sits EARLIER in the pipeline order than the live stage is skipped ("already past X (in
  *                 Y)") — only "Move to…" goes backward, and says so (`backward`). A same-stage re-save would re-fire
  *                 GHL's stage workflows (Bridget Voigt, 2026-10-30: the roadmap-booked congratulations).
- *   appointment — skipped when the live status already equals the target ("already showed"), when the outcome leaves
- *                 it alone ("left as is") or when there is no call ("no appointment").
+ *   appointment — skipped while the Setup switch is off ("appointment updates are off in Setup" — item 5: a status
+ *                 PUT re-fires any GHL workflow that triggers on appointment status), when the live status already
+ *                 equals the target ("already showed"), when the outcome leaves it alone ("left as is") or when
+ *                 there is no call ("no appointment").
  */
 
 import type { AppointmentEffect, ResolvedOutcome, StageRef } from './outcomes';
 import { MOVE_TO_KEY } from './outcomes';
+import { APPOINTMENT_UPDATES_OFF_REASON } from './logText';
 
 export interface LiveOpportunityState {
   id: string;
@@ -60,8 +63,9 @@ export function decideStage(p: { live: LiveOpportunityState | null; pipeline: { 
 
 export type AppointmentDecision = { send: true; status: Exclude<AppointmentEffect, 'leave'>; summary: string } | { send: false; reason: string; summary: string };
 
-export function decideAppointment(p: { call: { liveStatus: string | null } | null; effect: AppointmentEffect }): AppointmentDecision {
+export function decideAppointment(p: { call: { liveStatus: string | null } | null; effect: AppointmentEffect; enabled: boolean }): AppointmentDecision {
   if (!p.call) return { send: false, reason: 'no appointment', summary: 'Appointment — none' };
+  if (!p.enabled) return { send: false, reason: APPOINTMENT_UPDATES_OFF_REASON, summary: `Appointment — left ${p.call.liveStatus ?? 'as is'} (updates off)` };
   if (p.effect === 'leave') return { send: false, reason: 'left as is', summary: `Appointment — left ${p.call.liveStatus ?? 'as is'}` };
   if (p.call.liveStatus === p.effect) return { send: false, reason: `already ${p.effect}`, summary: `Appointment — already ${p.effect}` };
   return { send: true, status: p.effect, summary: `Appointment ${p.call.liveStatus ?? '?'} → ${p.effect}` };

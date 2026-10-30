@@ -21,6 +21,7 @@ const STAGES = [
 function outcomes(dryRun: boolean): OutcomesForCall {
   return {
     dryRun: { on: dryRun, invalidValue: null },
+    appointmentUpdates: true,
     callType: 'Consult',
     outcomes: [
       { key: 'consult_showed_booked', label: 'Showed, roadmap booked', stageRole: 'roadmap_booked', toStage: { id: 'demo-stage-roadmap-booked', name: 'Pre-Roadmap Booked' }, appointment: 'showed', opportunityStatus: 'open', unavailable: null },

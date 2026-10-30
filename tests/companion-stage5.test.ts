@@ -12,7 +12,9 @@ import { eq } from 'drizzle-orm';
 import { runMigrations } from '@/db/migrate';
 import { db, settings } from '@/db';
 import { getSetting } from '@/lib/settings';
-import { COMPANION_SETTING_KEYS, readRescheduleAppointment } from '@/lib/companion/config';
+import { COMPANION_SETTING_KEYS, appointmentUpdatesOf, readAppointmentUpdates, readRescheduleAppointment } from '@/lib/companion/config';
+import { APPOINTMENT_UPDATES_OFF_REASON } from '@/lib/companion/logText';
+import { planEffectLine } from '@/lib/companion/popoutState';
 import { decideAppointment, decideStage } from '@/lib/companion/decide';
 import { MOVE_TO_KEY, type ResolvedOutcome, type StageRef } from '@/lib/companion/outcomes';
 
@@ -62,11 +64,25 @@ describe('item 2 — decisions from the live state (pure)', () => {
   });
 
   it('decideAppointment: sends only when the live status differs; leave / no call / already-there skip with the reason', () => {
-    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'showed' })).toEqual({ send: true, status: 'showed', summary: 'Appointment confirmed → showed' });
-    expect(decideAppointment({ call: { liveStatus: 'showed' }, effect: 'showed' })).toEqual({ send: false, reason: 'already showed', summary: 'Appointment — already showed' });
-    expect(decideAppointment({ call: { liveStatus: 'cancelled' }, effect: 'cancelled' })).toMatchObject({ send: false, reason: 'already cancelled' });
-    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'leave' })).toEqual({ send: false, reason: 'left as is', summary: 'Appointment — left confirmed' });
-    expect(decideAppointment({ call: null, effect: 'showed' })).toEqual({ send: false, reason: 'no appointment', summary: 'Appointment — none' });
+    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'showed', enabled: true })).toEqual({ send: true, status: 'showed', summary: 'Appointment confirmed → showed' });
+    expect(decideAppointment({ call: { liveStatus: 'showed' }, effect: 'showed', enabled: true })).toEqual({ send: false, reason: 'already showed', summary: 'Appointment — already showed' });
+    expect(decideAppointment({ call: { liveStatus: 'cancelled' }, effect: 'cancelled', enabled: true })).toMatchObject({ send: false, reason: 'already cancelled' });
+    expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect: 'leave', enabled: true })).toEqual({ send: false, reason: 'left as is', summary: 'Appointment — left confirmed' });
+    expect(decideAppointment({ call: null, effect: 'showed', enabled: true })).toEqual({ send: false, reason: 'no appointment', summary: 'Appointment — none' });
+  });
+
+  it('item 5 — the Setup switch: off (the default) skips the appointment step for every effect with the reason; only the literal true turns it on', () => {
+    expect(appointmentUpdatesOf(null)).toBe(false);
+    expect(appointmentUpdatesOf('')).toBe(false);
+    expect(appointmentUpdatesOf('yes')).toBe(false);
+    expect(appointmentUpdatesOf('false')).toBe(false);
+    expect(appointmentUpdatesOf('true')).toBe(true);
+    for (const effect of ['showed', 'noshow', 'cancelled', 'leave'] as const) {
+      expect(decideAppointment({ call: { liveStatus: 'confirmed' }, effect, enabled: false })).toEqual({ send: false, reason: APPOINTMENT_UPDATES_OFF_REASON, summary: 'Appointment — left confirmed (updates off)' });
+    }
+    expect(decideAppointment({ call: null, effect: 'showed', enabled: false })).toMatchObject({ reason: 'no appointment' });
+    // The footer treats the off reason like a left-alone appointment.
+    expect(planEffectLine({ steps: [{ name: 'stage', request: { method: 'PUT' }, skipReason: null }, { name: 'appointment', request: null, skipReason: APPOINTMENT_UPDATES_OFF_REASON }, { name: 'note', request: { method: 'POST' }, skipReason: null }], before: { stageId: 's_cbooked', status: 'open' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, backward: false, hasCall: true, dryRun: false })).toBe('Moves to Pre-Roadmap Booked · appointment unchanged · adds note');
   });
 });
 
@@ -74,6 +90,7 @@ describe('item 1 — reschedule never cancels', () => {
   it('a fresh database carries the explicit leave row after the migrations; the catalogue reads leave', async () => {
     expect(await getSetting(KEY)).toBe('leave');
     expect(await readRescheduleAppointment()).toBe('leave');
+    expect(await readAppointmentUpdates()).toBe(false); // item 5: OFF until Mitchell turns it on
   });
 
   it('0024: no row → leave written; an owner\'s cancelled → kept; leave → unchanged', async () => {

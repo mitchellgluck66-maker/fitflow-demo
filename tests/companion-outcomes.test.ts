@@ -154,6 +154,12 @@ describe('the catalogue against the database', () => {
     expect(await patchCompanionSettings({ dryRun: true })).toEqual({ ok: true, changed: ['dryRun'] });
     expect(await patchCompanionSettings({ rescheduleAppointment: 'maybe' })).toMatchObject({ ok: false });
     expect(await patchCompanionSettings({ rescheduleAppointment: 'leave', outcomeMap: { consult_not_fit: { stageRole: 'previous_lead', appointment: 'showed', opportunityStatus: 'lost' } } })).toEqual({ ok: true, changed: ['rescheduleAppointment', 'outcomeMap'] });
+    expect(await patchCompanionSettings({ appointmentUpdates: 'yes' })).toMatchObject({ ok: false, status: 400 });
+    expect(await patchCompanionSettings({ appointmentUpdates: true })).toEqual({ ok: true, changed: ['appointmentUpdates'] });
+    expect((await readOutcomeCatalogue()).appointmentUpdates).toBe(true);
+    expect((await getOutcomesForCall('Consult')).appointmentUpdates).toBe(true);
+    expect(await patchCompanionSettings({ appointmentUpdates: false })).toEqual({ ok: true, changed: ['appointmentUpdates'] });
+    expect((await getCompanionAdminState()).appointmentUpdates).toBe(false);
     const cat = await readOutcomeCatalogue();
     expect(cat.reschedule).toBe('leave');
     expect(Object.keys(cat.overrides)).toEqual(['consult_not_fit']);

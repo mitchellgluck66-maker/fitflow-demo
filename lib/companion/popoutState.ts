@@ -5,7 +5,7 @@
  */
 
 import { formatTime } from '../day';
-import { APPOINTMENT_WORDS } from './logText';
+import { APPOINTMENT_UPDATES_OFF_REASON, APPOINTMENT_WORDS } from './logText';
 import { COLLAPSED_INNER, POPOUT_HEIGHT } from './popout';
 
 // ---- status chip ------------------------------------------------------------------------------------------------
@@ -197,7 +197,7 @@ export function planEffectLine(p: PlanLineInput): string {
   const appt = p.steps.find((s) => s.name === 'appointment');
   const word = p.after.appointmentStatus && p.after.appointmentStatus in APPOINTMENT_WORDS ? APPOINTMENT_WORDS[p.after.appointmentStatus as keyof typeof APPOINTMENT_WORDS] : p.after.appointmentStatus;
   if (appt?.request) parts.push(`marks ${word}`);
-  else if (p.hasCall && appt?.skipReason === 'left as is') parts.push('appointment unchanged');
+  else if (p.hasCall && (appt?.skipReason === 'left as is' || appt?.skipReason === APPOINTMENT_UPDATES_OFF_REASON)) parts.push('appointment unchanged');
   parts.push('adds note');
   if (p.dryRun) parts.push('dry run — nothing sent');
   const line = parts.join(' · ');

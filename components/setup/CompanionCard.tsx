@@ -146,6 +146,18 @@ export const CompanionCard: React.FC = () => {
             <Toggle checked={!state.dryRun.on} onChange={(live) => setDryRun(!live)} label="Send to GoHighLevel" disabled={busy === 'Dry run'} />
           </div>
 
+          {/* Appointment status switch (stage 5, item 5) */}
+          <div role="status" className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-[8px]" style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }} data-testid="appointment-updates">
+            <div className="flex-1 min-w-[200px] text-[12.5px]" style={{ color: 'var(--text-primary)' }}>
+              <strong>Update appointment status in GoHighLevel</strong> — {state.appointmentUpdates ? 'on: outcomes set the event showed / no-show / cancelled.' : 'off: every outcome leaves the appointment untouched (the step is skipped with the reason “appointment updates are off in Setup”); the stage and the note still go.'}
+              <div className="mt-1 flex items-start gap-1.5 text-[12px]" style={{ color: 'var(--warning)' }}>
+                <ShieldAlert size={13} strokeWidth={2.3} className="mt-0.5 shrink-0" />
+                <span>Turn on only after GHL workflows that trigger on appointment status filter to Confirmed/Booked.</span>
+              </div>
+            </div>
+            <Toggle checked={state.appointmentUpdates} onChange={(on) => patch({ appointmentUpdates: on }, 'Appointment updates')} label="Update appointment status" disabled={busy === 'Appointment updates'} />
+          </div>
+
           {/* Write key */}
           <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
@@ -275,11 +287,16 @@ export const CompanionCard: React.FC = () => {
                               </option>
                             ))}
                           </Select>
-                          {automationNote(o.appointment === 'reschedule_setting' ? state.rescheduleAppointment : o.appointment, true) && (
-                            <div className="mt-0.5 text-[10.5px] leading-snug" style={{ color: 'var(--warning)' }} title={APPOINTMENT_AUTOMATION_NOTE} data-testid={`automation-note-${o.key}`}>
-                              GHL may message the client
-                            </div>
-                          )}
+                          {automationNote(o.appointment === 'reschedule_setting' ? state.rescheduleAppointment : o.appointment, true) &&
+                            (state.appointmentUpdates ? (
+                              <div className="mt-0.5 text-[10.5px] leading-snug" style={{ color: 'var(--warning)' }} title={APPOINTMENT_AUTOMATION_NOTE} data-testid={`automation-note-${o.key}`}>
+                                GHL may message the client
+                              </div>
+                            ) : (
+                              <div className="mt-0.5 text-[10.5px] leading-snug" style={{ color: 'var(--text-tertiary)' }} title="Appointment updates are off in Setup — this outcome leaves the appointment untouched" data-testid={`automation-note-${o.key}`}>
+                                not sent while updates are off
+                              </div>
+                            ))}
                         </td>
                         <td className="px-2.5 py-1">
                           <Select aria-label={`${o.label} opportunity`} value={o.opportunityStatus ?? ''} onChange={(e) => send('opportunityStatus', e.target.value)}>

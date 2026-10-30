@@ -109,6 +109,7 @@ afterAll(() => vi.unstubAllGlobals());
 beforeEach(async () => {
   ghl.reset();
   await setSetting(COMPANION_SETTING_KEYS.dryRun, 'false');
+  await setSetting(COMPANION_SETTING_KEYS.appointmentUpdates, 'true'); // stage 5 item 5: the suite exercises the ON behaviour; one test turns it off
   await resetData();
 });
 
@@ -313,6 +314,46 @@ describe('execute', () => {
     const r2 = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: plan.ok ? plan.plan.expectedStageId : null });
     expect(r2.ok && r2.action.steps.stage?.status).toBe('skipped');
     expect(writes().some((c) => c.method === 'PUT' && new URL(c.url).pathname.startsWith('/opportunities/'))).toBe(false);
+  });
+
+  it('stage 5 item 5 — appointment updates OFF (the default): no appointment PUT for ANY outcome, the stage and the note still go, the footer reads "appointment unchanged"', async () => {
+    await setSetting(COMPANION_SETTING_KEYS.appointmentUpdates, 'false');
+    const consult = ['consult_showed_booked', 'consult_noshow', 'consult_reschedule', 'consult_cancelled', 'consult_not_fit'];
+    const roadmap = ['roadmap_enrolled', 'roadmap_not_fit']; // roadmap_showed_objection / roadmap_noshow / roadmap_reschedule: roles unmapped in this fixture (422 before any step)
+    for (const [keys, c] of [[consult, call], [roadmap, { ...call, callType: 'Roadmap' as const }]] as const) {
+      for (const key of keys) {
+        await resetData();
+        ghl.calls = [];
+        const r = await executeLog({ ...base, call: c, outcome: { key }, requestId: rid(), expectedStageId: 's_cbooked' });
+        expect(r.ok, key).toBe(true);
+        if (!r.ok) continue;
+        expect(r.action.steps.appointment, key).toMatchObject({ status: 'skipped', reason: 'appointment updates are off in Setup', request: null });
+        expect(r.action.after.appointmentStatus, key).toBe('confirmed');
+        expect(writes().some((w) => new URL(w.url).pathname.startsWith('/calendars/')), key).toBe(false);
+        expect(writes().some((w) => w.method === 'POST'), key).toBe(true); // the note always goes
+      }
+    }
+    const plan = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+    expect(plan.ok && plan.plan.effectLine).toBe('Moves to Pre-Roadmap Booked · appointment unchanged · adds note');
+    expect(plan.ok && plan.plan.automationNote).toBeNull();
+    // With the switch off an unreadable appointment does not block the stage + note.
+    fetchFake.mockImplementation(async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if ((init.method ?? 'GET') === 'GET' && path.startsWith('/calendars/events/appointments/')) return new Response('{"message":"boom"}', { status: 500 });
+      return fetchImpl(url, init);
+    });
+    try {
+      const r = await planLog({ ...base, outcome: { key: 'consult_showed_booked' } });
+      expect(r.ok && r.plan.before.appointmentStatus).toBeNull();
+      expect(r.ok && r.plan.steps[1]).toMatchObject({ skipReason: 'appointment updates are off in Setup' });
+    } finally {
+      fetchFake.mockImplementation(fetchImpl);
+    }
+    // ON → the current behaviour (the rest of this file).
+    await setSetting(COMPANION_SETTING_KEYS.appointmentUpdates, 'true');
+    await resetData();
+    const on = await executeLog({ ...base, outcome: { key: 'consult_showed_booked' }, requestId: rid(), expectedStageId: 's_cbooked' });
+    expect(on.ok && on.action.steps.appointment?.status).toBe('ok');
   });
 
   it('stage 5 — already past the target: the stage step is skipped with the reason, the appointment still lands; Move to… may go back', async () => {

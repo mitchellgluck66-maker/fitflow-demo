@@ -173,7 +173,8 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
   if (opp && liveOpp && !liveOpp.opportunity) {
     return { ok: false, status: 502, error: liveOpp.notFound ? `GoHighLevel no longer has opportunity ${opp.id} — nothing was changed.` : `GoHighLevel could not be re-read before writing: ${liveOpp.error ?? 'unknown error'} — nothing was changed.` };
   }
-  if (call && liveAppt && !liveAppt.appointment) {
+  // An unreadable appointment blocks only when a status PUT could follow (the Setup switch on); off, it is recorded as unknown.
+  if (call && liveAppt && !liveAppt.appointment && cat.appointmentUpdates) {
     return { ok: false, status: 502, error: liveAppt.notFound ? `GoHighLevel no longer has appointment ${call.eventId} — nothing was changed.` : `GoHighLevel could not re-read the appointment before writing: ${liveAppt.error ?? 'unknown error'} — nothing was changed.` };
   }
   const live: LiveOpportunityState | null = opp && liveOpp?.opportunity ? { id: opp.id, stageId: liveOpp.opportunity.pipelineStageId, status: liveOpp.opportunity.status } : null;
@@ -183,7 +184,7 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
   const stages = cat.ctx.stages;
   const pipeline = position.pipeline ? { id: position.pipeline.id, name: position.pipeline.name } : null;
   const stage = decideStage({ live, pipeline, resolved, stages });
-  const appt = decideAppointment({ call: call ? { liveStatus: liveApptStatus } : null, effect: resolved.appointment });
+  const appt = decideAppointment({ call: call ? { liveStatus: liveApptStatus } : null, effect: resolved.appointment, enabled: cat.appointmentUpdates });
 
   const before: CompanionPosition = { stageId: live?.stageId ?? null, stageName: stageNameOf(stages, live?.stageId ?? null), status: live?.status ?? null, appointmentStatus: liveApptStatus };
   const after: CompanionPosition = {

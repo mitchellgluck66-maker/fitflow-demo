@@ -7,7 +7,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db, pipelines, stages } from '@/db';
 import { getSetting } from '../settings';
 import { isDefaultFollowedPipeline } from '../ghl/followed';
-import { COMPANION_SETTING_KEYS, readDryRun, readRescheduleAppointment, type DryRunState, type RescheduleAppointment } from './config';
+import { COMPANION_SETTING_KEYS, readAppointmentUpdates, readDryRun, readRescheduleAppointment, type DryRunState, type RescheduleAppointment } from './config';
 import type { CallType } from './calendars';
 import {
   DEFAULT_OUTCOMES,
@@ -50,15 +50,17 @@ export interface OutcomeCatalogue {
   overrides: Record<string, OutcomeOverride>;
   warnings: string[];
   reschedule: RescheduleAppointment;
+  /** Stage 5, item 5: the Setup switch — false (default) = every outcome leaves the appointment untouched. */
+  appointmentUpdates: boolean;
   pipeline: FollowedPipeline | null;
   ctx: ResolveContext;
 }
 
 export async function readOutcomeCatalogue(): Promise<OutcomeCatalogue> {
-  const [raw, reschedule, pipeline] = await Promise.all([getSetting(COMPANION_SETTING_KEYS.outcomeMap), readRescheduleAppointment(), readFollowedPipeline()]);
+  const [raw, reschedule, appointmentUpdates, pipeline] = await Promise.all([getSetting(COMPANION_SETTING_KEYS.outcomeMap), readRescheduleAppointment(), readAppointmentUpdates(), readFollowedPipeline()]);
   const { overrides, warnings } = parseOverrides(raw);
   const defs = applyOverrides(overrides, DEFAULT_OUTCOMES);
-  return { defs, overrides, warnings, reschedule, pipeline, ctx: { pipelineName: pipeline?.name ?? null, stages: pipeline?.stages ?? [], reschedule } };
+  return { defs, overrides, warnings, reschedule, appointmentUpdates, pipeline, ctx: { pipelineName: pipeline?.name ?? null, stages: pipeline?.stages ?? [], reschedule } };
 }
 
 export interface OutcomeOption {
@@ -74,6 +76,8 @@ export interface OutcomeOption {
 
 export interface OutcomesForCall {
   dryRun: DryRunState;
+  /** False (the default) = the appointment step is skipped for every outcome; the footer says "appointment unchanged". */
+  appointmentUpdates: boolean;
   callType: CallType;
   outcomes: OutcomeOption[];
   moveTo: { pipeline: { id: string; name: string } | null; stages: Array<{ id: string; name: string; role: string | null }>; appointments: readonly AppointmentEffect[] };
@@ -89,6 +93,7 @@ export async function getOutcomesForCall(callType: CallType): Promise<OutcomesFo
   });
   return {
     dryRun,
+    appointmentUpdates: cat.appointmentUpdates,
     callType,
     outcomes,
     moveTo: { pipeline: cat.pipeline ? { id: cat.pipeline.id, name: cat.pipeline.name } : null, stages: (cat.pipeline?.stages ?? []).map((s) => ({ id: s.id, name: s.name, role: s.role })), appointments: ['showed', 'noshow', 'cancelled', 'leave'] },
