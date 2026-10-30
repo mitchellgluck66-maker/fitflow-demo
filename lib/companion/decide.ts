@@ -16,14 +16,18 @@
 import type { AppointmentEffect, ResolvedOutcome, StageRef } from './outcomes';
 import { MOVE_TO_KEY } from './outcomes';
 import { APPOINTMENT_UPDATES_OFF_REASON } from './logText';
+import { minimalOpportunityPatch, type OpportunityPatchTarget } from './patch';
 
 export interface LiveOpportunityState {
   id: string;
+  /** The opportunity's pipeline as GHL reports it (null = unknown) — `pipelineId` goes in the body only when it differs from the followed pipeline. */
+  pipelineId: string | null;
   stageId: string | null;
   status: string;
 }
 
-export type StageRequestBody = { pipelineId: string; pipelineStageId?: string; status?: 'open' | 'won' | 'lost' };
+/** The minimal PUT body (item 6): only the fields that change. */
+export type StageRequestBody = OpportunityPatchTarget;
 
 export type StageDecision =
   | { send: true; body: StageRequestBody; stageChange: boolean; statusChange: boolean; backward: boolean; summary: string }
@@ -56,7 +60,8 @@ export function decideStage(p: { live: LiveOpportunityState | null; pipeline: { 
     const reason = target ? `already in ${currentName ?? target.name}` : resolved.opportunityStatus && resolved.opportunityStatus !== 'open' ? `already ${live.status}` : 'stage unchanged';
     return { send: false, reason, backward: false, summary: `Stage — ${currentName ?? 'unchanged'}` };
   }
-  const body: StageRequestBody = { pipelineId: p.pipeline!.id, ...(stageChange ? { pipelineStageId: target!.id } : {}), ...(statusChange ? { status: resolved.opportunityStatus! } : {}) };
+  // Only what changes — like a manual drag (item 6): pipelineId only when the opportunity sits in another pipeline.
+  const body: StageRequestBody = minimalOpportunityPatch({ pipelineId: p.pipeline!.id, ...(stageChange ? { pipelineStageId: target!.id } : {}), ...(statusChange ? { status: resolved.opportunityStatus! } : {}) }, { pipelineId: live.pipelineId ?? p.pipeline!.id, stageId: live.stageId, status: live.status });
   const summary = stageChange ? `Stage ${currentName ?? 'no stage'} → ${target!.name}${statusChange ? ` · ${resolved.opportunityStatus}` : ''}` : `Opportunity ${live.status} → ${resolved.opportunityStatus}`;
   return { send: true, body, stageChange, statusChange, backward: goesBack, summary };
 }

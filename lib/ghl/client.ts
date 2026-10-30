@@ -32,6 +32,11 @@ import {
   GhlAppointmentByIdResponseSchema,
   GhlLiveAppointmentSchema,
   type GhlLiveAppointment,
+  GhlConversationSchema,
+  GhlConversationsSearchResponseSchema,
+  GhlConversationMessageSchema,
+  GhlConversationMessagesResponseSchema,
+  type GhlConversationMessage,
   GhlOpportunitySearchResponseSchema,
   GhlPipelinesResponseSchema,
   GhlUsersResponseSchema,
@@ -551,4 +556,34 @@ export async function testConnection(): Promise<{
     message: 'Connected to GoHighLevel (read-only).',
     pipelineCount: result.data?.pipelines.length ?? 0,
   };
+}
+
+// ---- conversations (read-only; the Companion parity script) -----------------------------------------------------
+
+/** The contact's conversations (GET /conversations/search). Needs the `conversations.readonly` scope on the read key. */
+export async function listContactConversations(contactId: string): Promise<{ conversations: Array<z.infer<typeof GhlConversationSchema>>; error?: string }> {
+  const config = await getGhlConfig();
+  const result = await ghlRequest({ method: 'GET', endpoint: '/conversations/search', family: 'conversations', query: { locationId: config.locationId, contactId } }, GhlConversationsSearchResponseSchema);
+  if (!result.ok || !result.data) return { conversations: [], error: result.error ?? `HTTP ${result.status}` };
+  const conversations: Array<z.infer<typeof GhlConversationSchema>> = [];
+  for (const raw of result.data.conversations) {
+    const p = GhlConversationSchema.safeParse(raw);
+    if (p.success) conversations.push(p.data);
+  }
+  return { conversations };
+}
+
+/** One conversation's messages, newest first as GHL lists them (GET /conversations/{id}/messages). Needs `conversations/message.readonly`. */
+export async function listConversationMessages(conversationId: string, limit = 50): Promise<{ messages: GhlConversationMessage[]; rejected: number; error?: string }> {
+  const result = await ghlRequest({ method: 'GET', endpoint: `/conversations/${conversationId}/messages`, family: 'conversations', query: { limit } }, GhlConversationMessagesResponseSchema);
+  if (!result.ok || !result.data) return { messages: [], rejected: 0, error: result.error ?? `HTTP ${result.status}` };
+  const raw = Array.isArray(result.data.messages) ? result.data.messages : result.data.messages.messages;
+  const messages: GhlConversationMessage[] = [];
+  let rejected = 0;
+  for (const m of raw) {
+    const p = GhlConversationMessageSchema.safeParse(m);
+    if (p.success) messages.push(p.data);
+    else rejected += 1;
+  }
+  return { messages, rejected };
 }

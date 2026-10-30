@@ -34,6 +34,8 @@ export const GHL_API_VERSION = {
   opportunities: '2021-07-28',
   locations: '2021-07-28',
   users: '2021-07-28',
+  /** Conversations / messages (read-only; the Companion parity script lists what GHL sent a test contact). */
+  conversations: '2021-04-15',
 } as const;
 
 export type GhlApiFamily = keyof typeof GHL_API_VERSION;

@@ -284,3 +284,31 @@ export const GhlLiveAppointmentSchema = z.object({
   deleted: z.boolean().nullish(),
 });
 export type GhlLiveAppointment = z.infer<typeof GhlLiveAppointmentSchema>;
+
+/**
+ * Conversations (read-only; `npm run companion:parity`). Lenient on purpose: the read key on production lacked the
+ * conversations scopes on 2026-10-30 (401), so the shape is the documented one and NOT runtime-proven — every field
+ * the script prints is optional and unknown keys are kept for the "workflow id/name if GHL provides it" column.
+ */
+export const GhlConversationSchema = z.object({ id: z.string().min(1), contactId: optionalString, lastMessageDate: z.union([z.string(), z.number()]).nullish(), type: optionalString }).passthrough();
+export const GhlConversationsSearchResponseSchema = z.object({ conversations: z.array(z.unknown()).default([]), total: ghlNumber.optional() }).passthrough();
+export const GhlConversationMessageSchema = z
+  .object({
+    id: z.string().min(1),
+    direction: optionalString,
+    type: z.union([z.string(), z.number()]).nullish(),
+    messageType: optionalString,
+    status: optionalString,
+    dateAdded: optionalString,
+    body: optionalString,
+    subject: optionalString,
+    source: optionalString,
+    contactId: optionalString,
+    conversationId: optionalString,
+    meta: z.record(z.string(), z.unknown()).nullish(),
+  })
+  .passthrough();
+export type GhlConversationMessage = z.infer<typeof GhlConversationMessageSchema>;
+export const GhlConversationMessagesResponseSchema = z
+  .object({ messages: z.union([z.object({ messages: z.array(z.unknown()).default([]), nextPage: z.boolean().nullish(), lastMessageId: optionalString }).passthrough(), z.array(z.unknown())]) })
+  .passthrough();

@@ -177,7 +177,7 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
   if (call && liveAppt && !liveAppt.appointment && cat.appointmentUpdates) {
     return { ok: false, status: 502, error: liveAppt.notFound ? `GoHighLevel no longer has appointment ${call.eventId} — nothing was changed.` : `GoHighLevel could not re-read the appointment before writing: ${liveAppt.error ?? 'unknown error'} — nothing was changed.` };
   }
-  const live: LiveOpportunityState | null = opp && liveOpp?.opportunity ? { id: opp.id, stageId: liveOpp.opportunity.pipelineStageId, status: liveOpp.opportunity.status } : null;
+  const live: LiveOpportunityState | null = opp && liveOpp?.opportunity ? { id: opp.id, pipelineId: liveOpp.opportunity.pipelineId ?? null, stageId: liveOpp.opportunity.pipelineStageId, status: liveOpp.opportunity.status } : null;
   const liveApptStatus = call && liveAppt?.appointment ? (liveAppt.appointment.appointmentStatus ?? null) : null;
   if (call) call = { ...call, ghlStatus: liveApptStatus };
 
@@ -196,7 +196,7 @@ export async function planLog(input: LogInput, deps: LogDeps = {}): Promise<Plan
 
   const steps: StepPlan[] = [];
   // 1. stage (+ status) — one PUT /opportunities/{id}, only for a real change in the pipeline's direction
-  if (stage.send && live) steps.push({ name: 'stage', request: { method: methodOf('update_opportunity'), path: `/opportunities/${live.id}`, body: stage.body }, skipReason: null, summary: stage.summary });
+  if (stage.send && live) steps.push({ name: 'stage', request: { method: methodOf('update_opportunity'), path: `/opportunities/${live.id}`, body: { ...stage.body } }, skipReason: null, summary: stage.summary });
   else steps.push({ name: 'stage', request: null, skipReason: stage.send ? 'no opportunity' : stage.reason, summary: stage.summary });
   // 2. appointment — PUT /calendars/events/appointments/{eventId}, only when the live status differs
   if (appt.send && call) steps.push({ name: 'appointment', request: { method: methodOf('update_appointment_status'), path: `/calendars/events/appointments/${call.eventId}`, body: { appointmentStatus: appt.status } }, skipReason: null, summary: appt.summary });
@@ -249,18 +249,19 @@ export type ExecuteResult =
 const REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
 function toRecord(r: WriteResult): CompanionStepRecord {
-  return { status: r.status, request: r.request, httpStatus: r.httpStatus, body: r.body, error: r.error ?? null, reason: null, at: r.at };
+  return { status: r.status, request: r.status === 'skipped' ? null : r.request, httpStatus: r.httpStatus, body: r.body, error: r.error ?? null, reason: r.reason ?? null, at: r.at };
 }
 
-async function sendStep(name: CompanionStepName, request: NonNullable<CompanionStepRecord['request']>, dryRun: boolean): Promise<WriteResult> {
-  const opts = { dryRun };
+/** Send one step. The stage / appointment writers get the row's `before` (the live state the plan was made from): a body equal to it is refused as "no change" (item 6). */
+async function sendStep(name: CompanionStepName, request: NonNullable<CompanionStepRecord['request']>, row: Pick<CompanionAction, 'dryRun' | 'before'>): Promise<WriteResult> {
+  const dryRun = row.dryRun;
   if (name === 'stage') {
-    const b = request.body as { pipelineId: string; pipelineStageId?: string; status?: 'open' | 'won' | 'lost' };
-    return updateOpportunity(request.path.slice('/opportunities/'.length), b, opts);
+    const b = request.body as { pipelineId?: string; pipelineStageId?: string; status?: 'open' | 'won' | 'lost' };
+    return updateOpportunity(request.path.slice('/opportunities/'.length), b, { dryRun, live: { pipelineId: null, stageId: row.before.stageId, status: row.before.status } });
   }
-  if (name === 'appointment') return updateAppointmentStatus(request.path.slice('/calendars/events/appointments/'.length), (request.body as { appointmentStatus: 'showed' }).appointmentStatus, opts);
+  if (name === 'appointment') return updateAppointmentStatus(request.path.slice('/calendars/events/appointments/'.length), (request.body as { appointmentStatus: 'showed' }).appointmentStatus, { dryRun, live: row.before.appointmentStatus });
   const nb = request.body as { body: string; userId?: string };
-  return addContactNote(request.path.slice('/contacts/'.length, -'/notes'.length), nb.body, nb.userId ?? null, opts);
+  return addContactNote(request.path.slice('/contacts/'.length, -'/notes'.length), nb.body, nb.userId ?? null, { dryRun });
 }
 
 /** Run every step not yet ok / skipped, in order; stop at the first failure. Returns the row after the last write. */
@@ -273,7 +274,7 @@ async function runSteps(row: CompanionAction, now: Date): Promise<CompanionActio
       current = await recordStep(current.id, name, skippedStep(step.reason ?? 'nothing to send', now), { dryRun: current.dryRun });
       continue;
     }
-    const result = await sendStep(name, step.request, current.dryRun);
+    const result = await sendStep(name, step.request, current);
     current = await recordStep(current.id, name, toRecord(result), { dryRun: current.dryRun });
     if (result.status === 'failed') break;
   }
@@ -399,7 +400,7 @@ export async function undoLog(id: string, user: CurrentUser, now: Date = new Dat
     const parsed = GhlAppointmentStatusSchema.safeParse(prev);
     if (!row.ghlEventId || !parsed.success) await record('appointment', skippedStep(prev ? `previous status "${prev}" is not a GoHighLevel status` : 'previous status unknown', now));
     else {
-      const r = await updateAppointmentStatus(row.ghlEventId, parsed.data, { dryRun });
+      const r = await updateAppointmentStatus(row.ghlEventId, parsed.data, { dryRun, live: row.after.appointmentStatus });
       await record('appointment', toRecord(r));
       if (r.status === 'failed') return finishUndo(row, undo, now, user, false);
     }
@@ -410,8 +411,9 @@ export async function undoLog(id: string, user: CurrentUser, now: Date = new Dat
     if (!row.ghlOpportunityId || !row.pipelineId) await record('stage', skippedStep('no opportunity', now));
     else {
       const status = b.status === 'open' || b.status === 'won' || b.status === 'lost' || b.status === 'abandoned' ? b.status : undefined;
-      const patch: { pipelineId: string; pipelineStageId?: string; status?: 'open' | 'won' | 'lost' | 'abandoned' } = { pipelineId: row.pipelineId, ...(b.stageId ? { pipelineStageId: b.stageId } : {}), ...(status ? { status } : {}) };
-      const r = await updateOpportunity(row.ghlOpportunityId, patch, { dryRun });
+      // Minimal, like the forward move: only the fields that differ from what the log set (`after`).
+      const patch: { pipelineStageId?: string; status?: 'open' | 'won' | 'lost' | 'abandoned' } = { ...(b.stageId ? { pipelineStageId: b.stageId } : {}), ...(status ? { status } : {}) };
+      const r = await updateOpportunity(row.ghlOpportunityId, patch, { dryRun, live: { pipelineId: null, stageId: row.after.stageId, status: row.after.status } });
       await record('stage', toRecord(r));
       if (r.status === 'failed') return finishUndo(row, undo, now, user, false);
     }

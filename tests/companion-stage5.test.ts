@@ -16,7 +16,9 @@ import { COMPANION_SETTING_KEYS, appointmentUpdatesOf, readAppointmentUpdates, r
 import { APPOINTMENT_UPDATES_OFF_REASON } from '@/lib/companion/logText';
 import { planEffectLine } from '@/lib/companion/popoutState';
 import { auditFlags } from '../scripts/companion-audit';
+import { isNoopRequest, isTestContactName, messagesInWindow, summarizeMessage } from '../scripts/companion-parity';
 import { decideAppointment, decideStage } from '@/lib/companion/decide';
+import { isNoopOpportunityPatch, minimalOpportunityPatch } from '@/lib/companion/patch';
 import { MOVE_TO_KEY, type ResolvedOutcome, type StageRef } from '@/lib/companion/outcomes';
 
 const STAGES: StageRef[] = [
@@ -43,25 +45,40 @@ beforeAll(async () => {
 
 describe('item 2 — decisions from the live state (pure)', () => {
   it('decideStage: a real move sends; the same stage AND status skips "already in"; a status-only change sends only the status', () => {
-    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: true, body: { pipelineId: 'p1', pipelineStageId: 's_rbooked' }, stageChange: true, statusChange: false, backward: false, summary: 'Stage Consult Booked → Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: true, body: { pipelineStageId: 's_rbooked' }, stageChange: true, statusChange: false, backward: false, summary: 'Stage Consult Booked → Pre-Roadmap Booked' });
     // Bridget: the live stage is already the target → nothing to send, whatever the mirror believed.
-    expect(decideStage({ live: { id: 'o1', stageId: 's_rbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already in Pre-Roadmap Booked', backward: false, summary: 'Stage — Pre-Roadmap Booked' });
-    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ key: 'consult_not_fit', toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: true, body: { pipelineId: 'p1', status: 'lost' }, stageChange: false, statusChange: true, summary: 'Opportunity open → lost' });
-    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'lost' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already lost' });
-    expect(decideStage({ live: { id: 'o1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'open' }), stages: STAGES })).toMatchObject({ send: false, reason: 'stage unchanged' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_rbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already in Pre-Roadmap Booked', backward: false, summary: 'Stage — Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ key: 'consult_not_fit', toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: true, body: { status: 'lost' }, stageChange: false, statusChange: true, summary: 'Opportunity open → lost' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_cbooked', status: 'lost' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'lost' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already lost' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({ toStage: null, stageRole: null, opportunityStatus: 'open' }), stages: STAGES })).toMatchObject({ send: false, reason: 'stage unchanged' });
     expect(decideStage({ live: null, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'no opportunity in [new] Application Pipeline', backward: false, summary: 'Stage — skipped' });
     expect(decideStage({ live: null, pipeline: null, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: false, reason: 'no followed pipeline' });
   });
 
   it('decideStage: a mapped outcome never moves backward; Move to… may, and is marked; unknown positions are not judged', () => {
-    expect(decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already past Pre-Roadmap Booked (in Enrolled)', backward: false, summary: 'Stage — Enrolled' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toEqual({ send: false, reason: 'already past Pre-Roadmap Booked (in Enrolled)', backward: false, summary: 'Stage — Enrolled' });
     // Enrolled → Enrolled + won with the deal already won: nothing to send either.
-    expect(decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: 'roadmap_enrolled', toStage: by('s_enrolled'), stageRole: 'enrolled', opportunityStatus: 'won' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already in Enrolled' });
-    const back = decideStage({ live: { id: 'o1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: MOVE_TO_KEY, label: 'Move to Consult Booked', toStage: by('s_cbooked'), stageRole: 'consult_booked', opportunityStatus: null }), stages: STAGES });
-    expect(back).toMatchObject({ send: true, body: { pipelineId: 'p1', pipelineStageId: 's_cbooked' }, backward: true });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: 'roadmap_enrolled', toStage: by('s_enrolled'), stageRole: 'enrolled', opportunityStatus: 'won' }), stages: STAGES })).toMatchObject({ send: false, reason: 'already in Enrolled' });
+    const back = decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_enrolled', status: 'won' }, pipeline: PIPE, resolved: outcome({ key: MOVE_TO_KEY, label: 'Move to Consult Booked', toStage: by('s_cbooked'), stageRole: 'consult_booked', opportunityStatus: null }), stages: STAGES });
+    expect(back).toMatchObject({ send: true, body: { pipelineStageId: 's_cbooked' }, backward: true });
     // A live stage with no known position (or outside the map) cannot be "past" anything: the move is sent.
-    expect(decideStage({ live: { id: 'o1', stageId: 's_nopos', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, backward: false, summary: 'Stage Parked → Pre-Roadmap Booked' });
-    expect(decideStage({ live: { id: 'o1', stageId: 'gone', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, summary: 'Stage no stage → Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 's_nopos', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, backward: false, summary: 'Stage Parked → Pre-Roadmap Booked' });
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p1', stageId: 'gone', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, summary: 'Stage no stage → Pre-Roadmap Booked' });
+  });
+
+  it('item 6 — the body is minimal, like a manual drag: pipelineId only when the pipeline differs; nothing equal to the live state is sent', () => {
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_rbooked', status: 'open' }, { pipelineId: 'p1', stageId: 's_cbooked', status: 'open' })).toEqual({ pipelineStageId: 's_rbooked' });
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_rbooked', status: 'open' }, { pipelineId: 'p1', stageId: 's_rbooked', status: 'open' })).toEqual({}); // Bridget's shape → empty → never sent
+    expect(isNoopOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_rbooked' }, { pipelineId: 'p1', stageId: 's_rbooked', status: 'open' })).toBe(true);
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', status: 'lost' }, { pipelineId: 'p1', stageId: 's_cbooked', status: 'open' })).toEqual({ status: 'lost' });
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_enrolled', status: 'won' }, { pipelineId: 'p1', stageId: 's_rbooked', status: 'open' })).toEqual({ pipelineStageId: 's_enrolled', status: 'won' });
+    // The opportunity sits in another pipeline → pipelineId travels with the stage; a pipeline id alone is nothing.
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_rbooked' }, { pipelineId: 'p_other', stageId: 's_x', status: 'open' })).toEqual({ pipelineId: 'p1', pipelineStageId: 's_rbooked' });
+    expect(minimalOpportunityPatch({ pipelineId: 'p1' }, { pipelineId: 'p_other', stageId: 's_x', status: 'open' })).toEqual({});
+    // An unknown live pipeline keeps the id as given (never guessed).
+    expect(minimalOpportunityPatch({ pipelineId: 'p1', pipelineStageId: 's_rbooked' }, { pipelineId: null, stageId: 's_cbooked', status: 'open' })).toEqual({ pipelineId: 'p1', pipelineStageId: 's_rbooked' });
+    // decideStage builds that body: the followed pipeline is the live one → no pipelineId.
+    expect(decideStage({ live: { id: 'o1', pipelineId: 'p_other', stageId: 's_cbooked', status: 'open' }, pipeline: PIPE, resolved: outcome({}), stages: STAGES })).toMatchObject({ send: true, body: { pipelineId: 'p1', pipelineStageId: 's_rbooked' } });
   });
 
   it('decideAppointment: sends only when the live status differs; leave / no call / already-there skip with the reason', () => {
@@ -104,6 +121,31 @@ describe('item 4 — the audit flags (pure)', () => {
     expect(skipped).toEqual([]); // what stage 5 now writes for Bridget's situation
     const pending = auditFlags({ outcomeKey: 'roadmap_reschedule', state: 'failed', before: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'confirmed' }, after: { stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'cancelled' }, steps: { appointment: { status: 'pending', request: { method: 'PUT', path: '/calendars/events/appointments/e5', body: { appointmentStatus: 'cancelled' } }, httpStatus: null, body: null, error: null, reason: null, at: null } } }, positions);
     expect(pending.map((f) => [f.kind, f.sent])).toEqual([['appointment_cancelled', false]]);
+  });
+});
+
+describe('item 6 — the parity script\'s pure parts', () => {
+  it('only a contact named test; a no-op request is the Bridget shape; outbound messages inside the window, summarised', () => {
+    expect(isTestContactName('Jake Test')).toBe(true);
+    expect(isTestContactName('TESTING account')).toBe(true);
+    expect(isTestContactName('Bridget Voigt')).toBe(false);
+    expect(isTestContactName(null)).toBe(false);
+    const live = { pipelineId: 'p1', stageId: 's_rbooked', status: 'open', appointmentStatus: 'confirmed' };
+    expect(isNoopRequest('stage', { method: 'PUT', path: '/opportunities/o', body: { pipelineStageId: 's_rbooked' } }, live)).toBe(true);
+    expect(isNoopRequest('stage', { method: 'PUT', path: '/opportunities/o', body: { pipelineStageId: 's_enrolled' } }, live)).toBe(false);
+    expect(isNoopRequest('appointment', { method: 'PUT', path: '/calendars/events/appointments/e', body: { appointmentStatus: 'confirmed' } }, live)).toBe(true);
+    expect(isNoopRequest('appointment', { method: 'PUT', path: '/calendars/events/appointments/e', body: { appointmentStatus: 'showed' } }, live)).toBe(false);
+    expect(isNoopRequest('note', { method: 'POST', path: '/contacts/c/notes', body: { body: 'x' } }, live)).toBe(false);
+    const msgs = [
+      { id: 'm1', direction: 'outbound', messageType: 'TYPE_EMAIL', dateAdded: '2026-10-30T18:28:10.000Z', subject: '(Watch This) Before Your Consult!', body: 'Hi…', source: 'workflow', meta: { workflowId: 'wf-1' } },
+      { id: 'm2', direction: 'outbound', messageType: 'TYPE_SMS', dateAdded: '2026-10-30T18:28:12.000Z', body: 'Confirming your consult\nsecond line' },
+      { id: 'm3', direction: 'inbound', messageType: 'TYPE_SMS', dateAdded: '2026-10-30T18:28:30.000Z', body: 'thanks' },
+      { id: 'm4', direction: 'outbound', messageType: 'TYPE_SMS', dateAdded: '2026-10-30T17:00:00.000Z', body: 'earlier' },
+    ];
+    const inWindow = messagesInWindow(msgs, Date.parse('2026-10-30T18:27:39Z'), Date.parse('2026-10-30T18:29:09Z'));
+    expect(inWindow.map((m) => m.id)).toEqual(['m1', 'm2']);
+    expect(summarizeMessage(msgs[0], 'America/Edmonton')).toBe('12:28:10 PM · email · (Watch This) Before Your Consult! · source workflow · meta.workflowId="wf-1"');
+    expect(summarizeMessage(msgs[1], 'America/Edmonton')).toBe('12:28:12 PM · sms · Confirming your consult');
   });
 });
 

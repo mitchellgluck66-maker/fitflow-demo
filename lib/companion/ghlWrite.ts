@@ -23,6 +23,7 @@ import { GHL_BASE_URL, GHL_API_VERSION, getGhlConfig, maskToken, type GhlApiFami
 import { GhlAppointmentStatusSchema, GhlOpportunityStatusSchema, GhlPipelinesResponseSchema, type GhlAppointmentStatus, type GhlOpportunityStatus } from '../ghl/schemas';
 import { getSetting } from '../settings';
 import { COMPANION_SETTING_KEYS } from './config';
+import { minimalOpportunityPatch, type OpportunityLiveState, type OpportunityPatchTarget } from './patch';
 
 export type WriteMethod = 'PUT' | 'POST';
 
@@ -71,15 +72,19 @@ export interface WriteRequest {
 }
 
 export interface WriteResult {
-  status: 'ok' | 'failed' | 'dry_run';
+  /** `skipped` (stage 5, item 6): the body equalled the live state — refused before any I/O, `reason` = "no change". */
+  status: 'ok' | 'failed' | 'dry_run' | 'skipped';
   name: AllowedWrite['name'];
   httpStatus: number | null;
   /** The response text, ≤ 2 KB (never the token). */
   body: string | null;
   error?: string;
+  reason?: string;
   request: WriteRequest;
   at: string;
 }
+
+export const NO_CHANGE_REASON = 'no change';
 
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -159,21 +164,32 @@ export async function companionWrite(req: WriteRequest, opts: { dryRun: boolean 
 
 const IdSchema = z.string().regex(new RegExp(`^${ID}$`), 'a GoHighLevel id');
 const OpportunityPatchSchema = z
-  .object({ pipelineId: IdSchema, pipelineStageId: IdSchema.optional(), status: GhlOpportunityStatusSchema.optional() })
+  .object({ pipelineId: IdSchema.optional(), pipelineStageId: IdSchema.optional(), status: GhlOpportunityStatusSchema.optional() })
   .refine((p) => p.pipelineStageId !== undefined || p.status !== undefined, { message: 'nothing to change' });
 
-/** PUT /opportunities/{id} — stage and/or status (GHL requires pipelineId in the body). */
-export async function updateOpportunity(id: string, patch: { pipelineId: string; pipelineStageId?: string; status?: GhlOpportunityStatus }, opts: { dryRun: boolean }): Promise<WriteResult> {
-  const oppId = IdSchema.parse(id);
-  const body = OpportunityPatchSchema.parse(patch);
-  return companionWrite({ method: 'PUT', path: `/opportunities/${oppId}`, body }, opts);
+function skippedWrite(name: AllowedWrite['name'], request: WriteRequest): WriteResult {
+  return { status: 'skipped', name, httpStatus: null, body: null, reason: NO_CHANGE_REASON, request, at: new Date().toISOString() };
 }
 
-/** PUT /calendars/events/appointments/{eventId} — the appointment status (GHL's enum, lowercase, `noshow` one word). */
-export async function updateAppointmentStatus(eventId: string, status: GhlAppointmentStatus, opts: { dryRun: boolean }): Promise<WriteResult> {
+/**
+ * PUT /opportunities/{id} — the MINIMAL body (stage 5, item 6): `pipelineStageId` and/or `status`, `pipelineId` only
+ * when the opportunity's pipeline differs. With `live` given, fields equal to the live state are dropped and a body
+ * left empty is refused BEFORE any I/O as `skipped` / "no change" — a manual drag never re-saves the current stage.
+ */
+export async function updateOpportunity(id: string, patch: OpportunityPatchTarget, opts: { dryRun: boolean; live?: OpportunityLiveState | null }): Promise<WriteResult> {
+  const oppId = IdSchema.parse(id);
+  const target = opts.live ? minimalOpportunityPatch(patch, opts.live) : patch;
+  if (target.pipelineStageId === undefined && target.status === undefined) return skippedWrite('update_opportunity', { method: 'PUT', path: `/opportunities/${oppId}`, body: { ...patch } });
+  const body = OpportunityPatchSchema.parse(target);
+  return companionWrite({ method: 'PUT', path: `/opportunities/${oppId}`, body }, { dryRun: opts.dryRun });
+}
+
+/** PUT /calendars/events/appointments/{eventId} — the appointment status (GHL's enum, lowercase, `noshow` one word). With `live` equal to the status, refused before I/O as "no change". */
+export async function updateAppointmentStatus(eventId: string, status: GhlAppointmentStatus, opts: { dryRun: boolean; live?: string | null }): Promise<WriteResult> {
   const id = IdSchema.parse(eventId);
   const appointmentStatus = GhlAppointmentStatusSchema.parse(status);
-  return companionWrite({ method: 'PUT', path: `/calendars/events/appointments/${id}`, body: { appointmentStatus } }, opts);
+  if (opts.live !== undefined && opts.live !== null && opts.live === appointmentStatus) return skippedWrite('update_appointment_status', { method: 'PUT', path: `/calendars/events/appointments/${id}`, body: { appointmentStatus } });
+  return companionWrite({ method: 'PUT', path: `/calendars/events/appointments/${id}`, body: { appointmentStatus } }, { dryRun: opts.dryRun });
 }
 
 /** POST /contacts/{contactId}/notes — the audit note, attributed to the GHL user when the login carries one. */

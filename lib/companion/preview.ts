@@ -49,7 +49,7 @@ function plan(dryRun: boolean): LogPlan {
     expectedStageId: 'demo-stage-consult-booked',
     dryRun,
     steps: [
-      { name: 'stage', request: { method: 'PUT', path: '/opportunities/demo-opp-1', body: { pipelineId: 'demo-pipeline', pipelineStageId: 'demo-stage-roadmap-booked' } }, skipReason: null, summary: 'Stage Consult Booked → Pre-Roadmap Booked' },
+      { name: 'stage', request: { method: 'PUT', path: '/opportunities/demo-opp-1', body: { pipelineStageId: 'demo-stage-roadmap-booked' } }, skipReason: null, summary: 'Stage Consult Booked → Pre-Roadmap Booked' },
       { name: 'appointment', request: { method: 'PUT', path: '/calendars/events/appointments/demo-event-1', body: { appointmentStatus: 'showed' } }, skipReason: null, summary: 'Appointment confirmed → showed' },
       { name: 'note', request: { method: 'POST', path: '/contacts/demo-contact-1/notes', body: { body: '…' } }, skipReason: null, summary: 'Note added to the contact' },
     ],
@@ -102,7 +102,7 @@ function reschedulePlan(): LogPlan {
     noteText: `Onboarding call · Consult · Oct 16, 10:00 AM · Miranda Demo\nOutcome: Reschedule (Consult Booked → Consult Reschedule)\nNote: ${NOTE}`,
     confirmation: 'Move Jordan Rivers from Consult Booked to Consult Reschedule, add this note. This may send GoHighLevel messages to the client.',
     steps: [
-      { name: 'stage', request: { method: 'PUT', path: '/opportunities/demo-opp-1', body: { pipelineId: 'demo-pipeline', pipelineStageId: 'demo-stage-consult-resched' } }, skipReason: null, summary: 'Stage Consult Booked → Consult Reschedule' },
+      { name: 'stage', request: { method: 'PUT', path: '/opportunities/demo-opp-1', body: { pipelineStageId: 'demo-stage-consult-resched' } }, skipReason: null, summary: 'Stage Consult Booked → Consult Reschedule' },
       { name: 'appointment', request: null, skipReason: 'left as is', summary: 'Appointment — left confirmed' },
       p.steps[2],
     ],

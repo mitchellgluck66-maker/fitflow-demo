@@ -146,7 +146,7 @@ describe('plan', () => {
     expect(r.plan.opportunity).toMatchObject({ id: 'opp1', from: { id: 's_cbooked', name: 'Consult Booked' }, to: { id: 's_rbooked', name: 'Pre-Roadmap Booked' }, status: { from: 'open', to: 'open' } });
     expect(r.plan.appointment).toMatchObject({ eventId: 'ev1', from: 'confirmed', to: 'showed' });
     expect(r.plan.steps.map((s) => [s.name, s.skipReason, s.request?.body])).toEqual([
-      ['stage', null, { pipelineId: PIPE, pipelineStageId: 's_rbooked' }],
+      ['stage', null, { pipelineStageId: 's_rbooked' }],
       ['appointment', null, { appointmentStatus: 'showed' }],
       ['note', null, { body: r.plan.noteText, userId: 'ghl-user-m' }],
     ]);
@@ -159,7 +159,7 @@ describe('plan', () => {
     expect(await planLog({ ...base, call: { ...call, callType: 'Roadmap' }, outcome: { key: 'roadmap_showed_objection' } })).toEqual({ ok: false, status: 422, error: 'No stage in [new] Application Pipeline is mapped to the role roadmap_showed — map it in Setup → Pipelines.' });
     // "Not a fit": stage unchanged, opportunity lost → the stage step carries only the status.
     const nf = await planLog({ ...base, outcome: { key: 'consult_not_fit' } });
-    expect(nf.ok && nf.plan.steps[0]).toMatchObject({ name: 'stage', request: { body: { pipelineId: PIPE, status: 'lost' } }, summary: 'Opportunity open → lost' });
+    expect(nf.ok && nf.plan.steps[0]).toMatchObject({ name: 'stage', request: { body: { status: 'lost' } }, summary: 'Opportunity open → lost' });
     expect(nf.ok && nf.plan.confirmation).toBe("Mark Jane Doe's opportunity lost, mark the 10:00 AM Consult showed, add this note. This may send GoHighLevel messages to the client.");
     // "Cancelled": nothing changes on the opportunity → the stage step is skipped.
     const cc = await planLog({ ...base, outcome: { key: 'consult_cancelled' } });
@@ -205,7 +205,7 @@ describe('plan', () => {
     expect(r3.ok && r3.plan.steps[1]).toMatchObject({ name: 'appointment', request: { body: { appointmentStatus: 'showed' } } });
     // Only Move to… goes backward, and the line says so.
     const r4 = await planLog({ ...base, outcome: { move: { stageId: 's_cbooked', appointment: 'leave' } } });
-    expect(r4.ok && r4.plan.steps[0]).toMatchObject({ name: 'stage', request: { body: { pipelineId: PIPE, pipelineStageId: 's_cbooked' } } });
+    expect(r4.ok && r4.plan.steps[0]).toMatchObject({ name: 'stage', request: { body: { pipelineStageId: 's_cbooked' } } });
     expect(r4.ok && r4.plan.backward).toBe(true);
     expect(r4.ok && r4.plan.effectLine).toBe('Moves back to Consult Booked · appointment unchanged · adds note');
     // The appointment unreadable → 502, nothing planned.
@@ -241,7 +241,7 @@ describe('execute', () => {
     expect(a.before).toEqual({ stageId: 's_cbooked', stageName: 'Consult Booked', status: 'open', appointmentStatus: 'confirmed' });
     expect(a.after).toEqual({ stageId: 's_rbooked', stageName: 'Pre-Roadmap Booked', status: 'open', appointmentStatus: 'showed' });
     expect([a.steps.stage?.status, a.steps.appointment?.status, a.steps.note?.status]).toEqual(['ok', 'ok', 'ok']);
-    expect(a.steps.stage).toMatchObject({ httpStatus: 200, body: '{"succeeded":true}', request: { method: 'PUT', path: '/opportunities/opp1', body: { pipelineId: PIPE, pipelineStageId: 's_rbooked' } } });
+    expect(a.steps.stage).toMatchObject({ httpStatus: 200, body: '{"succeeded":true}', request: { method: 'PUT', path: '/opportunities/opp1', body: { pipelineStageId: 's_rbooked' } } });
     // The order on the wire: the re-read (read key), then stage → appointment → note (write key).
     expect(ghl.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual(['GET /opportunities/opp1', 'GET /calendars/events/appointments/ev1', 'PUT /opportunities/opp1', 'PUT /calendars/events/appointments/ev1', 'POST /contacts/c1/notes']);
     expect(ghl.calls[0].auth).toBe(`Bearer ${READ_TOKEN}`);
@@ -368,7 +368,7 @@ describe('execute', () => {
     await resetData();
     ghl.calls = [];
     const back = await executeLog({ ...base, outcome: { move: { stageId: 's_cbooked', appointment: 'leave' } }, requestId: rid(), expectedStageId: 's_enrolled' });
-    expect(back.ok && back.action.steps.stage).toMatchObject({ status: 'ok', request: { body: { pipelineId: PIPE, pipelineStageId: 's_cbooked' } } });
+    expect(back.ok && back.action.steps.stage).toMatchObject({ status: 'ok', request: { body: { pipelineStageId: 's_cbooked' } } });
     expect(back.ok && back.action.steps.appointment).toMatchObject({ status: 'skipped', reason: 'left as is' });
   });
 
@@ -432,7 +432,7 @@ describe('execute', () => {
     expect(u.action.undoneBy).toBe('Miranda');
     expect(ghl.calls.map((c) => [`${c.method} ${new URL(c.url).pathname}`, c.body])).toEqual([
       ['PUT /calendars/events/appointments/ev1', { appointmentStatus: 'confirmed' }],
-      ['PUT /opportunities/opp1', { pipelineId: PIPE, pipelineStageId: 's_cbooked', status: 'open' }],
+      ['PUT /opportunities/opp1', { pipelineStageId: 's_cbooked' }], // minimal (item 6): the status never changed, so it is not re-sent
       ['POST /contacts/c1/notes', { body: `Undone by Miranda — Showed, roadmap booked logged ${now.toISOString()} was reversed.`, userId: 'ghl-user-m' }],
     ]);
     expect([u.action.undoSteps?.appointment?.status, u.action.undoSteps?.stage?.status, u.action.undoSteps?.note?.status]).toEqual(['ok', 'ok', 'ok']);
@@ -475,7 +475,7 @@ describe('execute', () => {
     if (!r.ok) return;
     expect(r.action.dryRun).toBe(true);
     expect([r.action.steps.stage?.status, r.action.steps.appointment?.status, r.action.steps.note?.status]).toEqual(['dry_run', 'dry_run', 'dry_run']);
-    expect(r.action.steps.stage?.request).toEqual({ method: 'PUT', path: '/opportunities/opp1', body: { pipelineId: PIPE, pipelineStageId: 's_enrolled', status: 'won' } });
+    expect(r.action.steps.stage?.request).toEqual({ method: 'PUT', path: '/opportunities/opp1', body: { pipelineStageId: 's_enrolled', status: 'won' } });
     expect(writes()).toEqual([]);
     expect(ghl.calls.map((c) => c.method)).toEqual(['GET', 'GET']); // the live reads only (opportunity, appointment)
     expect((await db.select().from(contacts).where(eq(contacts.ghlContactId, 'c1')))[0].stageId).toBe('s_cbooked');

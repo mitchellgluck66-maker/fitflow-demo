@@ -131,10 +131,34 @@ describe('companionWrite (own key, own transport)', () => {
 
   it('the typed builders validate their input before any I/O', async () => {
     await expect(updateAppointmentStatus('ev1', 'no-show' as never, { dryRun: false })).rejects.toThrow();
-    await expect(updateOpportunity('opp1', { pipelineId: 'p' }, { dryRun: false })).rejects.toThrow(/nothing to change/);
+    // A pipeline id alone changes nothing: refused before I/O as "no change" (item 6), never a request.
+    expect(await updateOpportunity('opp1', { pipelineId: 'p' }, { dryRun: false })).toMatchObject({ status: 'skipped', reason: 'no change', httpStatus: null });
     await expect(updateOpportunity('opp 1', { pipelineId: 'p', status: 'won' }, { dryRun: false })).rejects.toThrow();
     await expect(addContactNote('c1', '', null, { dryRun: false })).rejects.toThrow();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('item 6 — the minimal body passes; a body equal to the live state is refused before it is sent as "no change"', async () => {
+    fetchSpy.mockResolvedValue(new Response('{"succeded":true}', { status: 200 }));
+    // ONLY pipelineStageId — what a manual drag amounts to.
+    const r = await updateOpportunity('opp1', { pipelineStageId: 'stage2' }, { dryRun: false, live: { pipelineId: 'pipe1', stageId: 'stage1', status: 'open' } });
+    expect(r.status).toBe('ok');
+    expect((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body).toBe(JSON.stringify({ pipelineStageId: 'stage2' }));
+    // Fields equal to the live state are dropped: the pipeline id of the pipeline it is already in, the status it already has.
+    await updateOpportunity('opp1', { pipelineId: 'pipe1', pipelineStageId: 'stage2', status: 'open' }, { dryRun: false, live: { pipelineId: 'pipe1', stageId: 'stage1', status: 'open' } });
+    expect((fetchSpy.mock.calls[1] as [string, RequestInit])[1].body).toBe(JSON.stringify({ pipelineStageId: 'stage2' }));
+    // Another pipeline → pipelineId travels with the stage.
+    await updateOpportunity('opp1', { pipelineId: 'pipe1', pipelineStageId: 'stage2' }, { dryRun: false, live: { pipelineId: 'pipe0', stageId: 'stage1', status: 'open' } });
+    expect((fetchSpy.mock.calls[2] as [string, RequestInit])[1].body).toBe(JSON.stringify({ pipelineId: 'pipe1', pipelineStageId: 'stage2' }));
+    // Bridget's body — the stage she is already in — never reaches the transport.
+    const noop = await updateOpportunity('opp1', { pipelineId: 'pipe1', pipelineStageId: 'stage2', status: 'open' }, { dryRun: false, live: { pipelineId: 'pipe1', stageId: 'stage2', status: 'open' } });
+    expect(noop).toMatchObject({ status: 'skipped', reason: 'no change', httpStatus: null, request: { method: 'PUT', path: '/opportunities/opp1' } });
+    const sameAppt = await updateAppointmentStatus('ev1', 'showed', { dryRun: false, live: 'showed' });
+    expect(sameAppt).toMatchObject({ status: 'skipped', reason: 'no change' });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Without a live state the builder sends what it is given (the undo of a row that predates item 6 still works).
+    await updateAppointmentStatus('ev1', 'showed', { dryRun: false, live: null });
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
   it('dry run: the request is returned, nothing is sent, no key is needed', async () => {
